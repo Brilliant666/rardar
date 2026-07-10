@@ -737,6 +737,7 @@ input:focus-visible {
 }
 
 .category-pill,
+.heat-pill,
 .analysis-pill,
 .action-tag {
   padding: 6px 9px;
@@ -747,6 +748,18 @@ input:focus-visible {
 
 .category-pill {
   background: #ecefe8;
+}
+
+.heat-pill {
+  color: #8a4b08;
+  border-color: rgb(197 112 19 / 28%);
+  background: #fff8e8;
+}
+
+.heat-pill.long_term {
+  color: #17603a;
+  border-color: rgb(23 96 58 / 25%);
+  background: #edf8f1;
 }
 
 .analysis-pill {
@@ -1225,6 +1238,12 @@ input:focus-visible {
   font-size: 12px;
 }
 
+.candidate-row > span small {
+  display: block;
+  margin-top: 6px;
+  font-size: 10px;
+}
+
 .candidate-row > b {
   font-size: 21px;
 }
@@ -1337,7 +1356,7 @@ input:focus-visible {
 
 .detail-score-panel {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border: 1px solid var(--line);
 }
 
@@ -1354,7 +1373,7 @@ input:focus-visible {
 }
 
 .detail-score-panel strong {
-  font-size: 54px;
+  font-size: clamp(40px, 4vw, 54px);
   letter-spacing: -0.07em;
 }
 
@@ -1620,6 +1639,16 @@ input:focus-visible {
   .manifesto-grid,
   .search-principles {
     grid-template-columns: 1fr;
+  }
+
+  .detail-score-panel {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .detail-score-panel > div:nth-child(3) {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 
   .hero-metrics {

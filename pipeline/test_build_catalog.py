@@ -22,6 +22,30 @@ def repository(repo: str, stars: int, created_at: str, description: str = "AI de
 
 
 class BuildCatalogTests(unittest.TestCase):
+    def test_daily_five_balances_recent_momentum_and_long_term_heat(self) -> None:
+        fast = [
+            repository(f"demo/fast-{index}", 2_000 + index, "2026-07-01T00:00:00Z")
+            for index in range(5)
+        ]
+        enduring = [
+            repository("demo/enduring-one", 120_000, "2018-01-01T00:00:00Z"),
+            repository("demo/enduring-two", 80_000, "2020-01-01T00:00:00Z"),
+        ]
+
+        catalog = build_catalog(
+            {
+                "captured_at": "2026-07-10T12:00:00Z",
+                "count": len(fast) + len(enduring),
+                "repositories": [*fast, *enduring],
+            }
+        )
+        daily = catalog["projects"][:5]
+
+        self.assertEqual(sum(item["heatTrack"] == "long_term" for item in daily), 2)
+        self.assertEqual(sum(item["heatTrack"] == "recent_momentum" for item in daily), 3)
+        self.assertEqual(catalog["dailyTrackCounts"], {"recentMomentum": 3, "longTerm": 2})
+        self.assertTrue(all(item["enduranceScore"] >= 60 for item in daily if item["heatTrack"] == "long_term"))
+
     def test_static_license_hint_is_disclosed_without_overstating_reuse_safety(self) -> None:
         item = repository("demo/license-hint", 900, "2026-07-07T12:00:00Z")
         item["license"] = None

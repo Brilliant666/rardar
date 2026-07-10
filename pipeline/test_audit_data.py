@@ -14,15 +14,89 @@ def write_json(path: Path, payload: dict[str, object]) -> None:
 
 
 class AuditDataTests(unittest.TestCase):
+    def test_verifies_exact_observed_growth_and_heat_tracks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            previous_at = "2026-07-09T12:00:00+00:00"
+            captured = "2026-07-10T12:00:00+00:00"
+            previous = {
+                "captured_at": previous_at,
+                "count": 1,
+                "repositories": [{"repo": "demo/tool", "stars": 100}],
+            }
+            current = {
+                "captured_at": captured,
+                "count": 1,
+                "repositories": [{"repo": "demo/tool", "stars": 120}],
+            }
+            project = {
+                "repo": "demo/tool",
+                "slug": "demo--tool",
+                "stars": 120,
+                "growthKind": "observed",
+                "growthValue": 20,
+                "momentumScore": 80,
+                "enduranceScore": 90,
+                "heatTrack": "long_term",
+                "heatLabel": "长期高热 · 结构代理",
+                "evidence": [{"href": "https://github.com/demo/tool"}],
+            }
+            catalog = {
+                "capturedAt": captured,
+                "sourceCount": 1,
+                "projectCount": 1,
+                "previousCapturedAt": previous_at,
+                "dailyTrackCounts": {"recentMomentum": 0, "longTerm": 1},
+                "projects": [project],
+            }
+            signals = {
+                "capturedAt": captured,
+                "windowHours": 48,
+                "signalCount": 1,
+                "healthySourceCount": 1,
+                "failedSourceCount": 0,
+                "sourceStatus": [
+                    {"id": "official", "url": "https://example.com/feed", "state": "healthy"}
+                ],
+                "signals": [
+                    {
+                        "id": "signal-1",
+                        "url": "https://example.com/news",
+                        "publishedAt": captured,
+                    }
+                ],
+            }
+            queue = {
+                "generatedAt": captured,
+                "pendingCount": 0,
+                "projectPendingCount": 0,
+                "signalPendingCount": 0,
+                "items": [],
+            }
+            write_json(root / "snapshots/history/previous.json", previous)
+            write_json(root / "snapshots/latest.json", current)
+            write_json(root / "catalog/latest.json", catalog)
+            write_json(root / "signals/latest.json", signals)
+            write_json(root / "queues/codex.json", queue)
+
+            healthy = audit_data(root)
+            project["growthValue"] = 19
+            write_json(root / "catalog/latest.json", catalog)
+            corrupted = audit_data(root)
+
+        self.assertEqual(healthy["status"], "healthy")
+        self.assertIn("observed_growth_mismatch", {item["code"] for item in corrupted["issues"]})
+
     def test_accepts_consistent_first_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             captured = "2026-07-10T12:00:00+00:00"
-            repository = {"repo": "demo/tool"}
+            repository = {"repo": "demo/tool", "stars": 100}
             project = {
                 "repo": "demo/tool",
                 "slug": "demo--tool",
                 "growthKind": "velocity_proxy",
+                "stars": 100,
                 "evidence": [{"href": "https://github.com/demo/tool"}],
             }
             signal = {

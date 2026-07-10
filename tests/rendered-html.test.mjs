@@ -49,11 +49,14 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(page, /今天真正值得看的/);
   assert.match(page, /任务侦察/);
   assert.match(page, /Daily Five/);
+  assert.match(page, /长期高热/);
   assert.match(page, /DecisionMetrics/);
   assert.match(page, /SignalDigest/);
   assert.match(page, /PersonalizedDailyList/);
   assert.match(data, /catalogJson/);
   assert.match(data, /taskTerms/);
+  assert.match(data, /enduranceScore/);
+  assert.match(data, /dailyTrackCounts/);
   assert.match(data, /dailyProjects = projects\.slice\(0, 5\)/);
   assert.doesNotMatch(data, /starsToday/);
   assert.match(metricsRoute, /effective_decisions/);
@@ -72,6 +75,7 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(dailyList, /rardar:feedback|feedbackEventName/);
   assert.match(personalization, /降低重复曝光/);
   assert.match(personalization, /globalScore \* 0\.58/);
+  assert.match(personalization, /balanceHeatTracks/);
   assert.match(schema, /decisionEvents/);
   assert.match(ensure, /schemaReady/);
   assert.match(signals, /signalJson/);

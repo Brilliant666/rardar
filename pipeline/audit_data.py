@@ -115,6 +115,77 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     _add_if(issues, len(project_repositories) != len(set(project_repositories)) or "" in project_repositories, "duplicate_catalog_repository", "catalog repositories must be non-empty and unique")
     _add_if(issues, len(project_slugs) != len(set(project_slugs)) or "" in project_slugs, "duplicate_catalog_slug", "catalog slugs must be non-empty and unique")
     _add_if(issues, not set(project_repositories).issubset(set(repository_names)), "catalog_repository_missing_from_snapshot", "catalog contains a repository absent from the snapshot")
+    repository_by_name = {
+        str(item.get("repo")): item
+        for item in repositories
+        if isinstance(item, dict) and item.get("repo")
+    }
+    project_star_mismatches = sum(
+        1
+        for project in projects
+        if isinstance(project, dict)
+        and (
+            not (source := repository_by_name.get(str(project.get("repo") or "")))
+            or _integer(project.get("stars")) is None
+            or _integer(source.get("stars")) is None
+            or _integer(project.get("stars")) != _integer(source.get("stars"))
+        )
+    )
+    _add_if(
+        issues,
+        project_star_mismatches > 0,
+        "catalog_star_mismatch",
+        f"{project_star_mismatches} catalog star values differ from the current snapshot",
+    )
+
+    track_metadata_present = "dailyTrackCounts" in catalog or any(
+        isinstance(item, dict) and "heatTrack" in item for item in projects
+    )
+    if track_metadata_present:
+        invalid_track_rows = sum(
+            1
+            for item in projects
+            if not isinstance(item, dict)
+            or item.get("heatTrack") not in {"recent_momentum", "long_term"}
+            or not isinstance(item.get("heatLabel"), str)
+            or not item.get("heatLabel")
+            or _integer(item.get("momentumScore")) not in range(101)
+            or _integer(item.get("enduranceScore")) not in range(101)
+        )
+        _add_if(issues, invalid_track_rows > 0, "invalid_heat_track", f"{invalid_track_rows} projects have invalid heat-track metadata")
+        daily = [item for item in projects[:5] if isinstance(item, dict)]
+        actual_long_term = sum(item.get("heatTrack") == "long_term" for item in daily)
+        actual_recent_momentum = sum(item.get("heatTrack") == "recent_momentum" for item in daily)
+        declared_tracks = catalog.get("dailyTrackCounts")
+        track_counts_match = (
+            isinstance(declared_tracks, dict)
+            and _integer(declared_tracks.get("longTerm")) == actual_long_term
+            and _integer(declared_tracks.get("recentMomentum")) == actual_recent_momentum
+            and actual_long_term + actual_recent_momentum == len(daily)
+        )
+        _add_if(issues, not track_counts_match, "daily_track_count_mismatch", "dailyTrackCounts differs from the Daily Five")
+        eligible_long_term = sum(
+            item.get("heatTrack") == "long_term"
+            and _integer(item.get("globalScore")) is not None
+            and int(item["globalScore"]) >= 60
+            and item.get("recommendation") != "观望"
+            for item in projects
+            if isinstance(item, dict)
+        )
+        available_recent_momentum = sum(
+            item.get("heatTrack") == "recent_momentum"
+            for item in projects
+            if isinstance(item, dict)
+        )
+        _add_if(
+            issues,
+            len(daily) == 5
+            and eligible_long_term >= 2
+            and available_recent_momentum >= 3
+            and (actual_long_term != 2 or actual_recent_momentum != 3),
+            "daily_track_balance_mismatch",
+            "Daily Five must reserve two long-term and three recent-momentum slots when available",
+        )
 
     invalid_evidence_urls = 0
     for project in projects:
@@ -167,14 +238,56 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
 
     previous_at = _parse_time(catalog.get("previousCapturedAt"))
     history_matches = 0
+    previous_snapshot: dict[str, Any] | None = None
     history_dir = data_dir / "snapshots" / "history"
     if previous_at and history_dir.exists():
         for path in history_dir.glob("*.json"):
             payload = _load(path, issues)
             if _parse_time(payload.get("captured_at")) == previous_at:
                 history_matches += 1
+                previous_snapshot = payload
     _add_if(issues, bool(previous_at and history_matches != 1), "missing_previous_snapshot", "catalog previousCapturedAt must match exactly one history snapshot")
     observed_count = sum(isinstance(item, dict) and item.get("growthKind") == "observed" for item in projects)
+    growth_kind_mismatches = 0
+    growth_value_mismatches = 0
+    if previous_snapshot:
+        previous_by_name = {
+            str(item.get("repo")): item
+            for item in previous_snapshot.get("repositories", [])
+            if isinstance(item, dict) and item.get("repo")
+        }
+        for project in projects:
+            if not isinstance(project, dict):
+                continue
+            repository = str(project.get("repo") or "")
+            current_source = repository_by_name.get(repository)
+            previous_source = previous_by_name.get(repository)
+            if not previous_source:
+                growth_kind_mismatches += project.get("growthKind") == "observed"
+                continue
+            if project.get("growthKind") != "observed":
+                growth_kind_mismatches += 1
+                continue
+            current_stars = _integer((current_source or {}).get("stars"))
+            previous_stars = _integer(previous_source.get("stars"))
+            if current_stars is None or previous_stars is None:
+                growth_value_mismatches += 1
+                continue
+            growth_value_mismatches += _integer(project.get("growthValue")) != current_stars - previous_stars
+    elif observed_count:
+        growth_kind_mismatches = observed_count
+    _add_if(
+        issues,
+        growth_kind_mismatches > 0,
+        "growth_kind_mismatch",
+        f"{growth_kind_mismatches} projects use a growth kind inconsistent with snapshot history",
+    )
+    _add_if(
+        issues,
+        growth_value_mismatches > 0,
+        "observed_growth_mismatch",
+        f"{growth_value_mismatches} observed growth values differ from the exact star delta",
+    )
     _add_if(
         issues,
         bool(previous_at and observed_count == 0),

@@ -52,7 +52,7 @@ export default function Home() {
           <div className="section-heading">
             <span className="section-label">Daily Five</span>
             <h2>今天最值得花时间的 5 条线索</h2>
-            <p>{snapshotNotice}</p>
+            <p>{snapshotNotice}<br />近期动量与长期高热分开评分；默认保留 3 个动量席位和 2 个长期席位，长期项目前期明确标为结构代理。</p>
           </div>
           <PersonalizedDailyList />
         </section>

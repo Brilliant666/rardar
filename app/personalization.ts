@@ -91,6 +91,26 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function balanceHeatTracks<
+  T extends { slug: string; heatTrack: "recent_momentum" | "long_term"; personalizedScore: number },
+>(items: T[]) {
+  const longTerm = items
+    .filter((item) => item.heatTrack === "long_term" && item.personalizedScore >= 60)
+    .slice(0, 2);
+  const recentMomentum = items.filter((item) => item.heatTrack === "recent_momentum").slice(0, 3);
+  const selected = new Set([...longTerm, ...recentMomentum].map((item) => item.slug));
+  if (selected.size < 5) {
+    for (const item of items) {
+      selected.add(item.slug);
+      if (selected.size === 5) break;
+    }
+  }
+  return [
+    ...items.filter((item) => selected.has(item.slug)),
+    ...items.filter((item) => !selected.has(item.slug)),
+  ];
+}
+
 export function rankProjects(
   projects: Project[],
   rawFeedback: ProjectFeedback[],
@@ -172,6 +192,7 @@ export function rankProjects(
 
     return {
       slug: project.slug,
+      heatTrack: project.heatTrack ?? "recent_momentum",
       personalizedScore: round(baseScore + adjustment),
       baseScore: round(baseScore),
       adjustment: round(adjustment),
@@ -184,6 +205,7 @@ export function rankProjects(
     (left, right) =>
       right.personalizedScore - left.personalizedScore || left.originalIndex - right.originalIndex,
   );
+  const balancedRecommendations = balanceHeatTracks(recommendations);
 
   const profile = [...featureScores.values()]
     .sort((left, right) => Math.abs(right.score) - Math.abs(left.score))
@@ -194,7 +216,7 @@ export function rankProjects(
     personalized: true,
     feedbackCount: currentFeedback.size,
     profile,
-    recommendations: recommendations.map((item) => ({
+    recommendations: balancedRecommendations.map((item) => ({
       slug: item.slug,
       personalizedScore: item.personalizedScore,
       baseScore: item.baseScore,

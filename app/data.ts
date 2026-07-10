@@ -20,6 +20,10 @@ export type Project = {
   growthKind: "observed" | "velocity_proxy";
   globalScore: number;
   reuseScore: number;
+  momentumScore?: number;
+  enduranceScore?: number;
+  heatTrack?: "recent_momentum" | "long_term";
+  heatLabel?: string;
   trend: string;
   analysisState: "事实初筛" | "静态分析" | "深度分析" | "画像待复核";
   sourcePushedAt?: string | null;
@@ -44,6 +48,7 @@ export type CatalogSnapshot = {
   projectCount: number;
   deepAnalysisCount: number;
   pendingDeepAnalysis: string[];
+  dailyTrackCounts?: { recentMomentum: number; longTerm: number };
   growthMode: "observed" | "mixed_observation" | "first_observation_proxy";
   notice: string;
   projects: Project[];

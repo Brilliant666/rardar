@@ -21,7 +21,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
         <div className="project-breadcrumb"><Link href="/discover">发现</Link><span>/</span><span>{project.repo}</span></div>
         <header className="project-detail-hero">
           <div>
-            <div className="project-card-topline"><span className="category-pill">{project.category}</span><span className="analysis-pill">{project.analysisState}</span></div>
+            <div className="project-card-topline"><span className="category-pill">{project.category}</span><span className={`heat-pill ${project.heatTrack ?? "recent_momentum"}`}>{project.heatLabel ?? (project.growthKind === "observed" ? "近期动量 · 实际区间" : "近期动量 · 首次代理")}</span><span className="analysis-pill">{project.analysisState}</span></div>
             <TrackedRepositoryLink projectSlug={project.slug} repository={project.repo} />
             <h1>{project.title}</h1>
             <p>{project.description}</p>
@@ -31,6 +31,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
           <div className="detail-score-panel">
             <div><strong>{project.globalScore}</strong><span>全球影响力</span></div>
             <div><strong>{project.reuseScore}</strong><span>复用价值</span></div>
+            <div><strong>{project.enduranceScore ?? "—"}</strong><span>长期热度</span></div>
             <div className="detail-stat"><span>★ {formatNumber(project.stars)}</span><span className={project.growthValue < 0 ? "trend-down" : "trend-up"} title={project.growthLabel}>{project.trend}</span></div>
           </div>
         </header>

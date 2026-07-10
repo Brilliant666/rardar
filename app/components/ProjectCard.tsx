@@ -20,6 +20,9 @@ export function ProjectCard({
           <span className="rank">{String(index + 1).padStart(2, "0")}</span>
         )}
         <span className="category-pill">{project.category}</span>
+        <span className={`heat-pill ${project.heatTrack ?? "recent_momentum"}`}>
+          {project.heatLabel ?? (project.growthKind === "observed" ? "近期动量 · 实际区间" : "近期动量 · 首次代理")}
+        </span>
         <span className="analysis-pill">{project.analysisState}</span>
       </div>
       {rankingReason && (

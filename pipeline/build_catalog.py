@@ -208,7 +208,7 @@ def _score(
     growth: dict[str, Any],
     captured_at: datetime,
     analysis: dict[str, Any] | None,
-) -> tuple[int, int]:
+) -> tuple[int, int, int, int, bool]:
     content = _text(repository)
     stars = int(repository.get("stars") or 0)
     age_days = float(growth["age_days"])
@@ -227,20 +227,34 @@ def _score(
     freshness_score = max(0.0, 12 * (1 - push_age_days / 14))
     relevance_score = min(18, len(matched) * 3)
     discovery_score = min(6, query_count * 1.5)
-    established_score = min(8, math.log10(max(stars, 1)) * 1.8)
     low_actionability_penalty = 12 if any(term in content for term in LOW_ACTIONABILITY_TERMS) else 0
     risk_penalty = 26 if any(term in content for term in RISK_TERMS) else 0
-    global_score = _clamp(
+    momentum_score = _clamp(
         16
         + growth_score
         + newness_score
         + freshness_score
         + relevance_score
         + discovery_score
-        + established_score
         - low_actionability_penalty
         - risk_penalty
     )
+    star_depth_score = min(45, max(0.0, (math.log10(max(stars, 1)) - 3) * 22.5))
+    longevity_score = min(20, max(0.0, math.log2(max(age_days / 30, 1)) * 5.2))
+    maintenance_score = max(0.0, 15 * (1 - push_age_days / 120))
+    ecosystem_score = min(10, math.log10(max(int(repository.get("forks") or 0), 1)) * 2.5)
+    sustained_relevance_score = min(10, len(matched) * 2)
+    endurance_score = _clamp(
+        star_depth_score
+        + longevity_score
+        + maintenance_score
+        + ecosystem_score
+        + sustained_relevance_score
+        - low_actionability_penalty
+        - risk_penalty
+    )
+    long_term_eligible = age_days >= 180 and stars >= 5_000 and push_age_days <= 120
+    global_score = max(momentum_score, round(endurance_score * 0.92))
 
     if analysis:
         indicators = analysis.get("indicators") or {}
@@ -273,6 +287,8 @@ def _score(
         # Keep risky repositories visible for awareness, but never allow viral
         # growth or polished documentation to promote them into the Daily Five.
         global_score = min(global_score, 49)
+        momentum_score = min(momentum_score, 49)
+        endurance_score = min(endurance_score, 35)
         reuse_score = min(reuse_score, 35)
     if repository.get("license") in (None, "NOASSERTION"):
         detected_license = str((analysis or {}).get("license_hint") or "")
@@ -280,7 +296,7 @@ def _score(
         # A static text signature is useful evidence but not equivalent to the
         # repository API declaring a machine-readable license.
         reuse_score = min(reuse_score, 78 if recognized_license else 59)
-    return global_score, reuse_score
+    return global_score, reuse_score, momentum_score, endurance_score, long_term_eligible
 
 
 def _recommendation(global_score: int, reuse_score: int, risk_detected: bool) -> str:
@@ -310,7 +326,12 @@ def _project(
     analysis_payload = analysis
     analysis_current = _analysis_is_current(analysis_payload, repository.get("pushed_at"))
     analysis = analysis_payload if analysis_current else None
-    global_score, reuse_score = _score(repository, growth, captured_at, analysis)
+    global_score, reuse_score, momentum_score, endurance_score, long_term_eligible = _score(
+        repository,
+        growth,
+        captured_at,
+        analysis,
+    )
     content = _text(repository)
     risk_detected = any(term in content for term in RISK_TERMS)
     category = _category(repository)
@@ -330,6 +351,20 @@ def _project(
             f"仓库创建于 {created_label}，当前有 {int(repository.get('stars') or 0):,} Star；"
             f"因尚无第二次快照，当前只把“{growth['label']}”作为起飞线索，不冒充 24 小时增量。"
         )
+    heat_track = "long_term" if long_term_eligible else "recent_momentum"
+    heat_label = (
+        "长期高热 · 结构代理"
+        if long_term_eligible
+        else "近期动量 · 区间上升"
+        if growth["kind"] == "observed" and growth["value"] > 0
+        else "近期动量 · 区间持平"
+        if growth["kind"] == "observed" and growth["value"] == 0
+        else "近期动量 · 区间回落"
+        if growth["kind"] == "observed"
+        else "近期动量 · 首次代理"
+    )
+    if long_term_eligible:
+        why_now += f" 长期热度评分为 {endurance_score}/100，依据总 Star、仓库年龄、近期维护和 Fork 生态计算。"
 
     analysis_state = "事实初筛"
     risk = (
@@ -409,6 +444,10 @@ def _project(
         "growthKind": growth["kind"],
         "globalScore": global_score,
         "reuseScore": reuse_score,
+        "momentumScore": momentum_score,
+        "enduranceScore": endurance_score,
+        "heatTrack": heat_track,
+        "heatLabel": heat_label,
         "trend": growth["trend"],
         "analysisState": analysis_state,
         "sourcePushedAt": repository.get("pushed_at"),
@@ -463,6 +502,40 @@ def _project(
     }
 
 
+def _balanced_project_order(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ranked = sorted(
+        projects,
+        key=lambda item: (item["globalScore"], item["reuseScore"], item["stars"]),
+        reverse=True,
+    )
+    long_term = sorted(
+        (
+            item
+            for item in ranked
+            if item["heatTrack"] == "long_term"
+            and item["globalScore"] >= 60
+            and item["recommendation"] != "观望"
+        ),
+        key=lambda item: (
+            item["enduranceScore"],
+            item["globalScore"],
+            item["reuseScore"],
+            item["stars"],
+        ),
+        reverse=True,
+    )[:2]
+    recent_momentum = [item for item in ranked if item["heatTrack"] == "recent_momentum"][:3]
+    selected_repositories = {item["repo"] for item in [*long_term, *recent_momentum]}
+    if len(selected_repositories) < 5:
+        for item in ranked:
+            selected_repositories.add(item["repo"])
+            if len(selected_repositories) == 5:
+                break
+    daily = [item for item in ranked if item["repo"] in selected_repositories]
+    remaining = [item for item in ranked if item["repo"] not in selected_repositories]
+    return [*daily, *remaining]
+
+
 def build_catalog(
     snapshot: dict[str, Any],
     previous: dict[str, Any] | None = None,
@@ -485,9 +558,10 @@ def build_catalog(
         for repository in snapshot.get("repositories", [])
         if repository.get("repo")
     ]
-    projects.sort(key=lambda item: (item["globalScore"], item["reuseScore"], item["stars"]), reverse=True)
-    bounded = projects[: max(5, min(limit, 100))]
+    bounded = _balanced_project_order(projects)[: max(5, min(limit, 100))]
     observed_count = sum(1 for item in bounded if item["growthKind"] == "observed")
+    daily_count = min(5, len(bounded))
+    daily_long_term_count = sum(1 for item in bounded[:5] if item["heatTrack"] == "long_term")
     deep_analysis_count = sum(1 for item in bounded if item["analysisState"] == "深度分析")
     query_failure_count = int(snapshot.get("failed_query_count") or 0)
     pending_deep_analysis = [
@@ -501,6 +575,10 @@ def build_catalog(
         "projectCount": len(bounded),
         "deepAnalysisCount": deep_analysis_count,
         "pendingDeepAnalysis": pending_deep_analysis,
+        "dailyTrackCounts": {
+            "recentMomentum": daily_count - daily_long_term_count,
+            "longTerm": daily_long_term_count,
+        },
         "growthMode": (
             "observed"
             if observed_count == len(bounded)
@@ -526,6 +604,8 @@ def build_catalog(
                 if query_failure_count
                 else ""
             )
+            + f"每日五项包含 {daily_long_term_count} 个长期高热项目，其余席位用于近期动量项目；"
+            + "长期高热当前是总 Star、仓库年龄、近期维护和 Fork 生态的结构代理，不冒充历史每日排名。"
         ),
         "projects": bounded,
     }
