@@ -76,6 +76,7 @@ test("removes starter-only assets and metadata", async () => {
   assert.match(layout, /og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(packageJson, /local:start/);
+  assert.match(packageJson, /security:audit:prod/);
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
   await access(new URL("../public/og.png", import.meta.url));
   await access(new URL("../drizzle/0000_organic_the_professor.sql", import.meta.url));

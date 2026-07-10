@@ -34,7 +34,10 @@ npm install
 npm run data:refresh
 npm run dev
 npm run build
+npm run security:audit:prod
 ```
+
+`security:audit:prod` 使用 npm 官方漏洞库检查会进入运行环境的依赖；本地构建工具仍应结合完整 `npm audit` 与实际暴露面单独复核。
 
 Windows 上可以直接双击项目根目录的 `打开 Rardar.cmd`。它会启动一个隐藏的本地管理器，同时看护网站和每日刷新任务，并打开本地首页。管理器会在任一子服务异常退出后自动重启它。运行心跳、PID 和日志保存在 Windows 本地应用数据目录，不会因频繁写入而触发网站热更新；每份日志超过 5 MB 后滚动，并保留最近两份历史。
 
