@@ -175,6 +175,10 @@ def run_cycle(
                 "historyCount": audit.get("historyCount", 0),
                 "successfulQueryCount": audit.get("successfulQueryCount"),
                 "failedQueryCount": audit.get("failedQueryCount"),
+                "healthySourceCount": audit.get("healthySourceCount"),
+                "failedSourceCount": audit.get("failedSourceCount"),
+                "analysisFailureCount": audit.get("analysisFailureCount", 0),
+                "staticAnalysisRequiredCount": audit.get("staticAnalysisRequiredCount", 0),
             },
         }
     except Exception as error:

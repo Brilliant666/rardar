@@ -22,6 +22,10 @@ type ServiceStatus = {
     historyCount?: number;
     successfulQueryCount?: number | null;
     failedQueryCount?: number | null;
+    healthySourceCount?: number | null;
+    failedSourceCount?: number | null;
+    analysisFailureCount?: number;
+    staticAnalysisRequiredCount?: number;
   } | null;
 };
 
@@ -104,6 +108,16 @@ export function RuntimeStatus() {
     auditSummary?.successfulQueryCount != null && auditSummary?.failedQueryCount != null
       ? `查询 ${auditSummary.successfulQueryCount}/${auditSummary.successfulQueryCount + auditSummary.failedQueryCount}`
       : null;
+  const sourceCoverage =
+    auditSummary?.healthySourceCount != null && auditSummary?.failedSourceCount != null
+      ? `信源 ${auditSummary.healthySourceCount}/${auditSummary.healthySourceCount + auditSummary.failedSourceCount}`
+      : null;
+  const staticAnalysisStatus = auditSummary?.analysisFailureCount
+    ? `静态扫描失败 ${auditSummary.analysisFailureCount}`
+    : auditSummary?.staticAnalysisRequiredCount
+      ? `待静态扫描 ${auditSummary.staticAnalysisRequiredCount}`
+      : null;
+  const coverageDetail = [queryCoverage, sourceCoverage, staticAnalysisStatus].filter(Boolean).join(" · ");
   const label = refreshing
     ? "刷新中"
     : waitingForRetry
@@ -124,9 +138,9 @@ export function RuntimeStatus() {
       : refreshFailed
         ? `本轮采集未完成 · 下次计划 ${formatTime(scheduler?.nextRunAt)}`
         : auditDegraded
-          ? `数据审计发现 ${scheduler?.dataAuditWarningCount ?? 0} 条警告${queryCoverage ? ` · ${queryCoverage}` : ""} · 下次刷新 ${formatTime(scheduler?.nextRunAt)}`
+          ? `数据审计发现 ${scheduler?.dataAuditWarningCount ?? 0} 条警告${coverageDetail ? ` · ${coverageDetail}` : ""} · 下次刷新 ${formatTime(scheduler?.nextRunAt)}`
           : auditSummary
-            ? `本轮观测 ${auditSummary.observedProjectCount ?? 0} 项 · 净 Star ${formatSigned(auditSummary.observedNetStarChange ?? 0)} · 动量 ${auditSummary.dailyTrackCounts?.recentMomentum ?? 0} / 长期 ${auditSummary.dailyTrackCounts?.longTerm ?? 0}${queryCoverage ? ` · ${queryCoverage}` : ""} · 下次 ${formatTime(scheduler?.nextRunAt)}`
+            ? `本轮观测 ${auditSummary.observedProjectCount ?? 0} 项 · 净 Star ${formatSigned(auditSummary.observedNetStarChange ?? 0)} · 动量 ${auditSummary.dailyTrackCounts?.recentMomentum ?? 0} / 长期 ${auditSummary.dailyTrackCounts?.longTerm ?? 0}${coverageDetail ? ` · ${coverageDetail}` : ""} · 下次 ${formatTime(scheduler?.nextRunAt)}`
             : `下次刷新 ${formatTime(scheduler?.nextRunAt)}`;
 
   return (

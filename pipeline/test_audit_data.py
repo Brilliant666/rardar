@@ -168,6 +168,15 @@ class AuditDataTests(unittest.TestCase):
             write_json(root / "queues/codex.json", queue_payload)
 
             result = audit_data(root)
+            catalog_payload["analysisFailures"] = [
+                {"repository": "demo/tool", "error": "clone timed out"}
+            ]
+            source["state"] = "failed"
+            signals_payload["healthySourceCount"] = 0
+            signals_payload["failedSourceCount"] = 1
+            write_json(root / "catalog/latest.json", catalog_payload)
+            write_json(root / "signals/latest.json", signals_payload)
+            degraded_coverage = audit_data(root)
             failed_query = "topic:productivity stars:>=50 archived:false fork:false"
             snapshot["queries"].append(failed_query)
             snapshot["query_status"].append(
@@ -203,6 +212,10 @@ class AuditDataTests(unittest.TestCase):
         self.assertEqual(result["errorCount"], 0)
         self.assertEqual(result["successfulQueryCount"], 1)
         self.assertEqual(result["failedQueryCount"], 0)
+        self.assertEqual(degraded_coverage["status"], "degraded")
+        degraded_codes = {item["code"] for item in degraded_coverage["issues"]}
+        self.assertIn("partial_static_analysis_failure", degraded_codes)
+        self.assertIn("partial_signal_source_failure", degraded_codes)
         self.assertEqual(partial_query_failure["status"], "degraded")
         self.assertIn(
             "partial_query_failure",

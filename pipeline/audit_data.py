@@ -126,6 +126,36 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     _add_if(issues, len(project_repositories) != len(set(project_repositories)) or "" in project_repositories, "duplicate_catalog_repository", "catalog repositories must be non-empty and unique")
     _add_if(issues, len(project_slugs) != len(set(project_slugs)) or "" in project_slugs, "duplicate_catalog_slug", "catalog slugs must be non-empty and unique")
     _add_if(issues, not set(project_repositories).issubset(set(repository_names)), "catalog_repository_missing_from_snapshot", "catalog contains a repository absent from the snapshot")
+    analysis_failure_value = catalog.get("analysisFailures")
+    analysis_failures = analysis_failure_value if isinstance(analysis_failure_value, list) else []
+    if "analysisFailures" in catalog:
+        _add_if(
+            issues,
+            not isinstance(analysis_failure_value, list),
+            "invalid_analysis_failure_rows",
+            "analysisFailures must be a list",
+        )
+        invalid_analysis_failures = sum(
+            not isinstance(item, dict)
+            or not isinstance(item.get("repository"), str)
+            or not item.get("repository")
+            or not isinstance(item.get("error"), str)
+            or not item.get("error")
+            for item in analysis_failures
+        )
+        _add_if(
+            issues,
+            invalid_analysis_failures > 0,
+            "invalid_analysis_failure_row",
+            f"{invalid_analysis_failures} analysis failure rows are invalid",
+        )
+        _add_if(
+            issues,
+            len(analysis_failures) > 0,
+            "partial_static_analysis_failure",
+            f"read-only static analysis failed for {len(analysis_failures)} repositories",
+            severity="warning",
+        )
     repository_by_name = {
         str(item.get("repo")): item
         for item in repositories
@@ -414,6 +444,13 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     _add_if(issues, len(source_ids) != len(set(source_ids)) or "" in source_ids, "duplicate_source_id", "source IDs must be non-empty and unique")
     _add_if(issues, any(not _is_http_url(value) for value in source_urls), "unsafe_source_url", "source URLs must use HTTP(S) with a host")
     _add_if(issues, healthy_sources + failed_sources != len(source_items), "invalid_source_state", "source state must be healthy or failed")
+    _add_if(
+        issues,
+        failed_sources > 0,
+        "partial_signal_source_failure",
+        f"{failed_sources} technical-signal sources failed",
+        severity="warning",
+    )
 
     queue_ids = [str(item.get("id") or "") for item in queue_items if isinstance(item, dict)]
     project_pending = sum(isinstance(item, dict) and item.get("kind") == "project" for item in queue_items)
@@ -599,6 +636,7 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             isinstance(item, dict) and item.get("analysisState") == "深度分析"
             for item in projects
         ),
+        "analysisFailureCount": len(analysis_failures),
         "growthMode": catalog.get("growthMode"),
         "observedProjectCount": observed_count,
         "positiveGrowthProjectCount": sum(value > 0 for value in observed_values),
@@ -612,6 +650,12 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         "healthySourceCount": healthy_sources,
         "failedSourceCount": failed_sources,
         "queuePendingCount": len(queue_items),
+        "staticAnalysisRequiredCount": sum(
+            isinstance(item, dict)
+            and item.get("kind") == "project"
+            and item.get("evidenceState") == "static_analysis_required"
+            for item in queue_items
+        ),
         "historyCount": len(history_paths),
         "errorCount": error_count,
         "warningCount": warning_count,
