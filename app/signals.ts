@@ -1,5 +1,6 @@
 import signalJson from "../data/signals/latest.json";
 import enrichmentJson from "../data/signals/enrichment.json";
+import codexQueueJson from "../data/queues/codex.json";
 
 export type TechnicalSignal = {
   id: string;
@@ -43,6 +44,15 @@ export type SignalSnapshot = {
   signals: TechnicalSignal[];
 };
 
+export type CodexQueueSnapshot = {
+  generatedAt: string;
+  pendingCount: number;
+  projectPendingCount: number;
+  signalPendingCount: number;
+  completedProjectCount: number;
+  completedSignalCount: number;
+};
+
 type SignalEnrichment = {
   titleZh: string;
   takeawayZh: string;
@@ -64,6 +74,8 @@ export const signalSnapshot = {
   signals,
   topSignals: rawSignals.topSignals.map((signal) => signalById.get(signal.id) ?? signal),
 };
+
+export const codexQueue = codexQueueJson as CodexQueueSnapshot;
 
 export const signalKindLabels: Record<TechnicalSignal["kind"], string> = {
   official: "官方更新",

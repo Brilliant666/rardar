@@ -11,6 +11,7 @@
     "data:build": "python -m pipeline.build_catalog --snapshot data/snapshots/latest.json --analysis-dir data/analysis --enrichment-dir data/enrichment --out data/catalog/latest.json --limit 30",
     "data:refresh": "python -m pipeline.refresh --data-dir data --limit 30 --analyze-top 5",
     "data:signals": "python -m pipeline.collect_signals --out data/signals/latest.json --window-hours 48 --limit 30",
+    "data:queue": "python -m pipeline.codex_queue",
     "data:schedule": "python -m pipeline.scheduler --data-dir data --at 08:00 --timezone Asia/Shanghai --analyze-top 5 --skip-initial",
     "local:start": "python -m pipeline.runtime start",
     "local:stop": "python -m pipeline.runtime stop",

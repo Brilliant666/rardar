@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { signalSnapshot } from "../signals";
+import { codexQueue, signalSnapshot } from "../signals";
 import { SignalCard } from "./SignalCard";
 
 export function SignalDigest() {
@@ -9,7 +9,7 @@ export function SignalDigest() {
         <div>
           <span className="section-label">AI & Tech brief</span>
           <h2>过去 48 小时，真正发生了什么</h2>
-          <p>{signalSnapshot.healthySourceCount} 个健康信源 · {signalSnapshot.signalCount} 条去重动态 · 前 5 条已由本地 Codex 生成中文要点。</p>
+          <p>{signalSnapshot.healthySourceCount} 个健康信源 · {signalSnapshot.signalCount} 条去重动态 · {codexQueue.pendingCount} 条等待本地 Codex 深读。</p>
         </div>
         <Link href="/signals">查看全部动态与信源 →</Link>
       </div>

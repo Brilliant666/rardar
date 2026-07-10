@@ -5,7 +5,7 @@ import test from "node:test";
 const templateRoot = new URL("../", import.meta.url);
 
 test("contains the complete Rardar home experience", async () => {
-  const [page, data, signals, signalsPage, runtimeStatus, metricsRoute, recommendationsRoute, dailyList, personalization, schema, build] = await Promise.all([
+  const [page, data, signals, signalsPage, runtimeStatus, metricsRoute, recommendationsRoute, dailyList, personalization, queue, schema, build] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals.ts", import.meta.url), "utf8"),
@@ -15,6 +15,7 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/api/recommendations/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PersonalizedDailyList.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/personalization.ts", import.meta.url), "utf8"),
+    readFile(new URL("../data/queues/codex.json", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     access(new URL("../dist/server/index.js", import.meta.url)),
   ]);
@@ -42,6 +43,7 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(signalsPage, /RuntimeStatus/);
   assert.match(runtimeStatus, /runtime-status\.json/);
   assert.match(runtimeStatus, /heartbeatLimit/);
+  assert.match(queue, /pendingCount/);
   assert.doesNotMatch(page, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
   assert.equal(build, undefined);
 });

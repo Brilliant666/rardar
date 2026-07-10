@@ -15,6 +15,7 @@ from pipeline.analyze_repository import analyze_remote
 from pipeline.build_catalog import build_catalog
 from pipeline.collect_github import GitHubClient, collect
 from pipeline.collect_signals import HttpClient, collect_signals
+from pipeline.codex_queue import build_codex_queue
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -105,6 +106,7 @@ def refresh(
     )
     catalog["previousCapturedAt"] = previous.get("captured_at") if previous else None
     catalog["analysisFailures"] = failures
+    signals: dict[str, Any] = _read_json(data_dir / "signals" / "latest.json") or {"signals": []}
     if collect_external_signals:
         signals = collect_signals(
             signal_client or HttpClient(os.environ.get("GITHUB_TOKEN")),
@@ -115,6 +117,15 @@ def refresh(
         _write_json(data_dir / "signals" / "latest.json", signals)
         catalog["signalCount"] = signals["signalCount"]
         catalog["healthySignalSourceCount"] = signals["healthySourceCount"]
+    queue = build_codex_queue(
+        catalog,
+        signals,
+        enrichment_dir,
+        data_dir / "signals" / "enrichment.json",
+        now,
+    )
+    _write_json(data_dir / "queues" / "codex.json", queue)
+    catalog["codexPendingCount"] = queue["pendingCount"]
     _write_json(catalog_path, catalog)
     return catalog
 
