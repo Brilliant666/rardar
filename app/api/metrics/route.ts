@@ -24,7 +24,9 @@ const values = ["有用", "无用", "复用", "待确定"] as const;
 export async function GET(request: Request) {
   await ensureDecisionSchema();
   const deviceId = new URL(request.url).searchParams.get("deviceId")?.trim();
-  if (!deviceId) return Response.json({ error: "deviceId is required" }, { status: 400 });
+  if (!deviceId || deviceId.length > 200) {
+    return Response.json({ error: "deviceId is required" }, { status: 400 });
+  }
 
   const currentRows = await getDb()
     .select({ value: feedback.value, count: count() })

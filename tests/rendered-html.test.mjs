@@ -5,12 +5,13 @@ import test from "node:test";
 const templateRoot = new URL("../", import.meta.url);
 
 test("contains the complete Rardar home experience", async () => {
-  const [page, data, signals, signalsPage, runtimeStatus, metricsRoute, actionsRoute, recommendationsRoute, dailyList, projectActions, personalization, queue, schema, build] = await Promise.all([
+  const [page, data, signals, signalsPage, runtimeStatus, feedbackRoute, metricsRoute, actionsRoute, recommendationsRoute, dailyList, projectActions, personalization, queue, schema, ensure, build] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/RuntimeStatus.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/feedback/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/metrics/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/actions/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/recommendations/route.ts", import.meta.url), "utf8"),
@@ -19,6 +20,7 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/personalization.ts", import.meta.url), "utf8"),
     readFile(new URL("../data/queues/codex.json", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/ensure.ts", import.meta.url), "utf8"),
     access(new URL("../dist/server/index.js", import.meta.url)),
   ]);
 
@@ -34,6 +36,7 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(data, /dailyProjects = projects\.slice\(0, 5\)/);
   assert.doesNotMatch(data, /starsToday/);
   assert.match(metricsRoute, /effective_decisions/);
+  assert.match(feedbackRoute, /projectSlugs/);
   assert.match(metricsRoute, /project_actions/);
   assert.match(actionsRoute, /allowedActions/);
   assert.match(projectActions, /确认复用/);
@@ -42,6 +45,7 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(personalization, /降低重复曝光/);
   assert.match(personalization, /globalScore \* 0\.58/);
   assert.match(schema, /decisionEvents/);
+  assert.match(ensure, /schemaReady/);
   assert.match(signals, /signalJson/);
   assert.doesNotMatch(signals, /schedulerJson/);
   assert.match(signalsPage, /sourceStatus/);

@@ -2,15 +2,22 @@ import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ensureDecisionSchema } from "../../../db/ensure";
 import { decisionEvents, feedback } from "../../../db/schema";
+import { projects } from "../../data";
 
 const allowedValues = new Set(["有用", "无用", "复用", "待确定"]);
+const projectSlugs = new Set(projects.map((project) => project.slug));
 
 export async function GET(request: Request) {
   await ensureDecisionSchema();
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("deviceId")?.trim();
   const projectSlug = url.searchParams.get("projectSlug")?.trim();
-  if (!deviceId) return Response.json({ error: "deviceId is required" }, { status: 400 });
+  if (!deviceId || deviceId.length > 200) {
+    return Response.json({ error: "deviceId is required" }, { status: 400 });
+  }
+  if (projectSlug && !projectSlugs.has(projectSlug)) {
+    return Response.json({ error: "unknown project" }, { status: 404 });
+  }
 
   const db = getDb();
   if (projectSlug) {
@@ -29,7 +36,14 @@ export async function POST(request: Request) {
   const projectSlug = payload.projectSlug?.trim();
   const value = payload.value?.trim();
 
-  if (!deviceId || !projectSlug || !value || !allowedValues.has(value)) {
+  if (
+    !deviceId ||
+    deviceId.length > 200 ||
+    !projectSlug ||
+    !projectSlugs.has(projectSlug) ||
+    !value ||
+    !allowedValues.has(value)
+  ) {
     return Response.json({ error: "invalid feedback" }, { status: 400 });
   }
 

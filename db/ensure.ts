@@ -1,7 +1,10 @@
 import { env } from "cloudflare:workers";
 
-export async function ensureDecisionSchema() {
-  await env.DB.batch([
+let schemaReady: Promise<void> | null = null;
+
+export function ensureDecisionSchema() {
+  if (schemaReady) return schemaReady;
+  schemaReady = env.DB.batch([
     env.DB.prepare(`
       CREATE TABLE IF NOT EXISTS feedback (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,5 +49,11 @@ export async function ensureDecisionSchema() {
       CREATE INDEX IF NOT EXISTS project_actions_device_created_idx
       ON project_actions (device_id, created_at)
     `),
-  ]);
+  ])
+    .then(() => undefined)
+    .catch((error) => {
+      schemaReady = null;
+      throw error;
+    });
+  return schemaReady;
 }
