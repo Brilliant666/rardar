@@ -6,10 +6,30 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline.runtime import default_runtime_dir, heartbeat_is_fresh, parse_node_version
+from pipeline.runtime import (
+    acquire_manager_lock,
+    default_runtime_dir,
+    heartbeat_is_fresh,
+    parse_node_version,
+    release_manager_lock,
+)
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_manager_lock_allows_only_one_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            lock_path = Path(temporary) / "manager.lock"
+            first = acquire_manager_lock(lock_path)
+            self.assertIsNotNone(first)
+            try:
+                self.assertIsNone(acquire_manager_lock(lock_path))
+            finally:
+                release_manager_lock(first)
+
+            second = acquire_manager_lock(lock_path)
+            self.assertIsNotNone(second)
+            release_manager_lock(second)
+
     def test_parses_node_version(self) -> None:
         self.assertEqual(parse_node_version("v22.13.1\n"), (22, 13, 1))
         self.assertEqual(parse_node_version("22.14.0-beta"), (22, 14, 0))

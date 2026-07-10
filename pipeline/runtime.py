@@ -37,6 +37,7 @@ def default_runtime_dir() -> Path:
 RUNTIME_DIR = default_runtime_dir()
 LOG_DIR = RUNTIME_DIR / "logs"
 CONTROL_PATH = RUNTIME_DIR / "manager.json"
+LOCK_PATH = RUNTIME_DIR / "manager.lock"
 STATUS_PATH = RUNTIME_DIR / "status.json"
 SCHEDULER_STATUS_PATH = RUNTIME_DIR / "scheduler-status.json"
 LOCAL_URL = "http://127.0.0.1:3000/"
@@ -45,6 +46,45 @@ STATUS_PORT = 3002
 MINIMUM_NODE = (22, 13, 0)
 _latest_status: dict[str, Any] = {}
 _latest_status_lock = threading.Lock()
+
+
+def acquire_manager_lock(path: Path = LOCK_PATH) -> Any | None:
+    """Acquire a non-blocking process lock that survives PID/status races."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+b")
+    try:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"0")
+            handle.flush()
+        handle.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (OSError, ImportError):
+        handle.close()
+        return None
+    return handle
+
+
+def release_manager_lock(handle: Any) -> None:
+    try:
+        handle.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
 
 
 def utc_now() -> str:
@@ -354,7 +394,7 @@ def _stopped_status(message: str = "本地运行管理器未启动") -> dict[str
     }
 
 
-def run_manager() -> int:
+def _run_manager() -> int:
     current_pid = os.getpid()
     existing = _read_json(CONTROL_PATH) or {}
     existing_pid = existing.get("pid")
@@ -452,6 +492,16 @@ def run_manager() -> int:
         except OSError:
             pass
     return 0
+
+
+def run_manager() -> int:
+    manager_lock = acquire_manager_lock()
+    if manager_lock is None:
+        return 0
+    try:
+        return _run_manager()
+    finally:
+        release_manager_lock(manager_lock)
 
 
 def start_manager(open_browser: bool = False) -> int:
