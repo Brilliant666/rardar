@@ -13,6 +13,8 @@ type ServiceStatus = {
   lastRunStartedAt?: string | null;
   lastRunCompletedAt?: string | null;
   retryAttempt?: number | null;
+  dataAuditStatus?: "healthy" | "degraded" | "failed" | null;
+  dataAuditWarningCount?: number | null;
 };
 
 type RuntimeSnapshot = {
@@ -84,27 +86,35 @@ export function RuntimeStatus() {
   const refreshing = healthy && scheduler?.refreshState === "running";
   const waitingForRetry = healthy && scheduler?.refreshState === "failed" && scheduler.retryAttempt;
   const refreshFailed = healthy && scheduler?.refreshState === "failed";
+  const auditDegraded = healthy && scheduler?.dataAuditStatus === "degraded";
   const label = refreshing
     ? "刷新中"
     : waitingForRetry
       ? "等待重试"
       : refreshFailed
         ? "刷新失败"
-        : healthy
-          ? "运行中"
-          : snapshot
-            ? "需启动"
-            : "检查中";
+        : auditDegraded
+          ? "数据需复核"
+          : healthy
+            ? "运行中"
+            : snapshot
+              ? "需启动"
+              : "检查中";
   const detail = refreshing
     ? `本轮开始 ${formatTime(scheduler?.lastRunStartedAt)}`
     : waitingForRetry
       ? `第 ${waitingForRetry} 次尝试将在 ${formatTime(scheduler?.nextRunAt)} 开始`
       : refreshFailed
         ? `本轮采集未完成 · 下次计划 ${formatTime(scheduler?.nextRunAt)}`
-      : `下次刷新 ${formatTime(scheduler?.nextRunAt)}`;
+        : auditDegraded
+          ? `数据审计发现 ${scheduler?.dataAuditWarningCount ?? 0} 条警告 · 下次刷新 ${formatTime(scheduler?.nextRunAt)}`
+          : `下次刷新 ${formatTime(scheduler?.nextRunAt)}`;
 
   return (
-    <div className="schedule-card runtime-card" data-state={refreshFailed ? "degraded" : snapshot?.state ?? "checking"}>
+    <div
+      className="schedule-card runtime-card"
+      data-state={refreshFailed || auditDegraded ? "degraded" : snapshot?.state ?? "checking"}
+    >
       <span>本地自动运行</span>
       <strong>{label}</strong>
       <p>

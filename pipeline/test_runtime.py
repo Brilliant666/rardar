@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pipeline.runtime import (
+    _scheduler_details,
     acquire_manager_lock,
     default_runtime_dir,
     heartbeat_is_fresh,
@@ -17,6 +18,18 @@ from pipeline.runtime import (
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_scheduler_details_exposes_data_audit_state(self) -> None:
+        status = {
+            "state": "healthy",
+            "dataAuditStatus": "degraded",
+            "dataAuditWarningCount": 2,
+        }
+        with patch("pipeline.runtime._read_json", return_value=status):
+            details = _scheduler_details()
+
+        self.assertEqual(details["dataAuditStatus"], "degraded")
+        self.assertEqual(details["dataAuditWarningCount"], 2)
+
     def test_runtime_logs_rotate_with_bounded_backups(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             log_path = Path(temporary) / "website.log"

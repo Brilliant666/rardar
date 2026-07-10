@@ -393,6 +393,8 @@ def _scheduler_details() -> dict[str, Any]:
         "lastRunCompletedAt": status.get("lastRunCompletedAt"),
         "lastError": status.get("lastError"),
         "retryAttempt": status.get("retryAttempt"),
+        "dataAuditStatus": status.get("dataAuditStatus"),
+        "dataAuditWarningCount": status.get("dataAuditWarningCount"),
     }
 
 
