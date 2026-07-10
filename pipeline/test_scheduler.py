@@ -11,7 +11,7 @@ from pipeline.scheduler import committed_refresh_at, next_run_at, parse_clock, r
 
 
 class SchedulerTests(unittest.TestCase):
-    def test_committed_refresh_requires_all_artifacts_to_match(self) -> None:
+    def test_committed_refresh_allows_later_derived_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             captured = "2026-07-10T00:00:02+00:00"
@@ -26,6 +26,30 @@ class SchedulerTests(unittest.TestCase):
                 path.write_text(json.dumps(payload), encoding="utf-8")
 
             self.assertEqual(committed_refresh_at(root), captured)
+            (root / "queues" / "codex.json").write_text(
+                json.dumps({"generatedAt": "2026-07-10T00:30:00+00:00"}),
+                encoding="utf-8",
+            )
+            (root / "signals" / "latest.json").write_text(
+                json.dumps({"capturedAt": "2026-07-10T00:20:00+00:00"}),
+                encoding="utf-8",
+            )
+            self.assertEqual(committed_refresh_at(root), captured)
+
+            (root / "queues" / "codex.json").write_text(
+                json.dumps({"generatedAt": "2026-07-10T00:10:00+00:00"}),
+                encoding="utf-8",
+            )
+            self.assertIsNone(committed_refresh_at(root))
+
+            (root / "queues" / "codex.json").write_text(
+                json.dumps({"generatedAt": captured}),
+                encoding="utf-8",
+            )
+            (root / "signals" / "latest.json").write_text(
+                json.dumps({"capturedAt": captured}),
+                encoding="utf-8",
+            )
             (root / "catalog" / "latest.json").write_text(
                 json.dumps({"capturedAt": "2026-07-09T00:00:00+00:00"}),
                 encoding="utf-8",
@@ -43,14 +67,39 @@ class SchedulerTests(unittest.TestCase):
                 self.assertIsNotNone(running["heartbeatAt"])
                 return {"sourceCount": 3, "projectCount": 2, "signalCount": 1}
 
-            with patch("pipeline.scheduler.refresh", side_effect=inspect_running_state):
+            with (
+                patch("pipeline.scheduler.refresh", side_effect=inspect_running_state),
+                patch(
+                    "pipeline.scheduler.audit_data",
+                    return_value={"status": "healthy", "warningCount": 0, "issues": []},
+                ),
+            ):
                 result = run_cycle(Path(directory), 0, status_path)
 
             stored = json.loads(status_path.read_text(encoding="utf-8"))
             self.assertEqual(result["state"], "healthy")
             self.assertEqual(stored["state"], "healthy")
             self.assertEqual(stored["candidateCount"], 3)
+            self.assertEqual(stored["dataAuditStatus"], "healthy")
             self.assertIsNotNone(stored["lastRunCompletedAt"])
+
+    def test_cycle_fails_when_committed_data_fails_audit(self) -> None:
+        catalog = {"sourceCount": 3, "projectCount": 2, "signalCount": 1}
+        with (
+            patch("pipeline.scheduler.refresh", return_value=catalog),
+            patch(
+                "pipeline.scheduler.audit_data",
+                return_value={
+                    "status": "failed",
+                    "warningCount": 0,
+                    "issues": [{"code": "snapshot_count_mismatch"}],
+                },
+            ),
+        ):
+            result = run_cycle(Path("unused"), 0)
+
+        self.assertEqual(result["state"], "failed")
+        self.assertIn("snapshot_count_mismatch", str(result["lastError"]))
 
     def test_next_run_uses_shanghai_clock(self) -> None:
         now = datetime(2026, 7, 10, 1, tzinfo=timezone.utc)  # 09:00 Asia/Shanghai

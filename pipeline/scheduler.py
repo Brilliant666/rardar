@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from pipeline.audit_data import audit_data
 from pipeline.refresh import refresh
 
 
@@ -99,7 +100,7 @@ def _read_status(path: Path) -> dict[str, object]:
 
 
 def committed_refresh_at(data_dir: Path) -> str | None:
-    """Return the capture time only when every scheduled artifact agrees."""
+    """Return the capture time only when every scheduled artifact is coherent."""
     snapshot_at = _read_status(data_dir / "snapshots" / "latest.json").get("captured_at")
     catalog_at = _read_status(data_dir / "catalog" / "latest.json").get("capturedAt")
     signal_at = _read_status(data_dir / "signals" / "latest.json").get("capturedAt")
@@ -107,7 +108,12 @@ def committed_refresh_at(data_dir: Path) -> str | None:
     instants = [_parse_datetime(value) for value in (snapshot_at, catalog_at, signal_at, queue_at)]
     if any(value is None for value in instants):
         return None
-    if len(set(instants)) != 1:
+    snapshot_instant, catalog_instant, signal_instant, queue_instant = instants
+    if snapshot_instant != catalog_instant or signal_instant < snapshot_instant:
+        return None
+    # Signals can be recollected and Codex processing can regenerate the queue
+    # after the GitHub snapshot. Older derived artifacts are incomplete.
+    if queue_instant < signal_instant:
         return None
     return str(snapshot_at)
 
@@ -148,6 +154,10 @@ def run_cycle(
 
     try:
         catalog = refresh(data_dir, started, limit=30, analyze_top=analyze_top)
+        audit = audit_data(data_dir)
+        if audit["status"] == "failed":
+            codes = ", ".join(str(item.get("code")) for item in audit["issues"][:5])
+            raise RuntimeError(f"data audit failed after refresh: {codes}")
         result: dict[str, object] = {
             "state": "healthy",
             "lastRunStartedAt": started.isoformat(),
@@ -156,6 +166,8 @@ def run_cycle(
             "candidateCount": catalog["sourceCount"],
             "projectCount": catalog["projectCount"],
             "signalCount": catalog.get("signalCount", 0),
+            "dataAuditStatus": audit["status"],
+            "dataAuditWarningCount": audit["warningCount"],
         }
     except Exception as error:
         result = {
