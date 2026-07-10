@@ -52,6 +52,8 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(signalsPage, /RuntimeStatus/);
   assert.match(runtimeStatus, /127\.0\.0\.1:3002\/status/);
   assert.match(runtimeStatus, /heartbeatLimit/);
+  assert.match(runtimeStatus, /等待重试/);
+  assert.match(runtimeStatus, /刷新失败/);
   assert.match(queue, /pendingCount/);
   assert.doesNotMatch(page, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
   assert.equal(build, undefined);
