@@ -1,17 +1,35 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { feedbackEventName, getDeviceId } from "./device-id";
+import { feedbackEventName, getDeviceId, projectActionEventName } from "./device-id";
 
 type Metrics = {
   northStar: { label: string; value: number };
-  week: { reuseDecisions: number; feedbackChanges: number };
+  week: {
+    openedProjects: number;
+    savedProjects: number;
+    triedProjects: number;
+    clonedProjects: number;
+    reusedProjects: number;
+    feedbackDecisions: number;
+    feedbackReuseDecisions: number;
+    feedbackChanges: number;
+  };
   current: { useful: number; useless: number; reused: number; uncertain: number; total: number };
 };
 
 const emptyMetrics: Metrics = {
-  northStar: { label: "近 7 天有效项目决策", value: 0 },
-  week: { reuseDecisions: 0, feedbackChanges: 0 },
+  northStar: { label: "近 7 天已行动项目", value: 0 },
+  week: {
+    openedProjects: 0,
+    savedProjects: 0,
+    triedProjects: 0,
+    clonedProjects: 0,
+    reusedProjects: 0,
+    feedbackDecisions: 0,
+    feedbackReuseDecisions: 0,
+    feedbackChanges: 0,
+  },
   current: { useful: 0, useless: 0, reused: 0, uncertain: 0, total: 0 },
 };
 
@@ -34,9 +52,11 @@ export function DecisionMetrics() {
     }, 0);
     const refresh = () => load().catch(() => undefined);
     window.addEventListener(feedbackEventName, refresh);
+    window.addEventListener(projectActionEventName, refresh);
     return () => {
       window.clearTimeout(initialLoad);
       window.removeEventListener(feedbackEventName, refresh);
+      window.removeEventListener(projectActionEventName, refresh);
     };
   }, [load]);
 
@@ -45,18 +65,18 @@ export function DecisionMetrics() {
       <div className="decision-metrics-copy">
         <span className="section-label">North star</span>
         <h2>不是看了多少项目，<br />而是做出了多少有效决定。</h2>
-        <p>“有用”和“复用”会计入近 7 天有效项目决策；改变同一项目的选择会保留为决策事件，但不会重复抬高项目数。</p>
+        <p>反馈负责教会排序，“试用 / 浅克隆 / 确认复用”才计入近 7 天结果；同一项目无论完成几步，北极星只计一次。</p>
       </div>
       <div className="north-star-card" aria-live="polite">
         <span>{metrics.northStar.label}</span>
         <strong>{loaded ? metrics.northStar.value : "—"}</strong>
-        <p>其中明确复用 {metrics.week.reuseDecisions} 个 · 本周反馈变化 {metrics.week.feedbackChanges} 次</p>
+        <p>确认复用 {metrics.week.reusedProjects} · 浅克隆 {metrics.week.clonedProjects} · 试用 {metrics.week.triedProjects}</p>
       </div>
       <div className="decision-breakdown">
-        <div><strong>{metrics.current.useful}</strong><span>有用</span></div>
-        <div><strong>{metrics.current.reused}</strong><span>复用</span></div>
-        <div><strong>{metrics.current.uncertain}</strong><span>待确定</span></div>
-        <div><strong>{metrics.current.useless}</strong><span>无用</span></div>
+        <div><strong>{metrics.week.openedProjects}</strong><span>打开仓库</span></div>
+        <div><strong>{metrics.week.savedProjects}</strong><span>收藏</span></div>
+        <div><strong>{metrics.week.triedProjects}</strong><span>试用</span></div>
+        <div><strong>{metrics.week.clonedProjects}</strong><span>浅克隆</span></div>
       </div>
     </section>
   );

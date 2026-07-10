@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Nav } from "../../components/Nav";
 import { FeedbackButtons } from "../../components/FeedbackButtons";
+import { ProjectActions, TrackedRepositoryLink } from "../../components/ProjectActions";
 import { formatNumber, getProject, projects } from "../../data";
 
 export function generateStaticParams() {
@@ -21,10 +22,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
         <header className="project-detail-hero">
           <div>
             <div className="project-card-topline"><span className="category-pill">{project.category}</span><span className="analysis-pill">{project.analysisState}</span></div>
-            <a className="repo-name" href={`https://github.com/${project.repo}`} target="_blank" rel="noreferrer">{project.repo} ↗</a>
+            <TrackedRepositoryLink projectSlug={project.slug} repository={project.repo} />
             <h1>{project.title}</h1>
             <p>{project.description}</p>
             <FeedbackButtons projectSlug={project.slug} />
+            <ProjectActions projectSlug={project.slug} />
           </div>
           <div className="detail-score-panel">
             <div><strong>{project.globalScore}</strong><span>全球影响力</span></div>

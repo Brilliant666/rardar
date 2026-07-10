@@ -15,6 +15,13 @@
       "when": 1783688410712,
       "tag": "0001_melted_surge",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783700092942,
+      "tag": "0002_broken_zaladane",
+      "breakpoints": true
     }
   ]
 }

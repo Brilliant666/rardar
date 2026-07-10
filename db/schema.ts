@@ -25,3 +25,18 @@ export const decisionEvents = sqliteTable(
   },
   (table) => [index("decision_events_device_created_idx").on(table.deviceId, table.createdAt)],
 );
+
+export const projectActions = sqliteTable(
+  "project_actions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    deviceId: text("device_id").notNull(),
+    projectSlug: text("project_slug").notNull(),
+    action: text("action").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("project_actions_device_project_action_idx").on(table.deviceId, table.projectSlug, table.action),
+    index("project_actions_device_created_idx").on(table.deviceId, table.createdAt),
+  ],
+);
