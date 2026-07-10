@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "vinext dev --hostname 127.0.0.1",
     "data:collect": "python -m pipeline.collect_github --out data/snapshots/latest.json",
-    "data:build": "python -m pipeline.build_catalog --snapshot data/snapshots/latest.json --analysis-dir data/analysis --enrichment-dir data/enrichment --out data/catalog/latest.json --limit 30",
+    "data:build": "python -m pipeline.rebuild_derived --data-dir data",
+    "data:derive": "python -m pipeline.rebuild_derived --data-dir data",
     "data:refresh": "python -m pipeline.refresh --data-dir data --limit 30 --analyze-top 5",
     "data:signals": "python -m pipeline.collect_signals --out data/signals/latest.json --window-hours 48 --limit 30",
     "data:queue": "python -m pipeline.codex_queue",

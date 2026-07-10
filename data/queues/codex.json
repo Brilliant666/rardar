@@ -1,14 +1,73 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-10T16:09:18.232865+00:00",
+  "generatedAt": "2026-07-10T19:19:51.891369+00:00",
   "scope": {
     "projectLimit": 5,
     "signalLimit": 10
   },
-  "pendingCount": 0,
-  "projectPendingCount": 0,
+  "pendingCount": 2,
+  "projectPendingCount": 2,
   "signalPendingCount": 0,
-  "completedProjectCount": 5,
+  "completedProjectCount": 3,
   "completedSignalCount": 10,
-  "items": []
+  "items": [
+    {
+      "id": "project:n8n-io--n8n",
+      "kind": "project",
+      "priority": 88,
+      "repository": "n8n-io/n8n",
+      "title": "n8n",
+      "reason": "进入高优先级项目区，但缺少完整中文能力画像",
+      "sourcePushedAt": "2026-07-10T12:29:03Z",
+      "previousAnalyzedAt": null,
+      "inputPaths": [
+        "data/analysis/n8n-io--n8n.json",
+        "data/catalog/latest.json"
+      ],
+      "outputPath": "data/enrichment/n8n-io--n8n.json",
+      "requiredFields": [
+        "analyzedAt",
+        "bestFor",
+        "capabilities",
+        "evidenceSummary",
+        "limitation",
+        "repository",
+        "reusePlan",
+        "sourceUrl",
+        "summaryZh",
+        "taskTerms",
+        "titleZh"
+      ],
+      "safety": "只阅读 README 与静态分析证据，不执行仓库代码"
+    },
+    {
+      "id": "project:openhands--openhands",
+      "kind": "project",
+      "priority": 84,
+      "repository": "OpenHands/OpenHands",
+      "title": "OpenHands",
+      "reason": "进入高优先级项目区，但缺少完整中文能力画像",
+      "sourcePushedAt": "2026-07-10T12:15:14Z",
+      "previousAnalyzedAt": null,
+      "inputPaths": [
+        "data/analysis/openhands--openhands.json",
+        "data/catalog/latest.json"
+      ],
+      "outputPath": "data/enrichment/openhands--openhands.json",
+      "requiredFields": [
+        "analyzedAt",
+        "bestFor",
+        "capabilities",
+        "evidenceSummary",
+        "limitation",
+        "repository",
+        "reusePlan",
+        "sourceUrl",
+        "summaryZh",
+        "taskTerms",
+        "titleZh"
+      ],
+      "safety": "只阅读 README 与静态分析证据，不执行仓库代码"
+    }
+  ]
 }
