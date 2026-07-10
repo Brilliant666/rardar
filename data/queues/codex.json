@@ -1,115 +1,14 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-10T16:06:54.620882+00:00",
+  "generatedAt": "2026-07-10T16:09:18.232865+00:00",
   "scope": {
     "projectLimit": 5,
     "signalLimit": 10
   },
-  "pendingCount": 5,
+  "pendingCount": 0,
   "projectPendingCount": 0,
-  "signalPendingCount": 5,
+  "signalPendingCount": 0,
   "completedProjectCount": 5,
-  "completedSignalCount": 5,
-  "items": [
-    {
-      "id": "signal:signal_e37e9c030599",
-      "kind": "signal",
-      "priority": 83,
-      "title": "MadsLorentzen/ai-job-search",
-      "url": "https://github.com/MadsLorentzen/ai-job-search",
-      "source": "OpenGithubs Daily Rank",
-      "reason": "进入高优先级技术动态区，但缺少中文事实摘要与影响判断",
-      "inputPaths": [
-        "data/signals/latest.json"
-      ],
-      "outputPath": "data/signals/enrichment.json",
-      "requiredFields": [
-        "categoryZh",
-        "takeawayZh",
-        "titleZh",
-        "whyItMattersZh"
-      ],
-      "safety": "保留原始链接与发布时间，明确区分来源事实和 Codex 判断"
-    },
-    {
-      "id": "signal:signal_e4245cb000d0",
-      "kind": "signal",
-      "priority": 80,
-      "title": "社交媒体AI生成内容泛滥：LinkedIn超过40%长文为AI写作",
-      "url": "https://www.pangram.com/blog/ai-in-your-feed",
-      "source": "AI News Radar",
-      "reason": "进入高优先级技术动态区，但缺少中文事实摘要与影响判断",
-      "inputPaths": [
-        "data/signals/latest.json"
-      ],
-      "outputPath": "data/signals/enrichment.json",
-      "requiredFields": [
-        "categoryZh",
-        "takeawayZh",
-        "titleZh",
-        "whyItMattersZh"
-      ],
-      "safety": "保留原始链接与发布时间，明确区分来源事实和 Codex 判断"
-    },
-    {
-      "id": "signal:signal_b87fff950f17",
-      "kind": "signal",
-      "priority": 77,
-      "title": "Ask Copilot for a repository overview",
-      "url": "https://github.blog/changelog/2026-07-09-ask-copilot-for-a-repository-overview",
-      "source": "GitHub Changelog",
-      "reason": "进入高优先级技术动态区，但缺少中文事实摘要与影响判断",
-      "inputPaths": [
-        "data/signals/latest.json"
-      ],
-      "outputPath": "data/signals/enrichment.json",
-      "requiredFields": [
-        "categoryZh",
-        "takeawayZh",
-        "titleZh",
-        "whyItMattersZh"
-      ],
-      "safety": "保留原始链接与发布时间，明确区分来源事实和 Codex 判断"
-    },
-    {
-      "id": "signal:signal_adf57ab874a7",
-      "kind": "signal",
-      "priority": 74,
-      "title": "GitHub Copilot in Visual Studio Code, June 2026 releases",
-      "url": "https://github.blog/changelog/2026-07-08-github-copilot-in-visual-studio-code-june-2026-releases",
-      "source": "GitHub Changelog",
-      "reason": "进入高优先级技术动态区，但缺少中文事实摘要与影响判断",
-      "inputPaths": [
-        "data/signals/latest.json"
-      ],
-      "outputPath": "data/signals/enrichment.json",
-      "requiredFields": [
-        "categoryZh",
-        "takeawayZh",
-        "titleZh",
-        "whyItMattersZh"
-      ],
-      "safety": "保留原始链接与发布时间，明确区分来源事实和 Codex 判断"
-    },
-    {
-      "id": "signal:signal_9e22cfe2d37f",
-      "kind": "signal",
-      "priority": 71,
-      "title": "addyosmani/agent-skills",
-      "url": "https://github.com/addyosmani/agent-skills",
-      "source": "OpenGithubs Daily Rank",
-      "reason": "进入高优先级技术动态区，但缺少中文事实摘要与影响判断",
-      "inputPaths": [
-        "data/signals/latest.json"
-      ],
-      "outputPath": "data/signals/enrichment.json",
-      "requiredFields": [
-        "categoryZh",
-        "takeawayZh",
-        "titleZh",
-        "whyItMattersZh"
-      ],
-      "safety": "保留原始链接与发布时间，明确区分来源事实和 Codex 判断"
-    }
-  ]
+  "completedSignalCount": 10,
+  "items": []
 }

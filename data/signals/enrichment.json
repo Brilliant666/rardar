@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-10T13:20:00Z",
+  "generatedAt": "2026-07-10T16:09:00Z",
   "model": "local-codex",
   "items": {
     "https://github.blog/changelog/2026-07-09-openais-gpt-5-6-sol-terra-and-luna-are-now-available-in-github-copilot": {
@@ -32,6 +32,36 @@
       "takeawayZh": "文章聚焦如何分析 PyTorch Attention 工作负载的性能表现，属于模型训练和推理优化的工程信号。",
       "whyItMattersZh": "对需要控制显存、吞吐与延迟的本地模型项目有参考价值；当前 Rardar 只确认官方文章发布，尚未复现实验结果。",
       "categoryZh": "模型工程"
+    },
+    "https://github.com/MadsLorentzen/ai-job-search": {
+      "titleZh": "本地运行的 Claude Code 求职工作流登上外部日榜",
+      "takeawayZh": "该项目把候选人画像、职位抓取、匹配评分、定制简历与求职信、第二 Agent 审阅、面试准备和结果复盘串成完整流程；门户适配目前偏丹麦，但核心流程可替换为其他市场。",
+      "whyItMattersZh": "值得复用的不是“AI 写简历”，而是可追溯资料、分阶段命令、起草与审阅分离及结果回流的工作流设计。外部榜单报告的日增长仍需等待 Rardar 自有快照验证。",
+      "categoryZh": "Agent 工作流"
+    },
+    "https://www.pangram.com/blog/ai-in-your-feed": {
+      "titleZh": "Pangram 称社交平台长文中的 AI 内容比例显著上升",
+      "takeawayZh": "Pangram 基于其浏览器扩展用户自愿共享的约 100 万条扫描记录，报告社交平台长文中约四分之一被判为完全 AI 生成，LinkedIn 长文比例超过 40%。这些数字来自检测产品厂商及选择性样本，不等于全平台普查。",
+      "whyItMattersZh": "自媒体分析正在从流量指标扩展到内容来源与可信度判断；若 Rardar 或其他工作台接入 AI 内容检测，必须同时展示检测模型、样本范围、误判风险和原始证据。",
+      "categoryZh": "内容真实性"
+    },
+    "https://github.blog/changelog/2026-07-09-ask-copilot-for-a-repository-overview": {
+      "titleZh": "GitHub Copilot 可直接生成陌生仓库概览",
+      "takeawayZh": "GitHub 在仓库首页提供 Copilot 概览入口，可汇总项目用途、主要技术和贡献指南；即使仓库没有 README，也可以临时生成介绍。该能力面向全部 Copilot 套餐。",
+      "whyItMattersZh": "“快速理解陌生仓库”正在变成平台基础能力。Rardar 需要继续强化差异化：不仅概括 README，还要给出增长证据、静态实现证据、风险和针对具体任务的复用决策。",
+      "categoryZh": "代码理解"
+    },
+    "https://github.blog/changelog/2026-07-08-github-copilot-in-visual-studio-code-june-2026-releases": {
+      "titleZh": "VS Code 集中升级长时间 Agent 工作流",
+      "takeawayZh": "VS Code 1.123 至 1.127 为 Copilot 增加正式可用的浏览器工具、并行会话与多聊天、会话及子 Agent 成本可见性、模型市场入口、Autopilot 完成判断和跨设备会话同步。",
+      "whyItMattersZh": "长时间 Agent 的竞争点从单次生成转向任务编排、费用透明、历史检索、权限边界和完成审计；这些正是 Rardar 24 小时自治迭代需要持续验证的系统能力。",
+      "categoryZh": "Agent 工程化"
+    },
+    "https://github.com/addyosmani/agent-skills": {
+      "titleZh": "Addy Osmani 发布跨编程 Agent 的工程技能库",
+      "takeawayZh": "仓库把需求澄清、计划、增量构建、测试、评审、性能检查和发布组织为可复用技能与命令，并提供 Codex、Claude、Gemini 等多种集成及评测、Hook 和插件结构。",
+      "whyItMattersZh": "它适合作为 Rardar 自治开发流程的参考：任务要原子化、每步有证据、评审先于发布。应优先复用技能结构和质量门禁，不因外部日榜数字直接判断成熟度。",
+      "categoryZh": "开发方法"
     }
   }
 }
