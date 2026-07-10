@@ -11,8 +11,12 @@ import argparse
 import json
 import os
 import re
+import shutil
+import stat
 import subprocess
 import tempfile
+import urllib.request
+import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +25,9 @@ from typing import Iterable
 
 MAX_TEXT_BYTES = 512_000
 MAX_FILES = 12_000
+MAX_ARCHIVE_BYTES = 120_000_000
+MAX_ARCHIVE_FILES = 25_000
+MAX_EXTRACTED_BYTES = 600_000_000
 SKIP_DIRECTORIES = {
     ".git",
     ".mypy_cache",
@@ -228,6 +235,62 @@ def _git_environment() -> dict[str, str]:
     }
 
 
+def _extract_source_archive(archive_path: Path, checkout: Path) -> None:
+    checkout = checkout.resolve()
+    checkout.mkdir(parents=True, exist_ok=False)
+    extracted_files = 0
+    extracted_bytes = 0
+    with zipfile.ZipFile(archive_path) as archive:
+        for item in archive.infolist():
+            path = Path(item.filename.replace("\\", "/"))
+            parts = path.parts[1:]
+            if not parts or item.is_dir():
+                continue
+            if path.is_absolute() or any(part in {"", ".", ".."} for part in parts):
+                raise RuntimeError(f"unsafe source archive path: {item.filename}")
+            mode = item.external_attr >> 16
+            if stat.S_ISLNK(mode):
+                continue
+            relative = Path(*parts)
+            if any(part.lower() in SKIP_DIRECTORIES for part in relative.parts[:-1]):
+                continue
+            if relative.suffix.lower() in SKIP_FILE_SUFFIXES:
+                continue
+            extracted_files += 1
+            extracted_bytes += item.file_size
+            if extracted_files > MAX_ARCHIVE_FILES:
+                raise RuntimeError(f"source archive exceeds {MAX_ARCHIVE_FILES} files")
+            if extracted_bytes > MAX_EXTRACTED_BYTES:
+                raise RuntimeError(f"source archive exceeds {MAX_EXTRACTED_BYTES} extracted bytes")
+            target = (checkout / relative).resolve()
+            if checkout not in target.parents:
+                raise RuntimeError(f"source archive escapes checkout: {item.filename}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if item.file_size > MAX_TEXT_BYTES:
+                target.touch()
+                continue
+            with archive.open(item) as source, target.open("wb") as destination:
+                shutil.copyfileobj(source, destination, length=64 * 1024)
+
+
+def _download_source_archive(repository: str, directory: Path) -> Path:
+    archive_path = directory / "source.zip"
+    request = urllib.request.Request(
+        f"https://codeload.github.com/{repository}/zip/HEAD",
+        headers={"user-agent": "rardar-static-analyzer/0.1"},
+    )
+    total = 0
+    with urllib.request.urlopen(request, timeout=180) as response, archive_path.open("wb") as output:
+        while chunk := response.read(64 * 1024):
+            total += len(chunk)
+            if total > MAX_ARCHIVE_BYTES:
+                raise RuntimeError(f"source archive exceeds {MAX_ARCHIVE_BYTES} download bytes")
+            output.write(chunk)
+    checkout = directory / "archive-repo"
+    _extract_source_archive(archive_path, checkout)
+    return checkout
+
+
 def analyze_remote(repo: str) -> StaticEvidence:
     normalized = _validate_repo(repo)
     with tempfile.TemporaryDirectory(prefix="rardar-") as directory:
@@ -243,6 +306,7 @@ def analyze_remote(repo: str) -> StaticEvidence:
             f"https://github.com/{normalized}.git",
             str(checkout),
         ]
+        clone_error: str | None = None
         try:
             subprocess.run(
                 command,
@@ -253,12 +317,24 @@ def analyze_remote(repo: str) -> StaticEvidence:
                 text=True,
             )
         except subprocess.TimeoutExpired as error:
-            raise RuntimeError(f"shallow clone timed out after {error.timeout} seconds: {normalized}") from None
+            clone_error = f"shallow clone timed out after {error.timeout} seconds"
         except subprocess.CalledProcessError as error:
             detail = (error.stderr or error.stdout or "git clone failed").strip().splitlines()[-1]
-            raise RuntimeError(f"shallow clone failed for {normalized}: {detail}") from None
-        evidence = analyze_path(checkout, normalized)
+            clone_error = f"shallow clone failed: {detail}"
+        source_root = checkout
+        if clone_error:
+            try:
+                source_root = _download_source_archive(normalized, Path(directory))
+            except (OSError, RuntimeError, zipfile.BadZipFile) as error:
+                raise RuntimeError(
+                    f"{clone_error}; source archive fallback failed for {normalized}: {error}"
+                ) from None
+        evidence = analyze_path(source_root, normalized)
         evidence.source = f"https://github.com/{normalized}"
+        if clone_error:
+            evidence.warnings.append(
+                f"{clone_error}; inspected a bounded official GitHub source archive instead"
+            )
         return evidence
 
 

@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import stat
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline.analyze_repository import _git_environment, _is_test_file, analyze_path
+from pipeline.analyze_repository import (
+    _extract_source_archive,
+    _git_environment,
+    _is_test_file,
+    analyze_path,
+)
 
 
 class AnalyzeRepositoryTests(unittest.TestCase):
@@ -73,6 +80,39 @@ class AnalyzeRepositoryTests(unittest.TestCase):
         self.assertTrue(_is_test_file("tests/demo.py"))
         self.assertTrue(_is_test_file("src/widget.test.ts"))
         self.assertTrue(_is_test_file("pkg/worker_test.go"))
+
+    def test_bounded_archive_extraction_strips_repository_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "source.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("demo-main/README.md", "# Demo")
+                archive.writestr("demo-main/tests/test_demo.py", "def test_demo(): pass")
+                archive.writestr("demo-main/image.png", b"ignored")
+                link = zipfile.ZipInfo("demo-main/linked.py")
+                link.create_system = 3
+                link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                archive.writestr(link, "tests/test_demo.py")
+            checkout = root / "checkout"
+
+            _extract_source_archive(archive_path, checkout)
+
+            self.assertEqual((checkout / "README.md").read_text(encoding="utf-8"), "# Demo")
+            self.assertTrue((checkout / "tests/test_demo.py").exists())
+            self.assertFalse((checkout / "image.png").exists())
+            self.assertFalse((checkout / "linked.py").exists())
+
+    def test_archive_extraction_rejects_path_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "unsafe.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("demo-main/../../escape.txt", "unsafe")
+
+            with self.assertRaisesRegex(RuntimeError, "unsafe source archive path"):
+                _extract_source_archive(archive_path, root / "checkout")
+
+            self.assertFalse((root / "escape.txt").exists())
 
 
 if __name__ == "__main__":

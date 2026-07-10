@@ -1,20 +1,21 @@
 {
   "repository": "DietrichGebert/ponytail",
   "source": "https://github.com/DietrichGebert/ponytail",
-  "scanned_files": 156,
+  "analyzed_at": "2026-07-10T19:41:17.063020+00:00",
+  "scanned_files": 150,
   "language_files": {
     ".md": 56,
     ".js": 42,
     ".json": 17,
     ".py": 6,
     ".yaml": 6,
-    ".png": 6,
     ".toml": 6,
     ".svg": 5,
     ".yml": 3,
     "[none]": 2,
     ".mjs": 2,
-    ".example": 1
+    ".example": 1,
+    ".mdc": 1
   },
   "indicators": {
     "readme": true,
