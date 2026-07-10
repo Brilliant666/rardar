@@ -1,12 +1,36 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import patch
 
-from pipeline.scheduler import next_run_at, parse_clock
+from pipeline.scheduler import next_run_at, parse_clock, run_cycle, should_catch_up, should_retry
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_cycle_publishes_running_state_before_refresh(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            status_path = Path(directory) / "scheduler.json"
+
+            def inspect_running_state(*_args: object, **_kwargs: object) -> dict[str, object]:
+                running = json.loads(status_path.read_text(encoding="utf-8"))
+                self.assertEqual(running["state"], "running")
+                self.assertIsNone(running["lastRunCompletedAt"])
+                self.assertIsNotNone(running["heartbeatAt"])
+                return {"sourceCount": 3, "projectCount": 2, "signalCount": 1}
+
+            with patch("pipeline.scheduler.refresh", side_effect=inspect_running_state):
+                result = run_cycle(Path(directory), 0, status_path)
+
+            stored = json.loads(status_path.read_text(encoding="utf-8"))
+            self.assertEqual(result["state"], "healthy")
+            self.assertEqual(stored["state"], "healthy")
+            self.assertEqual(stored["candidateCount"], 3)
+            self.assertIsNotNone(stored["lastRunCompletedAt"])
+
     def test_next_run_uses_shanghai_clock(self) -> None:
         now = datetime(2026, 7, 10, 1, tzinfo=timezone.utc)  # 09:00 Asia/Shanghai
         target = next_run_at(now, 8, 0, "Asia/Shanghai")
@@ -20,6 +44,46 @@ class SchedulerTests(unittest.TestCase):
     def test_rejects_invalid_clock(self) -> None:
         with self.assertRaises(ValueError):
             parse_clock("25:00")
+
+    def test_catches_up_incomplete_run_after_schedule(self) -> None:
+        now = datetime(2026, 7, 10, 0, 5, tzinfo=timezone.utc)  # 08:05 Asia/Shanghai
+        self.assertTrue(should_catch_up(now, None, "running", 8, 0, "Asia/Shanghai"))
+
+    def test_does_not_repeat_completed_run(self) -> None:
+        now = datetime(2026, 7, 10, 0, 5, tzinfo=timezone.utc)
+        self.assertFalse(
+            should_catch_up(
+                now,
+                "2026-07-10T00:03:00+00:00",
+                "healthy",
+                8,
+                0,
+                "Asia/Shanghai",
+            )
+        )
+
+    def test_retries_failed_run_within_catch_up_window(self) -> None:
+        now = datetime(2026, 7, 10, 1, 0, tzinfo=timezone.utc)
+        self.assertTrue(
+            should_catch_up(
+                now,
+                "2026-07-10T00:02:00+00:00",
+                "failed",
+                8,
+                0,
+                "Asia/Shanghai",
+            )
+        )
+
+    def test_does_not_catch_up_outside_window(self) -> None:
+        now = datetime(2026, 7, 10, 13, 0, tzinfo=timezone.utc)  # 21:00 Asia/Shanghai
+        self.assertFalse(should_catch_up(now, None, "scheduled", 8, 0, "Asia/Shanghai"))
+
+    def test_failed_cycle_retries_twice_then_waits_for_next_day(self) -> None:
+        self.assertTrue(should_retry("failed", 1))
+        self.assertTrue(should_retry("failed", 2))
+        self.assertFalse(should_retry("failed", 3))
+        self.assertFalse(should_retry("healthy", 1))
 
 
 if __name__ == "__main__":

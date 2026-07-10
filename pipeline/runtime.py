@@ -326,10 +326,13 @@ def _service_payload(service: ManagedService, state: str) -> dict[str, Any]:
 def _scheduler_details() -> dict[str, Any]:
     status = _read_json(SCHEDULER_STATUS_PATH) or {}
     return {
+        "refreshState": status.get("state", "scheduled"),
         "schedule": status.get("schedule", {"time": "08:00", "timezone": "Asia/Shanghai"}),
         "nextRunAt": status.get("nextRunAt"),
+        "lastRunStartedAt": status.get("lastRunStartedAt"),
         "lastRunCompletedAt": status.get("lastRunCompletedAt"),
         "lastError": status.get("lastError"),
+        "retryAttempt": status.get("retryAttempt"),
     }
 
 

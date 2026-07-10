@@ -5,12 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from pipeline.refresh import refresh
+
+
+MAX_REFRESH_ATTEMPTS = 3
+RETRY_DELAY_MINUTES = 5
 
 
 def parse_clock(value: str) -> tuple[int, int]:
@@ -33,6 +38,47 @@ def next_run_at(now: datetime, hour: int, minute: int, timezone_name: str) -> da
     return target.astimezone(timezone.utc)
 
 
+def scheduled_run_for_local_day(now: datetime, hour: int, minute: int, timezone_name: str) -> datetime:
+    zone = ZoneInfo(timezone_name)
+    local_now = now.astimezone(zone)
+    return local_now.replace(hour=hour, minute=minute, second=0, microsecond=0).astimezone(timezone.utc)
+
+
+def _parse_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def should_catch_up(
+    now: datetime,
+    last_run_completed_at: object,
+    last_state: object,
+    hour: int,
+    minute: int,
+    timezone_name: str,
+    window_hours: int = 12,
+) -> bool:
+    """Return whether today's missed or failed scheduled run should resume."""
+    now = now.astimezone(timezone.utc)
+    target = scheduled_run_for_local_day(now, hour, minute, timezone_name)
+    elapsed = now - target
+    if elapsed.total_seconds() < 0 or elapsed > timedelta(hours=max(1, window_hours)):
+        return False
+    completed = _parse_datetime(last_run_completed_at)
+    return last_state == "failed" or completed is None or completed < target
+
+
+def should_retry(last_state: object, attempts_in_cycle: int, max_attempts: int = MAX_REFRESH_ATTEMPTS) -> bool:
+    return last_state == "failed" and 0 < attempts_in_cycle < max(1, max_attempts)
+
+
 def _write_status(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -40,11 +86,51 @@ def _write_status(path: Path, payload: dict[str, object]) -> None:
     temporary.replace(path)
 
 
-def run_cycle(data_dir: Path, analyze_top: int) -> dict[str, object]:
+def _read_status(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def run_cycle(
+    data_dir: Path,
+    analyze_top: int,
+    status_path: Path | None = None,
+    schedule_time: str = "08:00",
+    timezone_name: str = "Asia/Shanghai",
+) -> dict[str, object]:
     started = datetime.now(timezone.utc)
+    heartbeat_stop = threading.Event()
+    heartbeat_thread: threading.Thread | None = None
+    running_status: dict[str, object] = {
+        "state": "running",
+        "lastRunStartedAt": started.isoformat(),
+        "lastRunCompletedAt": None,
+        "lastError": None,
+        "processId": os.getpid(),
+        "heartbeatAt": started.isoformat(),
+        "schedule": {"time": schedule_time, "timezone": timezone_name},
+        "nextRunAt": None,
+    }
+    if status_path:
+        _write_status(status_path, running_status)
+
+        def keep_heartbeat_fresh() -> None:
+            while not heartbeat_stop.wait(15):
+                running_status["heartbeatAt"] = datetime.now(timezone.utc).isoformat()
+                try:
+                    _write_status(status_path, running_status)
+                except OSError:
+                    pass
+
+        heartbeat_thread = threading.Thread(target=keep_heartbeat_fresh, name="rardar-refresh-heartbeat", daemon=True)
+        heartbeat_thread.start()
+
     try:
         catalog = refresh(data_dir, started, limit=30, analyze_top=analyze_top)
-        return {
+        result: dict[str, object] = {
             "state": "healthy",
             "lastRunStartedAt": started.isoformat(),
             "lastRunCompletedAt": datetime.now(timezone.utc).isoformat(),
@@ -54,12 +140,30 @@ def run_cycle(data_dir: Path, analyze_top: int) -> dict[str, object]:
             "signalCount": catalog.get("signalCount", 0),
         }
     except Exception as error:
-        return {
+        result = {
             "state": "failed",
             "lastRunStartedAt": started.isoformat(),
             "lastRunCompletedAt": datetime.now(timezone.utc).isoformat(),
             "lastError": str(error),
         }
+    finally:
+        heartbeat_stop.set()
+        if heartbeat_thread:
+            heartbeat_thread.join(timeout=2)
+
+    if status_path:
+        completed = datetime.now(timezone.utc)
+        hour, minute = parse_clock(schedule_time)
+        result.update(
+            {
+                "processId": os.getpid(),
+                "heartbeatAt": completed.isoformat(),
+                "schedule": {"time": schedule_time, "timezone": timezone_name},
+                "nextRunAt": next_run_at(completed, hour, minute, timezone_name).isoformat(),
+            }
+        )
+        _write_status(status_path, result)
+    return result
 
 
 def main() -> None:
@@ -78,30 +182,58 @@ def main() -> None:
     status_path = arguments.status_path or arguments.data_dir / "scheduler" / "status.json"
 
     if arguments.once:
-        status = run_cycle(arguments.data_dir, analyze_top)
+        status = run_cycle(
+            arguments.data_dir,
+            analyze_top,
+            status_path,
+            arguments.at,
+            arguments.timezone,
+        )
         status["schedule"] = {"time": arguments.at, "timezone": arguments.timezone}
         status["nextRunAt"] = None
         _write_status(status_path, status)
         print(json.dumps(status, ensure_ascii=False))
         return
 
+    stored_status = _read_status(status_path)
     last_status: dict[str, object] = {
-        "state": "scheduled",
-        "lastRunStartedAt": None,
-        "lastRunCompletedAt": None,
-        "lastError": None,
+        "state": stored_status.get("state", "scheduled"),
+        "lastRunStartedAt": stored_status.get("lastRunStartedAt"),
+        "lastRunCompletedAt": stored_status.get("lastRunCompletedAt"),
+        "lastError": stored_status.get("lastError"),
     }
-    if not arguments.skip_initial:
-        last_status = run_cycle(arguments.data_dir, analyze_top)
+    catch_up = arguments.skip_initial and should_catch_up(
+        datetime.now(timezone.utc),
+        last_status.get("lastRunCompletedAt"),
+        last_status.get("state"),
+        hour,
+        minute,
+        arguments.timezone,
+    )
+    attempts_in_cycle = 0
+    if not arguments.skip_initial or catch_up:
+        last_status = run_cycle(
+            arguments.data_dir,
+            analyze_top,
+            status_path,
+            arguments.at,
+            arguments.timezone,
+        )
+        attempts_in_cycle = 1 if last_status.get("state") == "failed" else 0
 
     while True:
-        target = next_run_at(datetime.now(timezone.utc), hour, minute, arguments.timezone)
+        retrying = should_retry(last_status.get("state"), attempts_in_cycle)
+        if retrying:
+            target = datetime.now(timezone.utc) + timedelta(minutes=RETRY_DELAY_MINUTES)
+        else:
+            target = next_run_at(datetime.now(timezone.utc), hour, minute, arguments.timezone)
         status = {
             **last_status,
             "processId": os.getpid(),
             "heartbeatAt": datetime.now(timezone.utc).isoformat(),
             "schedule": {"time": arguments.at, "timezone": arguments.timezone},
             "nextRunAt": target.isoformat(),
+            "retryAttempt": attempts_in_cycle + 1 if retrying else None,
         }
         _write_status(status_path, status)
         print(f"next Rardar refresh: {target.isoformat()}", flush=True)
@@ -115,7 +247,17 @@ def main() -> None:
             _write_status(status_path, status)
             time.sleep(min(60, remaining))
 
-        last_status = run_cycle(arguments.data_dir, analyze_top)
+        last_status = run_cycle(
+            arguments.data_dir,
+            analyze_top,
+            status_path,
+            arguments.at,
+            arguments.timezone,
+        )
+        if last_status.get("state") == "failed":
+            attempts_in_cycle = attempts_in_cycle + 1 if retrying else 1
+        else:
+            attempts_in_cycle = 0
 
 
 if __name__ == "__main__":

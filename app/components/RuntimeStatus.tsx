@@ -8,8 +8,11 @@ type ServiceStatus = {
   restartCount?: number;
   url?: string;
   schedule?: { time: string; timezone: string };
+  refreshState?: "scheduled" | "running" | "healthy" | "failed";
   nextRunAt?: string | null;
+  lastRunStartedAt?: string | null;
   lastRunCompletedAt?: string | null;
+  retryAttempt?: number | null;
 };
 
 type RuntimeSnapshot = {
@@ -77,8 +80,15 @@ export function RuntimeStatus() {
   }, [refresh]);
 
   const healthy = snapshot?.state === "healthy";
-  const label = healthy ? "运行中" : snapshot ? "需启动" : "检查中";
   const scheduler = snapshot?.services.scheduler;
+  const refreshing = healthy && scheduler?.refreshState === "running";
+  const waitingForRetry = healthy && scheduler?.refreshState === "failed" && scheduler.retryAttempt;
+  const label = refreshing ? "刷新中" : healthy ? "运行中" : snapshot ? "需启动" : "检查中";
+  const detail = refreshing
+    ? `本轮开始 ${formatTime(scheduler?.lastRunStartedAt)}`
+    : waitingForRetry
+      ? `第 ${waitingForRetry} 次尝试将在 ${formatTime(scheduler?.nextRunAt)} 开始`
+      : `下次刷新 ${formatTime(scheduler?.nextRunAt)}`;
 
   return (
     <div className="schedule-card runtime-card" data-state={snapshot?.state ?? "checking"}>
@@ -87,7 +97,7 @@ export function RuntimeStatus() {
       <p>
         网站 {healthy ? "在线" : "状态未知"} · 每日 {scheduler?.schedule?.time ?? "08:00"}
         <br />
-        {healthy ? `下次刷新 ${formatTime(scheduler?.nextRunAt)}` : snapshot?.message ?? "正在读取运行状态"}
+        {healthy ? detail : snapshot?.message ?? "正在读取运行状态"}
       </p>
     </div>
   );
