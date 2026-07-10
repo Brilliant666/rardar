@@ -378,7 +378,11 @@ def _merge_signals(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 current[field] = signal[field]
     return sorted(
         merged.values(),
-        key=lambda item: (float(item["score"]), _parse_datetime(item["publishedAt"]) or datetime.min.replace(tzinfo=timezone.utc)),
+        key=lambda item: (
+            kind_priority.get(str(item.get("kind")), 0),
+            float(item["score"]),
+            _parse_datetime(item["publishedAt"]) or datetime.min.replace(tzinfo=timezone.utc),
+        ),
         reverse=True,
     )
 

@@ -9,6 +9,7 @@ from pipeline.collect_signals import (
     DAILY_RANK_URL,
     HELLOGITHUB_RELEASE_URL,
     OFFICIAL_FEEDS,
+    _merge_signals,
     collect_signals,
 )
 
@@ -50,6 +51,33 @@ class StubClient:
 
 
 class CollectSignalsTests(unittest.TestCase):
+    def test_official_source_priority_prevents_aggregator_crowding(self) -> None:
+        official = {
+            "id": "official",
+            "kind": "official",
+            "title": "Official update",
+            "url": "https://official.example/update",
+            "source": "Official",
+            "sourceUrl": "https://official.example/feed",
+            "publishedAt": "2026-07-10T10:00:00Z",
+            "score": 0.55,
+            "evidence": ["official_feed"],
+            "sources": ["Official"],
+        }
+        aggregated = {
+            **official,
+            "id": "aggregated",
+            "kind": "aggregated",
+            "title": "Aggregator headline",
+            "url": "https://aggregator.example/item",
+            "source": "Aggregator",
+            "score": 0.99,
+        }
+
+        merged = _merge_signals([aggregated, official])
+
+        self.assertEqual([item["kind"] for item in merged], ["official", "aggregated"])
+
     def test_excludes_stale_curated_release_from_48_hour_stream(self) -> None:
         client = StubClient()
         client.responses[HELLOGITHUB_RELEASE_URL] = json.dumps(
