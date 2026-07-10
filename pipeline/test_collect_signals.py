@@ -50,6 +50,24 @@ class StubClient:
 
 
 class CollectSignalsTests(unittest.TestCase):
+    def test_rejects_non_http_links_from_external_aggregator(self) -> None:
+        client = StubClient()
+        client.responses[AI_RADAR_URL] = json.dumps(
+            {
+                "items": [
+                    {
+                        "title": "Injected link",
+                        "primary_url": "javascript:alert(document.domain)",
+                        "latest_at": "2026-07-10T11:00:00Z",
+                    }
+                ]
+            }
+        ).encode()
+
+        payload = collect_signals(client, datetime(2026, 7, 10, 12, tzinfo=timezone.utc))
+
+        self.assertFalse(any(item["title"] == "Injected link" for item in payload["signals"]))
+
     def test_merges_duplicate_official_and_aggregated_urls(self) -> None:
         payload = collect_signals(
             StubClient(),

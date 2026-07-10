@@ -65,6 +65,7 @@ PRODUCT_CHANGE_TERMS = {
 }
 
 MARKETING_STORY_TERMS = {"case study", "customer", "how ", "rewiring", "with ai"}
+MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 
 
 class HttpClient:
@@ -81,7 +82,10 @@ class HttpClient:
             headers["x-github-api-version"] = "2022-11-28"
         request = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(request, timeout=45) as response:
-            return response.read()
+            payload = response.read(MAX_RESPONSE_BYTES + 1)
+        if len(payload) > MAX_RESPONSE_BYTES:
+            raise ValueError(f"source response exceeds {MAX_RESPONSE_BYTES} bytes")
+        return payload
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -141,6 +145,18 @@ def _canonical_url(value: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, urllib.parse.urlencode(filtered), ""))
 
 
+def _safe_http_url(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned or len(cleaned) > 2_048 or any(ord(character) < 32 for character in cleaned):
+        return None
+    parsed = urllib.parse.urlsplit(cleaned)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return None
+    return cleaned
+
+
 def _signal_id(kind: str, url: str) -> str:
     digest = hashlib.sha1(f"{kind}:{_canonical_url(url)}".encode("utf-8")).hexdigest()[:12]
     return f"signal_{digest}"
@@ -171,7 +187,7 @@ def _official_signals(client: HttpClient, now: datetime, window_hours: int) -> t
             latest: datetime | None = None
             for entry in entries[:30]:
                 title = _clean_title(_child_text(entry, {"title"}))
-                link = _feed_link(entry)
+                link = _safe_http_url(_feed_link(entry))
                 published = _parse_datetime(_child_text(entry, {"pubdate", "published", "updated", "date"}))
                 if not title or not link or not published or published < cutoff or published > now + timedelta(hours=2):
                     continue
@@ -217,7 +233,7 @@ def _radar_signals(client: HttpClient, now: datetime, window_hours: int) -> tupl
         signals: list[dict[str, Any]] = []
         for item in payload.get("items", [])[:30]:
             published = _parse_datetime(item.get("latest_at") or item.get("earliest_at"))
-            link = item.get("primary_url") or item.get("url")
+            link = _safe_http_url(item.get("primary_url") or item.get("url"))
             title = _clean_title(item.get("title"))
             if not published or not link or not title or published < now - timedelta(hours=window_hours):
                 continue
@@ -299,7 +315,7 @@ def _hellogithub_signal(client: HttpClient, now: datetime) -> tuple[list[dict[st
     try:
         release = json.loads(client.get(HELLOGITHUB_RELEASE_URL, "application/vnd.github+json").decode("utf-8"))
         published = _parse_datetime(release.get("published_at"))
-        link = release.get("html_url")
+        link = _safe_http_url(release.get("html_url"))
         if not published or not link:
             raise ValueError("latest release has no timestamp or URL")
         recent = published >= now - timedelta(days=45)

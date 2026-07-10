@@ -12,6 +12,7 @@ import argparse
 import json
 import math
 import re
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -57,13 +58,19 @@ LOW_ACTIONABILITY_TERMS = {
 }
 
 RISK_TERMS = {
+    "bypass safety",
+    "disable safety",
     "disable all content filters",
     "exploit",
+    "fuckclaude",
     "jailbreak",
     "offensive-security",
     "redeem only",
     "spoof",
     "unrestricted mode",
+    "关闭所有内容过滤器",
+    "关闭内容过滤",
+    "无限制模式",
 }
 
 
@@ -78,6 +85,16 @@ def _parse_time(value: str | None) -> datetime | None:
 
 def _clamp(value: float, minimum: int = 0, maximum: int = 100) -> int:
     return round(max(minimum, min(maximum, value)))
+
+
+def _safe_http_url(value: object, fallback: str) -> str:
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned and len(cleaned) <= 2_048 and not any(ord(character) < 32 for character in cleaned):
+            parsed = urllib.parse.urlsplit(cleaned)
+            if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+                return cleaned
+    return fallback
 
 
 def _text(repository: dict[str, Any]) -> str:
@@ -236,6 +253,11 @@ def _score(
         completeness += min(4, math.log10(max(int(repository.get("forks") or 0), 1)) * 1.5)
         completeness -= risk_penalty
         reuse_score = _clamp(completeness, maximum=72)
+    if risk_penalty:
+        # Keep risky repositories visible for awareness, but never allow viral
+        # growth or polished documentation to promote them into the Daily Five.
+        global_score = min(global_score, 49)
+        reuse_score = min(reuse_score, 35)
     return global_score, reuse_score
 
 
@@ -271,6 +293,7 @@ def _project(
     created_label = (_parse_time(repository.get("created_at")) or captured_at).date().isoformat()
     pushed_label = (_parse_time(repository.get("pushed_at")) or captured_at).date().isoformat()
     query_count = len(str(repository.get("candidate_query") or "").split(" | "))
+    repository_url = _safe_http_url(repository.get("url"), f"https://github.com/{repo}")
 
     if growth["kind"] == "observed":
         why_now = f"Rardar 两次事实快照之间观测到 {growth['label']}，且仓库最近推送于 {pushed_label}。"
@@ -354,7 +377,7 @@ def _project(
             {
                 "label": "候选召回依据",
                 "detail": f"仓库由 {query_count} 条 GitHub 搜索规则召回；当前增长字段类型为 {growth['kind']}。",
-                "href": str(repository.get("url") or f"https://github.com/{repo}"),
+                "href": repository_url,
             },
             *(
                 [
@@ -365,7 +388,7 @@ def _project(
                             f"测试文件 {int((analysis.get('counts') or {}).get('test_files') or 0)} 个；"
                             f"置信度 {int(analysis.get('confidence') or 0)}%。未执行仓库代码。"
                         ),
-                        "href": str(repository.get("url") or f"https://github.com/{repo}"),
+                        "href": repository_url,
                     }
                 ]
                 if analysis
@@ -376,7 +399,7 @@ def _project(
                     {
                         "label": "Codex 中文能力画像",
                         "detail": str(enrichment.get("evidenceSummary") or "依据仓库 README 与静态证据生成中文能力、适用任务和复用边界。"),
-                        "href": str(enrichment.get("sourceUrl") or repository.get("url") or f"https://github.com/{repo}"),
+                        "href": _safe_http_url(enrichment.get("sourceUrl"), repository_url),
                     }
                 ]
                 if enrichment
