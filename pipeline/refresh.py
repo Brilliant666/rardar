@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +30,62 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
+
+
+def _write_json_batch(entries: list[tuple[Path, dict[str, Any]]]) -> None:
+    """Replace a related set of JSON files together, rolling back write failures."""
+    transaction_id = uuid.uuid4().hex
+    staged: dict[Path, Path] = {}
+    backups: dict[Path, Path | None] = {}
+    changed: list[Path] = []
+
+    try:
+        for path, payload in entries:
+            if path in staged:
+                raise ValueError(f"duplicate JSON batch target: {path}")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_name(f".{path.name}.{transaction_id}.tmp")
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            staged[path] = temporary
+
+        for path, _ in entries:
+            backup: Path | None = None
+            if path.exists():
+                backup = path.with_name(f".{path.name}.{transaction_id}.bak")
+                path.replace(backup)
+            backups[path] = backup
+            changed.append(path)
+            staged[path].replace(path)
+    except Exception:
+        for path in reversed(changed):
+            backup = backups.get(path)
+            try:
+                if path.exists():
+                    path.unlink()
+                if backup and backup.exists():
+                    backup.replace(path)
+            except OSError:
+                # Keep a remaining backup for manual recovery instead of
+                # deleting the only good copy while handling another error.
+                pass
+        raise
+    else:
+        for backup in backups.values():
+            if backup and backup.exists():
+                try:
+                    backup.unlink()
+                except OSError:
+                    pass
+    finally:
+        for temporary in staged.values():
+            if temporary.exists():
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
 
 
 def _safe_name(repository: str) -> str:
@@ -83,10 +140,6 @@ def refresh(
     previous = _read_json(latest_snapshot_path)
     current = collect(client or GitHubClient(os.environ.get("GITHUB_TOKEN")), now, since_days)
 
-    if previous and previous.get("captured_at") != current.get("captured_at"):
-        _write_json(history_dir / _history_name(previous), previous)
-    _write_json(latest_snapshot_path, current)
-
     preliminary = build_catalog(current, previous, limit)
     failures: list[dict[str, str]] = []
     for project in preliminary["projects"][: max(0, min(analyze_top, 10))]:
@@ -114,7 +167,6 @@ def refresh(
             window_hours=48,
             limit=30,
         )
-        _write_json(data_dir / "signals" / "latest.json", signals)
         catalog["signalCount"] = signals["signalCount"]
         catalog["healthySignalSourceCount"] = signals["healthySourceCount"]
     queue = build_codex_queue(
@@ -124,9 +176,24 @@ def refresh(
         data_dir / "signals" / "enrichment.json",
         now,
     )
-    _write_json(data_dir / "queues" / "codex.json", queue)
     catalog["codexPendingCount"] = queue["pendingCount"]
-    _write_json(catalog_path, catalog)
+
+    # The snapshot becomes the next run's growth baseline. Publish it only
+    # after every derived artifact has been prepared successfully so a failed
+    # signal or catalog stage cannot silently advance that baseline.
+    writes: list[tuple[Path, dict[str, Any]]] = []
+    if previous and previous.get("captured_at") != current.get("captured_at"):
+        writes.append((history_dir / _history_name(previous), previous))
+    if collect_external_signals:
+        writes.append((data_dir / "signals" / "latest.json", signals))
+    writes.extend(
+        [
+            (data_dir / "queues" / "codex.json", queue),
+            (catalog_path, catalog),
+            (latest_snapshot_path, current),
+        ]
+    )
+    _write_json_batch(writes)
     return catalog
 
 
