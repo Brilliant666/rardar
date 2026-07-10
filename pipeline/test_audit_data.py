@@ -85,6 +85,10 @@ class AuditDataTests(unittest.TestCase):
             corrupted = audit_data(root)
 
         self.assertEqual(healthy["status"], "healthy")
+        self.assertEqual(healthy["observedProjectCount"], 1)
+        self.assertEqual(healthy["positiveGrowthProjectCount"], 1)
+        self.assertEqual(healthy["observedNetStarChange"], 20)
+        self.assertEqual(healthy["dailyTrackCounts"], {"recentMomentum": 0, "longTerm": 1})
         self.assertIn("observed_growth_mismatch", {item["code"] for item in corrupted["issues"]})
 
     def test_accepts_consistent_first_snapshot(self) -> None:

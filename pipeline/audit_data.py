@@ -248,6 +248,13 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
                 previous_snapshot = payload
     _add_if(issues, bool(previous_at and history_matches != 1), "missing_previous_snapshot", "catalog previousCapturedAt must match exactly one history snapshot")
     observed_count = sum(isinstance(item, dict) and item.get("growthKind") == "observed" for item in projects)
+    observed_values = [
+        int(item["growthValue"])
+        for item in projects
+        if isinstance(item, dict)
+        and item.get("growthKind") == "observed"
+        and _integer(item.get("growthValue")) is not None
+    ]
     growth_kind_mismatches = 0
     growth_value_mismatches = 0
     if previous_snapshot:
@@ -304,10 +311,19 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         "dataDir": str(data_dir),
         "snapshotCapturedAt": snapshot.get("captured_at"),
         "catalogCapturedAt": catalog.get("capturedAt"),
+        "previousSnapshotCapturedAt": catalog.get("previousCapturedAt"),
         "repositoryCount": len(repositories),
         "projectCount": len(projects),
+        "growthMode": catalog.get("growthMode"),
         "observedProjectCount": observed_count,
+        "positiveGrowthProjectCount": sum(value > 0 for value in observed_values),
+        "flatGrowthProjectCount": sum(value == 0 for value in observed_values),
+        "negativeGrowthProjectCount": sum(value < 0 for value in observed_values),
+        "observedNetStarChange": sum(observed_values),
+        "dailyTrackCounts": catalog.get("dailyTrackCounts"),
         "signalCount": len(signal_items),
+        "healthySourceCount": healthy_sources,
+        "failedSourceCount": failed_sources,
         "queuePendingCount": len(queue_items),
         "historyCount": len(list(history_dir.glob("*.json"))) if history_dir.exists() else 0,
         "errorCount": error_count,
