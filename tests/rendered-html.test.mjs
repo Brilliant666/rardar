@@ -5,7 +5,7 @@ import test from "node:test";
 const templateRoot = new URL("../", import.meta.url);
 
 test("contains the complete Rardar home experience", async () => {
-  const [page, data, signals, signalsPage, runtimeStatus, feedbackRoute, metricsRoute, actionsRoute, recommendationsRoute, dailyList, projectActions, personalization, queue, schema, ensure, build] = await Promise.all([
+  const [page, data, signals, signalsPage, runtimeStatus, feedbackRoute, metricsRoute, actionsRoute, recommendationsRoute, dailyList, projectActions, watchlist, personalization, queue, schema, ensure, build] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals.ts", import.meta.url), "utf8"),
@@ -17,6 +17,7 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/api/recommendations/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PersonalizedDailyList.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/ProjectActions.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/WatchlistClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/personalization.ts", import.meta.url), "utf8"),
     readFile(new URL("../data/queues/codex.json", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
@@ -36,10 +37,14 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(data, /dailyProjects = projects\.slice\(0, 5\)/);
   assert.doesNotMatch(data, /starsToday/);
   assert.match(metricsRoute, /effective_decisions/);
+  assert.match(metricsRoute, /cache-control.*no-store/s);
   assert.match(feedbackRoute, /projectSlugs/);
+  assert.match(feedbackRoute, /noStoreHeaders/);
   assert.match(metricsRoute, /project_actions/);
   assert.match(actionsRoute, /allowedActions/);
   assert.match(projectActions, /确认复用/);
+  assert.match(watchlist, /item\.action !== "saved"/);
+  assert.match(watchlist, /已收藏/);
   assert.match(recommendationsRoute, /rankProjects/);
   assert.match(dailyList, /rardar:feedback|feedbackEventName/);
   assert.match(personalization, /降低重复曝光/);

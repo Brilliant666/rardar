@@ -6,6 +6,7 @@ import { projects } from "../../data";
 
 const allowedValues = new Set(["有用", "无用", "复用", "待确定"]);
 const projectSlugs = new Set(projects.map((project) => project.slug));
+const noStoreHeaders = { "cache-control": "no-store" };
 
 export async function GET(request: Request) {
   await ensureDecisionSchema();
@@ -22,11 +23,11 @@ export async function GET(request: Request) {
   const db = getDb();
   if (projectSlug) {
     const [row] = await db.select().from(feedback).where(and(eq(feedback.deviceId, deviceId), eq(feedback.projectSlug, projectSlug))).limit(1);
-    return Response.json({ feedback: row ?? null });
+    return Response.json({ feedback: row ?? null }, { headers: noStoreHeaders });
   }
 
   const rows = await db.select().from(feedback).where(eq(feedback.deviceId, deviceId));
-  return Response.json({ feedback: rows });
+  return Response.json({ feedback: rows }, { headers: noStoreHeaders });
 }
 
 export async function POST(request: Request) {

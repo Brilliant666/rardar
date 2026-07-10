@@ -83,5 +83,5 @@ export async function GET(request: Request) {
       uncertain: current["待确定"],
       total: Object.values(current).reduce((sum, value) => sum + value, 0),
     },
-  });
+  }, { headers: { "cache-control": "no-store" } });
 }
