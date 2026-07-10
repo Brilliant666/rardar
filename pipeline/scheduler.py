@@ -168,6 +168,12 @@ def run_cycle(
             "signalCount": catalog.get("signalCount", 0),
             "dataAuditStatus": audit["status"],
             "dataAuditWarningCount": audit["warningCount"],
+            "dataAuditSummary": {
+                "observedProjectCount": audit.get("observedProjectCount", 0),
+                "observedNetStarChange": audit.get("observedNetStarChange", 0),
+                "dailyTrackCounts": audit.get("dailyTrackCounts"),
+                "historyCount": audit.get("historyCount", 0),
+            },
         }
     except Exception as error:
         result = {

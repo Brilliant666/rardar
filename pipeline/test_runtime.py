@@ -55,12 +55,14 @@ class RuntimeTests(unittest.TestCase):
             "state": "healthy",
             "dataAuditStatus": "degraded",
             "dataAuditWarningCount": 2,
+            "dataAuditSummary": {"observedProjectCount": 30},
         }
         with patch("pipeline.runtime._read_json", return_value=status):
             details = _scheduler_details()
 
         self.assertEqual(details["dataAuditStatus"], "degraded")
         self.assertEqual(details["dataAuditWarningCount"], 2)
+        self.assertEqual(details["dataAuditSummary"], {"observedProjectCount": 30})
 
     def test_runtime_logs_rotate_with_bounded_backups(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

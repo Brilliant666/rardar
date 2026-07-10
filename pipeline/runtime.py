@@ -434,6 +434,7 @@ def _scheduler_details() -> dict[str, Any]:
         "heartbeatAt": status.get("heartbeatAt"),
         "dataAuditStatus": status.get("dataAuditStatus"),
         "dataAuditWarningCount": status.get("dataAuditWarningCount"),
+        "dataAuditSummary": status.get("dataAuditSummary"),
     }
 
 

@@ -15,6 +15,12 @@ type ServiceStatus = {
   retryAttempt?: number | null;
   dataAuditStatus?: "healthy" | "degraded" | "failed" | null;
   dataAuditWarningCount?: number | null;
+  dataAuditSummary?: {
+    observedProjectCount?: number;
+    observedNetStarChange?: number;
+    dailyTrackCounts?: { recentMomentum?: number; longTerm?: number } | null;
+    historyCount?: number;
+  } | null;
 };
 
 type RuntimeSnapshot = {
@@ -49,6 +55,10 @@ function normalizeSnapshot(snapshot: RuntimeSnapshot): RuntimeSnapshot {
     return { ...snapshot, state: "stale", message: "运行心跳已过期，请重新启动本地管理器" };
   }
   return snapshot;
+}
+
+function formatSigned(value: number) {
+  return value > 0 ? `+${value}` : String(value);
 }
 
 export function RuntimeStatus() {
@@ -87,6 +97,7 @@ export function RuntimeStatus() {
   const waitingForRetry = healthy && scheduler?.refreshState === "failed" && scheduler.retryAttempt;
   const refreshFailed = healthy && scheduler?.refreshState === "failed";
   const auditDegraded = healthy && scheduler?.dataAuditStatus === "degraded";
+  const auditSummary = scheduler?.dataAuditSummary;
   const label = refreshing
     ? "刷新中"
     : waitingForRetry
@@ -108,7 +119,9 @@ export function RuntimeStatus() {
         ? `本轮采集未完成 · 下次计划 ${formatTime(scheduler?.nextRunAt)}`
         : auditDegraded
           ? `数据审计发现 ${scheduler?.dataAuditWarningCount ?? 0} 条警告 · 下次刷新 ${formatTime(scheduler?.nextRunAt)}`
-          : `下次刷新 ${formatTime(scheduler?.nextRunAt)}`;
+          : auditSummary
+            ? `本轮观测 ${auditSummary.observedProjectCount ?? 0} 项 · 净 Star ${formatSigned(auditSummary.observedNetStarChange ?? 0)} · 动量 ${auditSummary.dailyTrackCounts?.recentMomentum ?? 0} / 长期 ${auditSummary.dailyTrackCounts?.longTerm ?? 0} · 下次 ${formatTime(scheduler?.nextRunAt)}`
+            : `下次刷新 ${formatTime(scheduler?.nextRunAt)}`;
 
   return (
     <div

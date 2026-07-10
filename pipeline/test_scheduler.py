@@ -71,7 +71,15 @@ class SchedulerTests(unittest.TestCase):
                 patch("pipeline.scheduler.refresh", side_effect=inspect_running_state),
                 patch(
                     "pipeline.scheduler.audit_data",
-                    return_value={"status": "healthy", "warningCount": 0, "issues": []},
+                    return_value={
+                        "status": "healthy",
+                        "warningCount": 0,
+                        "issues": [],
+                        "observedProjectCount": 2,
+                        "observedNetStarChange": 42,
+                        "dailyTrackCounts": {"recentMomentum": 3, "longTerm": 2},
+                        "historyCount": 1,
+                    },
                 ),
             ):
                 result = run_cycle(Path(directory), 0, status_path)
@@ -81,6 +89,7 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(stored["state"], "healthy")
             self.assertEqual(stored["candidateCount"], 3)
             self.assertEqual(stored["dataAuditStatus"], "healthy")
+            self.assertEqual(stored["dataAuditSummary"]["observedNetStarChange"], 42)
             self.assertIsNotNone(stored["lastRunCompletedAt"])
 
     def test_cycle_fails_when_committed_data_fails_audit(self) -> None:
