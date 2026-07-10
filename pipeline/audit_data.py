@@ -233,6 +233,13 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             "catalog_query_failure_count_mismatch",
             "catalog queryFailureCount differs from the GitHub snapshot",
         )
+        _add_if(
+            issues,
+            failed_query_count > 0,
+            "partial_query_failure",
+            f"{failed_query_count} GitHub candidate queries failed; candidate coverage is incomplete",
+            severity="warning",
+        )
         query_set = {item for item in queries if isinstance(item, str)}
         unknown_candidate_queries = sum(
             1

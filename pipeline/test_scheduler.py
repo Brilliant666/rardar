@@ -79,6 +79,8 @@ class SchedulerTests(unittest.TestCase):
                         "observedNetStarChange": 42,
                         "dailyTrackCounts": {"recentMomentum": 3, "longTerm": 2},
                         "historyCount": 1,
+                        "successfulQueryCount": 6,
+                        "failedQueryCount": 1,
                     },
                 ),
             ):
@@ -90,6 +92,8 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(stored["candidateCount"], 3)
             self.assertEqual(stored["dataAuditStatus"], "healthy")
             self.assertEqual(stored["dataAuditSummary"]["observedNetStarChange"], 42)
+            self.assertEqual(stored["dataAuditSummary"]["successfulQueryCount"], 6)
+            self.assertEqual(stored["dataAuditSummary"]["failedQueryCount"], 1)
             self.assertIsNotNone(stored["lastRunCompletedAt"])
 
     def test_cycle_fails_when_committed_data_fails_audit(self) -> None:

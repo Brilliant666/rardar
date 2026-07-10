@@ -173,6 +173,8 @@ def run_cycle(
                 "observedNetStarChange": audit.get("observedNetStarChange", 0),
                 "dailyTrackCounts": audit.get("dailyTrackCounts"),
                 "historyCount": audit.get("historyCount", 0),
+                "successfulQueryCount": audit.get("successfulQueryCount"),
+                "failedQueryCount": audit.get("failedQueryCount"),
             },
         }
     except Exception as error:

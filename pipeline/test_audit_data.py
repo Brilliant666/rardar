@@ -126,7 +126,15 @@ class AuditDataTests(unittest.TestCase):
                 "repositories": [repository],
             }
             write_json(root / "snapshots/latest.json", snapshot)
-            write_json(root / "catalog/latest.json", {"capturedAt": captured, "sourceCount": 1, "projectCount": 1, "previousCapturedAt": None, "queryFailureCount": 0, "projects": [project]})
+            catalog_payload = {
+                "capturedAt": captured,
+                "sourceCount": 1,
+                "projectCount": 1,
+                "previousCapturedAt": None,
+                "queryFailureCount": 0,
+                "projects": [project],
+            }
+            write_json(root / "catalog/latest.json", catalog_payload)
             write_json(
                 root / "signals/latest.json",
                 {
@@ -157,6 +165,21 @@ class AuditDataTests(unittest.TestCase):
             )
 
             result = audit_data(root)
+            failed_query = "topic:productivity stars:>=50 archived:false fork:false"
+            snapshot["queries"].append(failed_query)
+            snapshot["query_status"].append(
+                {
+                    "query": failed_query,
+                    "state": "failed",
+                    "item_count": 0,
+                    "error": "rate limited",
+                }
+            )
+            snapshot["failed_query_count"] = 1
+            catalog_payload["queryFailureCount"] = 1
+            write_json(root / "snapshots/latest.json", snapshot)
+            write_json(root / "catalog/latest.json", catalog_payload)
+            partial_query_failure = audit_data(root)
             queue_payload = json.loads((root / "queues/codex.json").read_text(encoding="utf-8"))
             queue_payload["items"].reverse()
             write_json(root / "queues/codex.json", queue_payload)
@@ -168,7 +191,7 @@ class AuditDataTests(unittest.TestCase):
                 "error": "rate limited",
             }
             snapshot["successful_query_count"] = 0
-            snapshot["failed_query_count"] = 1
+            snapshot["failed_query_count"] = 2
             repository["candidate_query"] = "stars:>=999999"
             write_json(root / "snapshots/latest.json", snapshot)
             corrupted_queries = audit_data(root)
@@ -177,6 +200,11 @@ class AuditDataTests(unittest.TestCase):
         self.assertEqual(result["errorCount"], 0)
         self.assertEqual(result["successfulQueryCount"], 1)
         self.assertEqual(result["failedQueryCount"], 0)
+        self.assertEqual(partial_query_failure["status"], "degraded")
+        self.assertIn(
+            "partial_query_failure",
+            {item["code"] for item in partial_query_failure["issues"]},
+        )
         self.assertIn("stale_queue_items", {item["code"] for item in stale_queue["issues"]})
         corrupted_query_codes = {item["code"] for item in corrupted_queries["issues"]}
         self.assertIn("query_status_coverage_mismatch", corrupted_query_codes)

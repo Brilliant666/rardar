@@ -20,6 +20,8 @@ type ServiceStatus = {
     observedNetStarChange?: number;
     dailyTrackCounts?: { recentMomentum?: number; longTerm?: number } | null;
     historyCount?: number;
+    successfulQueryCount?: number | null;
+    failedQueryCount?: number | null;
   } | null;
 };
 
@@ -98,6 +100,10 @@ export function RuntimeStatus() {
   const refreshFailed = healthy && scheduler?.refreshState === "failed";
   const auditDegraded = healthy && scheduler?.dataAuditStatus === "degraded";
   const auditSummary = scheduler?.dataAuditSummary;
+  const queryCoverage =
+    auditSummary?.successfulQueryCount != null && auditSummary?.failedQueryCount != null
+      ? `查询 ${auditSummary.successfulQueryCount}/${auditSummary.successfulQueryCount + auditSummary.failedQueryCount}`
+      : null;
   const label = refreshing
     ? "刷新中"
     : waitingForRetry
@@ -118,9 +124,9 @@ export function RuntimeStatus() {
       : refreshFailed
         ? `本轮采集未完成 · 下次计划 ${formatTime(scheduler?.nextRunAt)}`
         : auditDegraded
-          ? `数据审计发现 ${scheduler?.dataAuditWarningCount ?? 0} 条警告 · 下次刷新 ${formatTime(scheduler?.nextRunAt)}`
+          ? `数据审计发现 ${scheduler?.dataAuditWarningCount ?? 0} 条警告${queryCoverage ? ` · ${queryCoverage}` : ""} · 下次刷新 ${formatTime(scheduler?.nextRunAt)}`
           : auditSummary
-            ? `本轮观测 ${auditSummary.observedProjectCount ?? 0} 项 · 净 Star ${formatSigned(auditSummary.observedNetStarChange ?? 0)} · 动量 ${auditSummary.dailyTrackCounts?.recentMomentum ?? 0} / 长期 ${auditSummary.dailyTrackCounts?.longTerm ?? 0} · 下次 ${formatTime(scheduler?.nextRunAt)}`
+            ? `本轮观测 ${auditSummary.observedProjectCount ?? 0} 项 · 净 Star ${formatSigned(auditSummary.observedNetStarChange ?? 0)} · 动量 ${auditSummary.dailyTrackCounts?.recentMomentum ?? 0} / 长期 ${auditSummary.dailyTrackCounts?.longTerm ?? 0}${queryCoverage ? ` · ${queryCoverage}` : ""} · 下次 ${formatTime(scheduler?.nextRunAt)}`
             : `下次刷新 ${formatTime(scheduler?.nextRunAt)}`;
 
   return (
