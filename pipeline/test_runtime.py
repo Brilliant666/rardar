@@ -14,10 +14,42 @@ from pipeline.runtime import (
     parse_node_version,
     release_manager_lock,
     rotate_log,
+    scheduler_heartbeat_state,
 )
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_scheduler_heartbeat_distinguishes_startup_and_stale_processes(self) -> None:
+        now = datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+        self.assertEqual(
+            scheduler_heartbeat_state(
+                (now - timedelta(seconds=60)).isoformat(),
+                (now - timedelta(hours=1)).isoformat(),
+                now,
+            ),
+            "healthy",
+        )
+        self.assertEqual(
+            scheduler_heartbeat_state(None, (now - timedelta(seconds=30)).isoformat(), now),
+            "starting",
+        )
+        self.assertEqual(
+            scheduler_heartbeat_state(
+                (now - timedelta(seconds=1)).isoformat(),
+                now.isoformat(),
+                now,
+            ),
+            "starting",
+        )
+        self.assertEqual(
+            scheduler_heartbeat_state(
+                (now - timedelta(seconds=130)).isoformat(),
+                (now - timedelta(minutes=5)).isoformat(),
+                now,
+            ),
+            "stale",
+        )
+
     def test_scheduler_details_exposes_data_audit_state(self) -> None:
         status = {
             "state": "healthy",

@@ -46,6 +46,8 @@ STATUS_PORT = 3002
 MINIMUM_NODE = (22, 13, 0)
 MAX_LOG_BYTES = 5 * 1024 * 1024
 LOG_BACKUP_COUNT = 2
+SCHEDULER_HEARTBEAT_MAX_AGE = 125
+SERVICE_STARTUP_GRACE = 90
 _latest_status: dict[str, Any] = {}
 _latest_status_lock = threading.Lock()
 
@@ -314,6 +316,41 @@ def heartbeat_is_fresh(checked_at: str | None, now: datetime | None = None, maxi
     return 0 <= (reference - checked.astimezone(timezone.utc)).total_seconds() <= maximum_age
 
 
+def _parse_utc_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def scheduler_heartbeat_state(
+    heartbeat_at: str | None,
+    started_at: str | None,
+    now: datetime | None = None,
+) -> str:
+    """Distinguish scheduler startup from a live process with a stale heartbeat."""
+    reference = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    heartbeat = _parse_utc_timestamp(heartbeat_at)
+    started = _parse_utc_timestamp(started_at)
+    heartbeat_belongs_to_process = not started or bool(heartbeat and heartbeat >= started)
+    if heartbeat_belongs_to_process and heartbeat_is_fresh(
+        heartbeat_at,
+        reference,
+        maximum_age=SCHEDULER_HEARTBEAT_MAX_AGE,
+    ):
+        return "healthy"
+    if started:
+        uptime = (reference - started).total_seconds()
+        if 0 <= uptime <= SERVICE_STARTUP_GRACE:
+            return "starting"
+    return "stale"
+
+
 def port_is_open(host: str = "127.0.0.1", port: int = 3000) -> bool:
     try:
         with socket.create_connection((host, port), timeout=1):
@@ -355,7 +392,8 @@ class ManagedService:
             start_new_session=os.name != "nt",
         )
         self.started_at = utc_now()
-        self.last_error = None
+        if self.restart_count == 0:
+            self.last_error = None
 
     def poll(self) -> int | None:
         return self.process.poll() if self.process else None
@@ -393,6 +431,7 @@ def _scheduler_details() -> dict[str, Any]:
         "lastRunCompletedAt": status.get("lastRunCompletedAt"),
         "lastError": status.get("lastError"),
         "retryAttempt": status.get("retryAttempt"),
+        "heartbeatAt": status.get("heartbeatAt"),
         "dataAuditStatus": status.get("dataAuditStatus"),
         "dataAuditWarningCount": status.get("dataAuditWarningCount"),
     }
@@ -486,10 +525,24 @@ def _run_manager() -> int:
                     service.start(environment)
 
             website_state = "healthy" if website.poll() is None and port_is_open() else "starting"
-            scheduler_state = "healthy" if scheduler.poll() is None else "restarting"
+            scheduler_details = _scheduler_details()
+            scheduler_state = (
+                scheduler_heartbeat_state(
+                    scheduler_details.get("heartbeatAt"),
+                    scheduler.started_at,
+                )
+                if scheduler.poll() is None
+                else "restarting"
+            )
+            if scheduler_state == "stale":
+                scheduler.last_error = "scheduler heartbeat became stale"
+                scheduler.stop()
+                scheduler.start(environment)
+                scheduler_state = "restarting"
             overall_state = "healthy" if website_state == scheduler_state == "healthy" else "degraded"
             scheduler_payload = _service_payload(scheduler, scheduler_state)
-            scheduler_payload.update(_scheduler_details())
+            scheduler_payload.update(scheduler_details)
+            scheduler_payload["processError"] = scheduler.last_error
             payload = {
                 "schemaVersion": 1,
                 "state": overall_state,
