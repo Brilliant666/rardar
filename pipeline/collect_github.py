@@ -47,6 +47,8 @@ def candidate_queries(now: datetime, since_days: int = 14) -> list[str]:
         f"created:>={since} stars:>=25 archived:false fork:false",
         f"pushed:>={recent} stars:>=500 archived:false fork:false",
         f"pushed:>={maintained} stars:>=5000 archived:false fork:false",
+        f"topic:productivity pushed:>={maintained} stars:>=1000 archived:false fork:false",
+        f"topic:developer-tools pushed:>={maintained} stars:>=2000 archived:false fork:false",
         f"topic:productivity pushed:>={recent} stars:>=50 archived:false fork:false",
         f"topic:artificial-intelligence pushed:>={recent} stars:>=100 archived:false fork:false",
         f"topic:developer-tools pushed:>={recent} stars:>=100 archived:false fork:false",
