@@ -40,7 +40,7 @@ export type CatalogSnapshot = {
   projectCount: number;
   deepAnalysisCount: number;
   pendingDeepAnalysis: string[];
-  growthMode: "observed" | "first_observation_proxy";
+  growthMode: "observed" | "mixed_observation" | "first_observation_proxy";
   notice: string;
   projects: Project[];
 };

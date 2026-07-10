@@ -846,6 +846,11 @@ input:focus-visible {
   font-weight: 650;
 }
 
+.trend-down {
+  color: #a43c32 !important;
+  font-weight: 650;
+}
+
 .action-tag {
   margin-left: auto;
   color: var(--ink);

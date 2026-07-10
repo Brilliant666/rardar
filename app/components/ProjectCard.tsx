@@ -49,7 +49,7 @@ export function ProjectCard({
       {!compact && <p className="why-now"><span>为什么现在</span>{project.whyNow}</p>}
       <div className="project-meta">
         <span>★ {formatNumber(project.stars)}</span>
-        <span className="trend-up" title={project.growthLabel}>{project.trend}</span>
+        <span className={project.growthValue < 0 ? "trend-down" : "trend-up"} title={project.growthLabel}>{project.trend}</span>
         <span>{project.language}</span>
         <span>{project.license}</span>
         <span className="action-tag">建议：{project.recommendation}</span>

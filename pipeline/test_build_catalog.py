@@ -117,6 +117,44 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertEqual(project["growthValue"], 200)
         self.assertIn("24.0 小时", project["growthLabel"])
 
+    def test_observed_star_loss_is_not_hidden(self) -> None:
+        previous = {
+            "captured_at": "2026-07-09T12:00:00Z",
+            "count": 1,
+            "repositories": [repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")],
+        }
+        current = {
+            "captured_at": "2026-07-10T12:00:00Z",
+            "count": 1,
+            "repositories": [repository("demo/new-tool", 880, "2026-07-07T12:00:00Z")],
+        }
+
+        project = build_catalog(current, previous)["projects"][0]
+
+        self.assertEqual(project["growthValue"], -20)
+        self.assertIn("-20", project["growthLabel"])
+
+    def test_mixed_second_snapshot_explains_new_candidates(self) -> None:
+        previous = {
+            "captured_at": "2026-07-09T12:00:00Z",
+            "count": 1,
+            "repositories": [repository("demo/known", 700, "2026-07-07T12:00:00Z")],
+        }
+        current = {
+            "captured_at": "2026-07-10T12:00:00Z",
+            "count": 2,
+            "repositories": [
+                repository("demo/known", 710, "2026-07-07T12:00:00Z"),
+                repository("demo/new", 100, "2026-07-10T00:00:00Z"),
+            ],
+        }
+
+        catalog = build_catalog(current, previous)
+
+        self.assertEqual(catalog["growthMode"], "mixed_observation")
+        self.assertIn("1 个项目具有两次快照", catalog["notice"])
+        self.assertIn("新进入", catalog["notice"])
+
     def test_recent_actionable_repository_outranks_old_reference_list(self) -> None:
         snapshot = {
             "captured_at": "2026-07-10T12:00:00Z",

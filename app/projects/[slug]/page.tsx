@@ -31,7 +31,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
           <div className="detail-score-panel">
             <div><strong>{project.globalScore}</strong><span>全球影响力</span></div>
             <div><strong>{project.reuseScore}</strong><span>复用价值</span></div>
-            <div className="detail-stat"><span>★ {formatNumber(project.stars)}</span><span className="trend-up" title={project.growthLabel}>{project.trend}</span></div>
+            <div className="detail-stat"><span>★ {formatNumber(project.stars)}</span><span className={project.growthValue < 0 ? "trend-down" : "trend-up"} title={project.growthLabel}>{project.trend}</span></div>
           </div>
         </header>
 

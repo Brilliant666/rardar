@@ -22,7 +22,7 @@ export default function CandidatesPage() {
             <Link href={`/projects/${project.slug}`} key={project.slug} className="candidate-row">
               <div><strong>{project.repo}</strong><small>★ {formatNumber(project.stars)} · {project.language}</small></div>
               <span>{project.category}</span>
-              <span className="trend-up">{project.trend}</span>
+              <span className={project.growthValue < 0 ? "trend-down" : "trend-up"}>{project.trend}</span>
               <b>{project.globalScore}</b>
               <b>{project.reuseScore}</b>
               <span>{project.recommendation}</span>

@@ -15,6 +15,10 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
+
+
+DISPLAY_ZONE = ZoneInfo("Asia/Shanghai")
 
 
 PRODUCTIVITY_TERMS = {
@@ -144,13 +148,13 @@ def _growth(
 
     if previous_repository and previous_captured_at and captured_at > previous_captured_at:
         window_hours = (captured_at - previous_captured_at).total_seconds() / 3_600
-        delta = max(0, stars - int(previous_repository.get("stars") or 0))
-        normalized_delta = delta * 24 / max(window_hours, 1)
+        delta = stars - int(previous_repository.get("stars") or 0)
+        normalized_delta = max(0, delta) * 24 / max(window_hours, 1)
         return {
             "kind": "observed",
             "value": delta,
-            "label": f"观测 +{delta} / {window_hours:.1f} 小时",
-            "trend": f"+{delta} / {window_hours:.1f}h",
+            "label": f"观测 {delta:+d} / {window_hours:.1f} 小时",
+            "trend": f"{delta:+d} / {window_hours:.1f}h",
             "ranking_value": normalized_delta,
             "age_days": age_days,
         }
@@ -263,7 +267,7 @@ def _project(
     content = _text(repository)
     risk_detected = any(term in content for term in RISK_TERMS)
     category = _category(repository)
-    captured_label = captured_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    captured_label = captured_at.astimezone(DISPLAY_ZONE).strftime("%Y-%m-%d %H:%M %Z")
     created_label = (_parse_time(repository.get("created_at")) or captured_at).date().isoformat()
     pushed_label = (_parse_time(repository.get("pushed_at")) or captured_at).date().isoformat()
     query_count = len(str(repository.get("candidate_query") or "").split(" | "))
@@ -419,14 +423,25 @@ def build_catalog(
         "projectCount": len(bounded),
         "deepAnalysisCount": deep_analysis_count,
         "pendingDeepAnalysis": pending_deep_analysis,
-        "growthMode": "observed" if observed_count == len(bounded) else "first_observation_proxy",
+        "growthMode": (
+            "observed"
+            if observed_count == len(bounded)
+            else "mixed_observation"
+            if observed_count > 0
+            else "first_observation_proxy"
+        ),
         "notice": (
-            f"本页来自 {captured_at.astimezone().strftime('%Y-%m-%d %H:%M %Z')} 的真实 GitHub API 快照，"
+            f"本页来自 {captured_at.astimezone(DISPLAY_ZONE).strftime('%Y-%m-%d %H:%M %Z')} 的真实 GitHub API 快照，"
             f"从 {int(snapshot.get('count') or 0)} 个候选中选出 {len(bounded)} 个。"
             + (
                 "增长来自两次快照的实际观测区间。"
                 if observed_count == len(bounded)
-                else "这是首次观察：页面明确使用创建以来速度代理，不将其表述为 24 小时新增。"
+                else (
+                    f"其中 {observed_count} 个项目具有两次快照的实际观测增长；"
+                    "本轮新进入的项目继续使用明确标注的创建以来速度代理。"
+                    if observed_count > 0
+                    else "这是首次观察：页面明确使用创建以来速度代理，不将其表述为 24 小时新增。"
+                )
             )
         ),
         "projects": bounded,
