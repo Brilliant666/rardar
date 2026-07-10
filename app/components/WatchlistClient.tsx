@@ -3,23 +3,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { projects } from "../data";
-
-function deviceId() {
-  return window.localStorage.getItem("rardar-device-id");
-}
+import { getDeviceId } from "./device-id";
 
 export function WatchlistClient() {
   const [slugs, setSlugs] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const id = deviceId();
-    if (!id) {
-      setLoaded(true);
-      return;
-    }
-    fetch(`/api/feedback?deviceId=${encodeURIComponent(id)}`)
-      .then((response) => response.json())
+    const id = getDeviceId(false);
+    const request = id
+      ? fetch(`/api/feedback?deviceId=${encodeURIComponent(id)}`).then((response) => response.json())
+      : Promise.resolve({ feedback: [] });
+
+    request
       .then((payload) => {
         setSlugs((payload.feedback ?? []).filter((item: { value: string }) => item.value === "待确定").map((item: { projectSlug: string }) => item.projectSlug));
       })

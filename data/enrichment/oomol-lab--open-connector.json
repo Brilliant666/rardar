@@ -1,0 +1,34 @@
+{
+  "repository": "oomol-lab/open-connector",
+  "analyzedAt": "2026-07-10T13:00:00Z",
+  "model": "local-codex",
+  "titleZh": "为 Agent 统一管理第三方账号、OAuth 和工具调用",
+  "summaryZh": "OpenConnector 把第三方应用连接、凭据、权限范围、动作定义和运行日志收拢到可检查的网关中，并通过 SDK、CLI、MCP、HTTP 与 OpenAPI 暴露给 Agent 或业务应用。",
+  "category": "Agent 集成",
+  "capabilities": [
+    "OAuth 与凭据边界",
+    "第三方应用连接器",
+    "MCP 工具网关",
+    "SDK 与 OpenAPI",
+    "动作权限策略",
+    "自托管控制台"
+  ],
+  "taskTerms": [
+    "oauth",
+    "第三方登录",
+    "api key",
+    "mcp",
+    "gmail",
+    "notion",
+    "slack",
+    "github 集成",
+    "saas 连接器",
+    "agent 工具调用",
+    "凭据管理"
+  ],
+  "bestFor": "适合需要让 Agent 安全调用 GitHub、Gmail、Notion、Slack、数据平台等外部服务，同时避免把用户凭据直接交给 Agent 进程的产品。",
+  "reusePlan": "优先评估其凭据边界、Action 合约和 MCP/OpenAPI 接口；若只需少数服务，可复用网关思想而不必引入完整连接器目录。",
+  "limitation": "真正接入 OAuth 服务仍涉及供应商审核、密钥管理和运行安全；README 声明的连接器数量需要按具体服务逐一验证可用性。",
+  "evidenceSummary": "README 描述统一凭据与权限边界、连接器目录、SDK/CLI/MCP/HTTP 接口、本地与 Cloudflare 部署方式以及运行日志和策略控制。",
+  "sourceUrl": "https://github.com/oomol-lab/open-connector#readme"
+}

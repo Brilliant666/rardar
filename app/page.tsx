@@ -1,33 +1,41 @@
 import Link from "next/link";
 import { Nav } from "./components/Nav";
-import { ProjectCard } from "./components/ProjectCard";
 import { SearchWorkbench } from "./components/SearchWorkbench";
-import { dailyProjects, snapshotNotice } from "./data";
+import { DecisionMetrics } from "./components/DecisionMetrics";
+import { SignalDigest } from "./components/SignalDigest";
+import { PersonalizedDailyList } from "./components/PersonalizedDailyList";
+import { catalog, dailyProjects, formatCapturedDate, formatNumber, snapshotNotice } from "./data";
 
 export default function Home() {
+  const leadProject = dailyProjects[0];
+
   return (
     <div className="app-shell">
       <Nav />
       <main>
         <section className="hero">
           <div className="hero-copy">
-            <span className="eyebrow">2026.07.10 · 今日开源情报</span>
+            <span className="eyebrow">{formatCapturedDate(catalog.capturedAt)} · 今日开源情报</span>
             <h1>今天真正值得看的，<br />不只是 Star 排名。</h1>
             <p>从全球热点中找出有证据、有实现、能复用的项目。先理解它为什么重要，再决定是否值得你的时间。</p>
           </div>
           <div className="hero-side">
             <div className="signal-card">
-              <span>今日最强信号</span>
-              <strong>+5,079</strong>
-              <p>MadsLorentzen/ai-job-search<br />24 小时新增 Star</p>
+              <span>全局最强信号</span>
+              <strong>{leadProject ? formatNumber(leadProject.growthValue) : "—"}</strong>
+              <p>{leadProject?.repo ?? "等待真实快照"}<br />{leadProject?.growthLabel ?? "暂无增长信号"}</p>
             </div>
             <div className="hero-metrics">
               <div><strong>5</strong><span>重点</span></div>
-              <div><strong>17</strong><span>候选</span></div>
-              <div><strong>2</strong><span>深度分析</span></div>
+              <div><strong>{catalog.sourceCount}</strong><span>召回</span></div>
+              <div><strong>{catalog.projectCount}</strong><span>候选</span></div>
             </div>
           </div>
         </section>
+
+        <DecisionMetrics />
+
+        <SignalDigest />
 
         <section className="home-search">
           <div className="section-heading inline-heading">
@@ -46,11 +54,7 @@ export default function Home() {
             <h2>今天最值得花时间的 5 条线索</h2>
             <p>{snapshotNotice}</p>
           </div>
-          <div className="daily-list">
-            {dailyProjects.map((project, index) => (
-              <ProjectCard key={project.slug} project={project} index={index} />
-            ))}
-          </div>
+          <PersonalizedDailyList />
         </section>
 
         <section className="evidence-manifesto">

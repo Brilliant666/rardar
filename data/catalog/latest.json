@@ -1,0 +1,1691 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-10T12:35:09.567897+00:00",
+  "sourceCount": 166,
+  "projectCount": 30,
+  "deepAnalysisCount": 5,
+  "pendingDeepAnalysis": [],
+  "growthMode": "first_observation_proxy",
+  "notice": "本页来自 2026-07-10 20:35 中国标准时间 的真实 GitHub API 快照，从 166 个候选中选出 30 个。这是首次观察：页面明确使用创建以来速度代理，不将其表述为 24 小时新增。",
+  "projects": [
+    {
+      "slug": "affaan-m--ecc",
+      "repo": "affaan-m/ECC",
+      "title": "把多个编程 Agent 变成可维护的工程系统",
+      "description": "ECC 为 Codex、Claude Code、Cursor、OpenCode 等工具提供可复用的技能、规则、Hook、会话记忆、安全扫描和多 Agent 编排能力，重点解决 Agent 工作流难以统一、验证和持续改进的问题。",
+      "category": "Agent 工程化",
+      "language": "JavaScript",
+      "license": "MIT",
+      "stars": 228137,
+      "growthValue": 1315,
+      "growthLabel": "创建以来约 1315 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 100,
+      "reuseScore": 96,
+      "trend": "约 1315/日 · 代理值",
+      "analysisState": "深度分析",
+      "whyNow": "仓库创建于 2026-01-18，当前有 228,137 Star；因尚无第二次快照，当前只把“创建以来约 1315 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "复用",
+      "fit": "适合已经频繁使用 Codex 或 Claude Code，希望统一技能、规则、记忆、验证和多 Agent 协作方式的开发者。",
+      "reusePlan": "优先复用它的技能目录规范、验证循环和跨工具安装边界，不要一开始安装全部组件；先选择与现有项目最相关的最小配置。",
+      "risk": "仓库覆盖范围很大，并包含会话 Hook、安装器和外部运行时；叠加多种安装方式可能产生重复规则或行为，应先预览安装计划。 已只读扫描 3,322 个文件，发现 311 个测试文件。README、许可证、测试、CI 和文档证据较完整。静态检查不能代替实际运行验证。",
+      "capabilities": [
+        "跨 Agent 工具链",
+        "技能与规则管理",
+        "会话记忆",
+        "验证与安全扫描",
+        "多 Agent 编排",
+        "持续学习"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "code",
+        "developer",
+        "llm",
+        "mcp",
+        "productivity",
+        "research",
+        "tool",
+        "ai agents",
+        "anthropic",
+        "claude",
+        "claude code",
+        "developer tools",
+        "codex",
+        "cursor",
+        "agent 技能",
+        "hook",
+        "规则",
+        "会话记忆",
+        "多智能体",
+        "代码审查",
+        "安全扫描",
+        "工作流优化"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 228,137 Star、34,993 Fork，最近推送 2026-07-09。",
+          "href": "https://api.github.com/repos/affaan-m/ECC"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 3 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/affaan-m/ECC"
+        },
+        {
+          "label": "只读仓库静态检查",
+          "detail": "扫描 3,322 个文件；测试文件 311 个；置信度 95%。未执行仓库代码。",
+          "href": "https://github.com/affaan-m/ECC"
+        },
+        {
+          "label": "Codex 中文能力画像",
+          "detail": "README 明确列出跨 Codex/Claude/Cursor 支持、技能与规则、记忆、验证循环、安全扫描和多 Agent 编排，并给出最小化安装与避免重复安装的边界。",
+          "href": "https://github.com/affaan-m/ECC#readme"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "dietrichgebert--ponytail",
+      "repo": "DietrichGebert/ponytail",
+      "title": "让编程 Agent 优先复用现有能力而不是过度开发",
+      "description": "Ponytail 是面向多种编程 Agent 的最小实现规则集：先判断功能是否需要、代码库是否已有实现、标准库或原生平台能否完成，再考虑新增依赖和代码，同时保留验证、安全、错误处理和可访问性要求。",
+      "category": "开发效率",
+      "language": "JavaScript",
+      "license": "MIT",
+      "stars": 79784,
+      "growthValue": 2801,
+      "growthLabel": "创建以来约 2801 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 100,
+      "reuseScore": 96,
+      "trend": "约 2801/日 · 代理值",
+      "analysisState": "深度分析",
+      "whyNow": "仓库创建于 2026-06-12，当前有 79,784 Star；因尚无第二次快照，当前只把“创建以来约 2801 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "复用",
+      "fit": "适合经常遇到 Agent 过度封装、随意引入依赖或重复实现已有功能的代码项目。",
+      "reusePlan": "可以先把它作为代码审查和实现前决策规则使用，再根据真实项目对比是否减少代码量、依赖和返工。",
+      "risk": "README 的主要 Agent 基准覆盖 12 个功能任务和特定模型，不能直接外推到所有技术栈；它优化的是必要性和简洁度，不是盲目追求最少行数。 已只读扫描 156 个文件，发现 20 个测试文件。README、许可证、测试、CI 和文档证据较完整。静态检查不能代替实际运行验证。",
+      "capabilities": [
+        "YAGNI 决策阶梯",
+        "现有代码复用",
+        "依赖控制",
+        "代码精简",
+        "代码审查",
+        "多 Agent 插件"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "code",
+        "developer",
+        "llm",
+        "tool",
+        "agent skills",
+        "ai agents",
+        "claude",
+        "claude code",
+        "claude code plugin",
+        "cursor rules",
+        "developer tools",
+        "prompt engineering",
+        "yagni",
+        "减少代码",
+        "避免过度开发",
+        "复用现有代码",
+        "减少依赖",
+        "代码审查",
+        "技术债",
+        "codex 插件",
+        "开发效率"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 79,784 Star、4,282 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/DietrichGebert/ponytail"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/DietrichGebert/ponytail"
+        },
+        {
+          "label": "只读仓库静态检查",
+          "detail": "扫描 156 个文件；测试文件 20 个；置信度 95%。未执行仓库代码。",
+          "href": "https://github.com/DietrichGebert/ponytail"
+        },
+        {
+          "label": "Codex 中文能力画像",
+          "detail": "README 给出七级复用决策阶梯、跨 Codex/Claude 等安装方式，并公开基准方法、修正后的平均结果和适用限制。",
+          "href": "https://github.com/DietrichGebert/ponytail#readme"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "oomol-lab--open-connector",
+      "repo": "oomol-lab/open-connector",
+      "title": "为 Agent 统一管理第三方账号、OAuth 和工具调用",
+      "description": "OpenConnector 把第三方应用连接、凭据、权限范围、动作定义和运行日志收拢到可检查的网关中，并通过 SDK、CLI、MCP、HTTP 与 OpenAPI 暴露给 Agent 或业务应用。",
+      "category": "Agent 集成",
+      "language": "TypeScript",
+      "license": "Apache-2.0",
+      "stars": 1206,
+      "growthValue": 109,
+      "growthLabel": "创建以来约 109 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 100,
+      "reuseScore": 96,
+      "trend": "约 109/日 · 代理值",
+      "analysisState": "深度分析",
+      "whyNow": "仓库创建于 2026-06-29，当前有 1,206 Star；因尚无第二次快照，当前只把“创建以来约 109 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "复用",
+      "fit": "适合需要让 Agent 安全调用 GitHub、Gmail、Notion、Slack、数据平台等外部服务，同时避免把用户凭据直接交给 Agent 进程的产品。",
+      "reusePlan": "优先评估其凭据边界、Action 合约和 MCP/OpenAPI 接口；若只需少数服务，可复用网关思想而不必引入完整连接器目录。",
+      "risk": "真正接入 OAuth 服务仍涉及供应商审核、密钥管理和运行安全；README 声明的连接器数量需要按具体服务逐一验证可用性。 已只读扫描 3,997 个文件，发现 52 个测试文件。README、许可证、测试、CI 和文档证据较完整。静态检查不能代替实际运行验证。",
+      "capabilities": [
+        "OAuth 与凭据边界",
+        "第三方应用连接器",
+        "MCP 工具网关",
+        "SDK 与 OpenAPI",
+        "动作权限策略",
+        "自托管控制台"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "automation",
+        "cli",
+        "mcp",
+        "sdk",
+        "self-hosted",
+        "tool",
+        "agent tools",
+        "ai agents",
+        "api gateway",
+        "cloudflare workers",
+        "connectors",
+        "integration platform",
+        "model context protocol",
+        "oauth",
+        "第三方登录",
+        "api key",
+        "gmail",
+        "notion",
+        "slack",
+        "github 集成",
+        "saas 连接器",
+        "agent 工具调用",
+        "凭据管理"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,206 Star、67 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/oomol-lab/open-connector"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/oomol-lab/open-connector"
+        },
+        {
+          "label": "只读仓库静态检查",
+          "detail": "扫描 3,997 个文件；测试文件 52 个；置信度 95%。未执行仓库代码。",
+          "href": "https://github.com/oomol-lab/open-connector"
+        },
+        {
+          "label": "Codex 中文能力画像",
+          "detail": "README 描述统一凭据与权限边界、连接器目录、SDK/CLI/MCP/HTTP 接口、本地与 Cloudflare 部署方式以及运行日志和策略控制。",
+          "href": "https://github.com/oomol-lab/open-connector#readme"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "synthetic-sciences--openscience",
+      "repo": "synthetic-sciences/openscience",
+      "title": "把文献、假设、代码实验和报告串成研究工作台",
+      "description": "OpenScience 是本地浏览器研究工作台，Agent 可以围绕目标检索文献、形成假设、编写并运行代码、执行实验、连接科学数据库并生成研究结果，支持多家模型和自带 API Key。",
+      "category": "AI 研究工作台",
+      "language": "TypeScript",
+      "license": "Apache-2.0",
+      "stars": 2028,
+      "growthValue": 294,
+      "growthLabel": "创建以来约 294 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 100,
+      "reuseScore": 91,
+      "trend": "约 294/日 · 代理值",
+      "analysisState": "深度分析",
+      "whyNow": "仓库创建于 2026-07-03，当前有 2,028 Star；因尚无第二次快照，当前只把“创建以来约 294 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "复用",
+      "fit": "适合需要把资料检索、证据整理、代码实验和报告输出放进同一条可追溯流程的研究型任务。",
+      "reusePlan": "重点参考其研究循环、会话与产物溯源、工具层和模型路由；若用于普通内容分析，可只抽取工作流思想而非整套科学数据库能力。",
+      "risk": "项目明确说明 Agent 本身没有沙箱隔离；运行陌生代码或处理敏感凭据时应使用容器或虚拟机，并核对模型与云计算成本。 已只读扫描 3,918 个文件，发现 121 个测试文件。README、许可证、测试、CI 和文档证据较完整。静态检查不能代替实际运行验证。",
+      "capabilities": [
+        "文献检索",
+        "假设与实验规划",
+        "代码与实验执行",
+        "科学数据库连接",
+        "研究报告生成",
+        "模型路由"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "cli",
+        "llm",
+        "research",
+        "tool",
+        "ai",
+        "ai agent",
+        "bun",
+        "co scientist",
+        "ml",
+        "ml engineering",
+        "open source",
+        "research tools",
+        "science",
+        "scientific computing",
+        "文献综述",
+        "证据丰富",
+        "研究工作台",
+        "实验",
+        "论文",
+        "代码执行",
+        "报告生成",
+        "多模型",
+        "科学数据库",
+        "研究 agent"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 2,028 Star、291 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/synthetic-sciences/openscience"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/synthetic-sciences/openscience"
+        },
+        {
+          "label": "只读仓库静态检查",
+          "detail": "扫描 3,918 个文件；测试文件 121 个；置信度 95%。未执行仓库代码。",
+          "href": "https://github.com/synthetic-sciences/openscience"
+        },
+        {
+          "label": "Codex 中文能力画像",
+          "detail": "README 明确覆盖文献、假设、代码、实验、分析和报告完整研究循环，列出科学数据库、浏览器工作区、模型兼容性与未提供沙箱的安全边界。",
+          "href": "https://github.com/synthetic-sciences/openscience#readme"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "withmarbleapp--os-taxonomy",
+      "repo": "withmarbleapp/os-taxonomy",
+      "title": "用先修关系图组织 1590 个学习微主题",
+      "description": "Marble Skill Taxonomy 是一份纯 JSON 教育知识图谱，把小学阶段知识拆成细粒度主题、掌握证据和先修依赖，并关联多个课程标准；它是数据集而不是可运行应用。",
+      "category": "知识图谱数据",
+      "language": "JavaScript",
+      "license": "ODbL-1.0",
+      "stars": 1844,
+      "growthValue": 866,
+      "growthLabel": "创建以来约 866 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 99,
+      "reuseScore": 57,
+      "trend": "约 866/日 · 代理值",
+      "analysisState": "深度分析",
+      "whyNow": "仓库创建于 2026-07-08，当前有 1,844 Star；因尚无第二次快照，当前只把“创建以来约 866 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "适合研究如何把知识、能力、证据和依赖关系组织成可计算图谱，也可作为 Rardar 未来“任务—能力—项目”图模型的参考。",
+      "reusePlan": "优先参考节点、依赖边、证据标准和来源追踪的数据结构；若使用其实际文本或扩展数据库，必须按不同数据层分别处理许可证。",
+      "risk": "仓库没有运行时，不能直接作为知识库应用；数据库为 ODbL、原创文本为 CC BY-SA，第三方课程标准还有各自上游许可证。 已只读扫描 20 个文件，发现 0 个测试文件。仍未检测到：测试、CI、文档。静态检查不能代替实际运行验证。",
+      "capabilities": [
+        "微主题知识图谱",
+        "先修依赖关系",
+        "掌握证据",
+        "课程标准映射",
+        "JSON Schema",
+        "数据完整性校验"
+      ],
+      "taskTerms": [
+        "开源工具",
+        "知识图谱",
+        "能力图谱",
+        "学习路径",
+        "先修关系",
+        "课程",
+        "教育",
+        "json 数据集",
+        "证据标准",
+        "依赖图"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,844 Star、328 Fork，最近推送 2026-07-08。",
+          "href": "https://api.github.com/repos/withmarbleapp/os-taxonomy"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/withmarbleapp/os-taxonomy"
+        },
+        {
+          "label": "只读仓库静态检查",
+          "detail": "扫描 20 个文件；测试文件 0 个；置信度 53%。未执行仓库代码。",
+          "href": "https://github.com/withmarbleapp/os-taxonomy"
+        },
+        {
+          "label": "Codex 中文能力画像",
+          "detail": "README 给出 1590 个微主题、3221 条先修边、JSON 文件与 Schema，并区分数据库、原创文本和第三方课程标准的许可证边界。",
+          "href": "https://github.com/withmarbleapp/os-taxonomy#readme"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "x4gking--x4g",
+      "repo": "x4gKing/X4G",
+      "title": "X4G",
+      "description": "仓库尚未提供公开描述，需进入静态分析阶段后再判断具体能力。",
+      "category": "开源工具",
+      "language": "Python",
+      "license": "待核验",
+      "stars": 3670,
+      "growthValue": 588,
+      "growthLabel": "创建以来约 588 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 96,
+      "reuseScore": 42,
+      "trend": "约 588/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-04，当前有 3,670 Star；因尚无第二次快照，当前只把“创建以来约 588 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开源工具”，命中 0 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。",
+      "capabilities": [
+        "开源工具",
+        "Python 项目"
+      ],
+      "taskTerms": [
+        "开源工具"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 3,670 Star、6,933 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/x4gKing/X4G"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/x4gKing/X4G"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "rtk-ai--rtk",
+      "repo": "rtk-ai/rtk",
+      "title": "rtk",
+      "description": "CLI proxy that reduces LLM token consumption by 60-90% on common dev commands. Single Rust binary, zero dependencies",
+      "category": "AI 与 Agent",
+      "language": "Rust",
+      "license": "Apache-2.0",
+      "stars": 69989,
+      "growthValue": 415,
+      "growthLabel": "创建以来约 415 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 95,
+      "reuseScore": 70,
+      "trend": "约 415/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-01-22，当前有 69,989 Star；因尚无第二次快照，当前只把“创建以来约 415 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "收藏",
+      "fit": "当前被归入“AI 与 Agent”，命中 7 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "AI 与 Agent",
+        "agentic coding",
+        "ai coding",
+        "anthropic",
+        "claude code"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "cli",
+        "code",
+        "developer",
+        "llm",
+        "productivity",
+        "tool",
+        "agentic coding",
+        "ai coding",
+        "anthropic",
+        "claude code",
+        "command line tool",
+        "cost reduction",
+        "developer tools",
+        "open source"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 69,989 Star、4,352 Fork，最近推送 2026-07-09。",
+          "href": "https://api.github.com/repos/rtk-ai/rtk"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 2 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/rtk-ai/rtk"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "shpigford--knockoff",
+      "repo": "Shpigford/knockoff",
+      "title": "knockoff",
+      "description": "Chrome extension that filters pseudo-brand junk out of Amazon. Buy from real, established brands.",
+      "category": "开源工具",
+      "language": "JavaScript",
+      "license": "NOASSERTION",
+      "stars": 1624,
+      "growthValue": 417,
+      "growthLabel": "创建以来约 417 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 95,
+      "reuseScore": 57,
+      "trend": "约 417/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-06，当前有 1,624 Star；因尚无第二次快照，当前只把“创建以来约 417 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开源工具”，命中 0 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。",
+      "capabilities": [
+        "开源工具",
+        "amazon",
+        "browser extension",
+        "chrome extension",
+        "JavaScript 项目"
+      ],
+      "taskTerms": [
+        "开源工具",
+        "amazon",
+        "browser extension",
+        "chrome extension"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,624 Star、52 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/Shpigford/knockoff"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/Shpigford/knockoff"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "isjiamu--gzh-design-skill",
+      "repo": "isjiamu/gzh-design-skill",
+      "title": "gzh-design-skill",
+      "description": "把 Markdown 一键排成可直接粘进公众号编辑器的精致 HTML —— 6 套精选主题 + 主题生成器 + 双关卡校验。An AI-agent skill that turns Markdown into paste-ready WeChat article HTML.",
+      "category": "视频与内容",
+      "language": "HTML",
+      "license": "NOASSERTION",
+      "stars": 1810,
+      "growthValue": 194,
+      "growthLabel": "创建以来约 194 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 94,
+      "reuseScore": 59,
+      "trend": "约 194/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-01，当前有 1,810 Star；因尚无第二次快照，当前只把“创建以来约 194 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“视频与内容”，命中 3 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。",
+      "capabilities": [
+        "视频与内容",
+        "agent skill",
+        "ai agent",
+        "claude code",
+        "codex"
+      ],
+      "taskTerms": [
+        "视频与内容",
+        "agent",
+        "code",
+        "公众号",
+        "agent skill",
+        "ai agent",
+        "claude code",
+        "codex",
+        "cursor",
+        "gongzhonghao",
+        "html",
+        "markdown",
+        "rich text",
+        "skill",
+        "typesetting",
+        "wechat"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,810 Star、204 Fork，最近推送 2026-07-08。",
+          "href": "https://api.github.com/repos/isjiamu/gzh-design-skill"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/isjiamu/gzh-design-skill"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "deepseek-ai--deepspec",
+      "repo": "deepseek-ai/DeepSpec",
+      "title": "DeepSpec",
+      "description": "DeepSpec: a full-stack codebase for training and evaluating speculative decoding algorithms",
+      "category": "开发工具",
+      "language": "Python",
+      "license": "MIT",
+      "stars": 6516,
+      "growthValue": 465,
+      "growthLabel": "创建以来约 465 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 93,
+      "reuseScore": 62,
+      "trend": "约 465/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-06-26，当前有 6,516 Star；因尚无第二次快照，当前只把“创建以来约 465 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开发工具”，命中 1 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "开发工具",
+        "Python 项目"
+      ],
+      "taskTerms": [
+        "开发工具",
+        "code"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 6,516 Star、582 Fork，最近推送 2026-07-09。",
+          "href": "https://api.github.com/repos/deepseek-ai/DeepSpec"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/deepseek-ai/DeepSpec"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "nousresearch--hermes-agent",
+      "repo": "NousResearch/hermes-agent",
+      "title": "hermes-agent",
+      "description": "The agent that grows with you",
+      "category": "AI 与 Agent",
+      "language": "Python",
+      "license": "MIT",
+      "stars": 212551,
+      "growthValue": 603,
+      "growthLabel": "创建以来约 603 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 91,
+      "reuseScore": 70,
+      "trend": "约 603/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2025-07-22，当前有 212,551 Star；因尚无第二次快照，当前只把“创建以来约 603 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "收藏",
+      "fit": "当前被归入“AI 与 Agent”，命中 4 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "AI 与 Agent",
+        "ai",
+        "ai agent",
+        "ai agents",
+        "anthropic"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "code",
+        "llm",
+        "research",
+        "ai",
+        "ai agent",
+        "ai agents",
+        "anthropic",
+        "chatgpt",
+        "claude",
+        "claude code",
+        "clawdbot",
+        "codex",
+        "hermes",
+        "hermes agent"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 212,551 Star、39,193 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/NousResearch/hermes-agent"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/NousResearch/hermes-agent"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "uzairansaruzi--hermex",
+      "repo": "uzairansaruzi/hermex",
+      "title": "hermex",
+      "description": "Native iPhone app for your Hermes agent",
+      "category": "AI 与 Agent",
+      "language": "Swift",
+      "license": "MIT",
+      "stars": 722,
+      "growthValue": 90,
+      "growthLabel": "创建以来约 90 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 91,
+      "reuseScore": 69,
+      "trend": "约 90/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-02，当前有 722 Star；因尚无第二次快照，当前只把“创建以来约 90 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“AI 与 Agent”，命中 3 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "AI 与 Agent",
+        "hermes",
+        "hermes agent",
+        "hermex",
+        "ios"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "llm",
+        "self-hosted",
+        "hermes",
+        "hermes agent",
+        "hermex",
+        "ios",
+        "self hosted",
+        "swift",
+        "swiftui"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 722 Star、73 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/uzairansaruzi/hermex"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/uzairansaruzi/hermex"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "huangchihhungleo--claude-real-video",
+      "repo": "HUANGCHIHHUNGLeo/claude-real-video",
+      "title": "claude-real-video",
+      "description": "Let Claude (or any LLM) actually watch a video — scene-aware, deduplicated frames + transcript, from a URL or local file. Runs locally, MIT.",
+      "category": "视频与内容",
+      "language": "Python",
+      "license": "MIT",
+      "stars": 1468,
+      "growthValue": 146,
+      "growthLabel": "创建以来约 146 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 91,
+      "reuseScore": 61,
+      "trend": "约 146/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-06-30，当前有 1,468 Star；因尚无第二次快照，当前只把“创建以来约 146 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“视频与内容”，命中 2 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "视频与内容",
+        "Python 项目"
+      ],
+      "taskTerms": [
+        "视频与内容",
+        "llm",
+        "video"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,468 Star、107 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/HUANGCHIHHUNGLeo/claude-real-video"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/HUANGCHIHHUNGLeo/claude-real-video"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "esengine--deepseek-reasonix",
+      "repo": "esengine/DeepSeek-Reasonix",
+      "title": "DeepSeek-Reasonix",
+      "description": "DeepSeek-native AI coding agent for your terminal. Engineered around prefix-cache stability — leave it running.",
+      "category": "AI 与 Agent",
+      "language": "Go",
+      "license": "MIT",
+      "stars": 26587,
+      "growthValue": 332,
+      "growthLabel": "创建以来约 332 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 90,
+      "reuseScore": 70,
+      "trend": "约 332/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-04-21，当前有 26,587 Star；因尚无第二次快照，当前只把“创建以来约 332 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "收藏",
+      "fit": "当前被归入“AI 与 Agent”，命中 5 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "AI 与 Agent",
+        "agent",
+        "agent framework",
+        "ai agent",
+        "ai coding"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "cli",
+        "developer",
+        "llm",
+        "tool",
+        "agent framework",
+        "ai agent",
+        "ai coding",
+        "coding agent",
+        "deepseek",
+        "developer tools",
+        "ink",
+        "prompt caching",
+        "r1",
+        "terminal"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 26,587 Star、1,661 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/esengine/DeepSeek-Reasonix"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/esengine/DeepSeek-Reasonix"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "maximerivest--riddle",
+      "repo": "MaximeRivest/riddle",
+      "title": "riddle",
+      "description": "The diary of Tom Riddle for the reMarkable Paper Pro — write with your pen, the page drinks your ink and answers in a flowing hand",
+      "category": "开源工具",
+      "language": "Rust",
+      "license": "MIT",
+      "stars": 1310,
+      "growthValue": 269,
+      "growthLabel": "创建以来约 269 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 89,
+      "reuseScore": 61,
+      "trend": "约 269/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-05，当前有 1,310 Star；因尚无第二次快照，当前只把“创建以来约 269 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开源工具”，命中 0 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "开源工具",
+        "Rust 项目"
+      ],
+      "taskTerms": [
+        "开源工具"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,310 Star、104 Fork，最近推送 2026-07-07。",
+          "href": "https://api.github.com/repos/MaximeRivest/riddle"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/MaximeRivest/riddle"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "jamesob--local-llm",
+      "repo": "jamesob/local-llm",
+      "title": "local-llm",
+      "description": "Everything I know about running LLMs locally",
+      "category": "AI 与 Agent",
+      "language": "Shell",
+      "license": "待核验",
+      "stars": 1324,
+      "growthValue": 190,
+      "growthLabel": "创建以来约 190 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 89,
+      "reuseScore": 51,
+      "trend": "约 190/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-03，当前有 1,324 Star；因尚无第二次快照，当前只把“创建以来约 190 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“AI 与 Agent”，命中 1 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。",
+      "capabilities": [
+        "AI 与 Agent",
+        "Shell 项目"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "llm"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,324 Star、80 Fork，最近推送 2026-07-08。",
+          "href": "https://api.github.com/repos/jamesob/local-llm"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/jamesob/local-llm"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "jmerelnyc--talos",
+      "repo": "jmerelnyc/Talos",
+      "title": "Talos",
+      "description": "GPU worker client for the Talos network. Pairs with your Talos account, serves open-model inference jobs over a WebSocket, and reports uptime for payouts.",
+      "category": "AI 与 Agent",
+      "language": "Python",
+      "license": "MIT",
+      "stars": 889,
+      "growthValue": 112,
+      "growthLabel": "创建以来约 112 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 88,
+      "reuseScore": 68,
+      "trend": "约 112/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-02，当前有 889 Star；因尚无第二次快照，当前只把“创建以来约 112 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“AI 与 Agent”，命中 2 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "AI 与 Agent",
+        "ai",
+        "distributed computing",
+        "gpu",
+        "llm"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "cli",
+        "llm",
+        "ai",
+        "distributed computing",
+        "gpu",
+        "ollama",
+        "python",
+        "websocket",
+        "worker"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 889 Star、16 Fork，最近推送 2026-07-08。",
+          "href": "https://api.github.com/repos/jmerelnyc/Talos"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/jmerelnyc/Talos"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "xuchonglang--investing-for-beginners",
+      "repo": "xuchonglang/investing-for-beginners",
+      "title": "investing-for-beginners",
+      "description": "小隐寺投资百科官方公开索引：美股、期权与加密货币知识框架",
+      "category": "开源工具",
+      "language": "未标注",
+      "license": "NOASSERTION",
+      "stars": 1723,
+      "growthValue": 234,
+      "growthLabel": "创建以来约 234 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 88,
+      "reuseScore": 51,
+      "trend": "约 234/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-03，当前有 1,723 Star；因尚无第二次快照，当前只把“创建以来约 234 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开源工具”，命中 0 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。",
+      "capabilities": [
+        "开源工具",
+        "chinese",
+        "cryptocurrency",
+        "investing",
+        "options"
+      ],
+      "taskTerms": [
+        "开源工具",
+        "chinese",
+        "cryptocurrency",
+        "investing",
+        "options",
+        "xiaoyinsi"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,723 Star、104 Fork，最近推送 2026-07-09。",
+          "href": "https://api.github.com/repos/xuchonglang/investing-for-beginners"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/xuchonglang/investing-for-beginners"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "deusdata--codebase-memory-mcp",
+      "repo": "DeusData/codebase-memory-mcp",
+      "title": "codebase-memory-mcp",
+      "description": "High-performance code intelligence MCP server. Indexes codebases into a persistent knowledge graph — average repo in milliseconds. 158 languages, sub-ms queries, 99% fewer tokens. Single static binary, zero dependencies.",
+      "category": "AI 与 Agent",
+      "language": "C",
+      "license": "MIT",
+      "stars": 29461,
+      "growthValue": 217,
+      "growthLabel": "创建以来约 217 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 87,
+      "reuseScore": 70,
+      "trend": "约 217/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-02-24，当前有 29,461 Star；因尚无第二次快照，当前只把“创建以来约 217 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "收藏",
+      "fit": "当前被归入“AI 与 Agent”，命中 5 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "AI 与 Agent",
+        "aider",
+        "ast",
+        "claude code",
+        "code analysis"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "cli",
+        "code",
+        "developer",
+        "mcp",
+        "tool",
+        "aider",
+        "ast",
+        "claude code",
+        "code analysis",
+        "code intelligence",
+        "codex",
+        "cursor",
+        "cypher",
+        "developer tools",
+        "gemini cli"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 29,461 Star、2,341 Fork，最近推送 2026-07-09。",
+          "href": "https://api.github.com/repos/DeusData/codebase-memory-mcp"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/DeusData/codebase-memory-mcp"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "yynxxxxx--codex-x",
+      "repo": "yynxxxxx/Codex-X",
+      "title": "Codex-X",
+      "description": "Codex Switch & Instruct desktop manager",
+      "category": "开发工具",
+      "language": "Rust",
+      "license": "MIT",
+      "stars": 732,
+      "growthValue": 115,
+      "growthLabel": "创建以来约 115 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 87,
+      "reuseScore": 61,
+      "trend": "约 115/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-04，当前有 732 Star；因尚无第二次快照，当前只把“创建以来约 115 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开发工具”，命中 1 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "开发工具",
+        "Rust 项目"
+      ],
+      "taskTerms": [
+        "开发工具",
+        "code"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 732 Star、118 Fork，最近推送 2026-07-09。",
+          "href": "https://api.github.com/repos/yynxxxxx/Codex-X"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/yynxxxxx/Codex-X"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "othmanadi--planning-with-files",
+      "repo": "OthmanAdi/planning-with-files",
+      "title": "planning-with-files",
+      "description": "Persistent file-based planning for AI coding agents and long-running agentic tasks. Crash-proof markdown plans that survive context loss and /clear, plus a deterministic completion gate and multi-agent shared state on disk. Manus-style. Works with Claude Code, Codex CLI, Cursor, Kiro, OpenCode and 60+ agents via the SKILL.md standard.",
+      "category": "AI 与 Agent",
+      "language": "Python",
+      "license": "MIT",
+      "stars": 25153,
+      "growthValue": 134,
+      "growthLabel": "创建以来约 134 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 86,
+      "reuseScore": 70,
+      "trend": "约 134/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-01-03，当前有 25,153 Star；因尚无第二次快照，当前只把“创建以来约 134 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "收藏",
+      "fit": "当前被归入“AI 与 Agent”，命中 7 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "AI 与 Agent",
+        "agent skills",
+        "agentic ai",
+        "ai agents",
+        "autonomous agents"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "cli",
+        "code",
+        "developer",
+        "github",
+        "llm",
+        "tool",
+        "agent skills",
+        "agentic ai",
+        "ai agents",
+        "autonomous agents",
+        "claude",
+        "claude code",
+        "claude skills",
+        "codex"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 25,153 Star、2,128 Fork，最近推送 2026-07-09。",
+          "href": "https://api.github.com/repos/OthmanAdi/planning-with-files"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/OthmanAdi/planning-with-files"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "514-labs--dnsglobe",
+      "repo": "514-labs/dnsglobe",
+      "title": "dnsglobe",
+      "description": "Global DNS propagation checker TUI — watch a DNS record propagate across 34 public resolvers worldwide, on a world map in your terminal",
+      "category": "开发工具",
+      "language": "Rust",
+      "license": "MIT",
+      "stars": 780,
+      "growthValue": 142,
+      "growthLabel": "创建以来约 142 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 86,
+      "reuseScore": 68,
+      "trend": "约 142/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-05，当前有 780 Star；因尚无第二次快照，当前只把“创建以来约 142 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开发工具”，命中 1 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "开发工具",
+        "cli",
+        "dns",
+        "dns checker",
+        "dns propagation"
+      ],
+      "taskTerms": [
+        "开发工具",
+        "cli",
+        "dns",
+        "dns checker",
+        "dns propagation",
+        "ratatui",
+        "rust",
+        "tui"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 780 Star、20 Fork，最近推送 2026-07-07。",
+          "href": "https://api.github.com/repos/514-labs/dnsglobe"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/514-labs/dnsglobe"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "justvugg--colibri",
+      "repo": "JustVugg/colibri",
+      "title": "colibri",
+      "description": "Run GLM-5.2 (744B MoE) on a 25GB-RAM consumer machine — pure C, zero deps, experts streamed from disk. Tiny engine, immense model. 🐦",
+      "category": "开源工具",
+      "language": "C",
+      "license": "Apache-2.0",
+      "stars": 1493,
+      "growthValue": 166,
+      "growthLabel": "创建以来约 166 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 86,
+      "reuseScore": 61,
+      "trend": "约 166/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-01，当前有 1,493 Star；因尚无第二次快照，当前只把“创建以来约 166 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开源工具”，命中 0 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "开源工具",
+        "C 项目"
+      ],
+      "taskTerms": [
+        "开源工具"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,493 Star、81 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/JustVugg/colibri"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/JustVugg/colibri"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "yynxxxxx--codex-5-5-codex-instruct-5-5",
+      "repo": "yynxxxxx/Codex-5.5-codex-instruct-5.5",
+      "title": "Codex-5.5-codex-instruct-5.5",
+      "description": "仓库尚未提供公开描述，需进入静态分析阶段后再判断具体能力。",
+      "category": "开发工具",
+      "language": "Python",
+      "license": "MIT",
+      "stars": 1723,
+      "growthValue": 143,
+      "growthLabel": "创建以来约 143 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 86,
+      "reuseScore": 52,
+      "trend": "约 143/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-06-28，当前有 1,723 Star；因尚无第二次快照，当前只把“创建以来约 143 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开发工具”，命中 1 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "开发工具",
+        "Python 项目"
+      ],
+      "taskTerms": [
+        "开发工具",
+        "code"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,723 Star、462 Fork，最近推送 2026-07-09。",
+          "href": "https://api.github.com/repos/yynxxxxx/Codex-5.5-codex-instruct-5.5"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/yynxxxxx/Codex-5.5-codex-instruct-5.5"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "n8n-io--n8n",
+      "repo": "n8n-io/n8n",
+      "title": "n8n",
+      "description": "Fair-code workflow automation platform with native AI capabilities. Combine visual building with custom code, self-host or cloud, 400+ integrations.",
+      "category": "AI 与 Agent",
+      "language": "TypeScript",
+      "license": "NOASSERTION",
+      "stars": 195928,
+      "growthValue": 76,
+      "growthLabel": "创建以来约 76 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 85,
+      "reuseScore": 60,
+      "trend": "约 76/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2019-06-22，当前有 195,928 Star；因尚无第二次快照，当前只把“创建以来约 76 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“AI 与 Agent”，命中 6 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。",
+      "capabilities": [
+        "AI 与 Agent",
+        "ai",
+        "apis",
+        "automation",
+        "cli"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "automation",
+        "cli",
+        "code",
+        "mcp",
+        "self-hosted",
+        "workflow",
+        "ai",
+        "apis",
+        "data flow",
+        "development",
+        "integration framework",
+        "integrations",
+        "ipaas",
+        "low code",
+        "low code platform"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 195,928 Star、59,221 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/n8n-io/n8n"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 2 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/n8n-io/n8n"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "wouterdebie--davit",
+      "repo": "wouterdebie/davit",
+      "title": "davit",
+      "description": "A native macOS UI for Apple's platform",
+      "category": "开源工具",
+      "language": "Swift",
+      "license": "MIT",
+      "stars": 780,
+      "growthValue": 134,
+      "growthLabel": "创建以来约 134 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 85,
+      "reuseScore": 60,
+      "trend": "约 134/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-04，当前有 780 Star；因尚无第二次快照，当前只把“创建以来约 134 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开源工具”，命中 0 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "开源工具",
+        "Swift 项目"
+      ],
+      "taskTerms": [
+        "开源工具"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 780 Star、11 Fork，最近推送 2026-07-09。",
+          "href": "https://api.github.com/repos/wouterdebie/davit"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/wouterdebie/davit"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "ammaarreshi--generals-mac-ios-ipad",
+      "repo": "ammaarreshi/Generals-Mac-iOS-iPad",
+      "title": "Generals-Mac-iOS-iPad",
+      "description": "Command & Conquer Generals: Zero Hour running natively on macOS, iPhone & iPad — real engine (EA GPL v3 source, via GeneralsX), DXVK/MoltenVK renderer, RTS touch controls. No game assets included.",
+      "category": "开源工具",
+      "language": "C++",
+      "license": "NOASSERTION",
+      "stars": 1399,
+      "growthValue": 219,
+      "growthLabel": "创建以来约 219 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 85,
+      "reuseScore": 59,
+      "trend": "约 219/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2026-07-04，当前有 1,399 Star；因尚无第二次快照，当前只把“创建以来约 219 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“开源工具”，命中 0 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。",
+      "capabilities": [
+        "开源工具",
+        "apple silicon",
+        "command and conquer",
+        "dxvk",
+        "game port"
+      ],
+      "taskTerms": [
+        "开源工具",
+        "apple silicon",
+        "command and conquer",
+        "dxvk",
+        "game port",
+        "generals zero hour",
+        "ios",
+        "ipad",
+        "macos",
+        "moltenvk",
+        "open source game",
+        "rts",
+        "sdl3"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 1,399 Star、112 Fork，最近推送 2026-07-05。",
+          "href": "https://api.github.com/repos/ammaarreshi/Generals-Mac-iOS-iPad"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/ammaarreshi/Generals-Mac-iOS-iPad"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "wshobson--agents",
+      "repo": "wshobson/agents",
+      "title": "agents",
+      "description": "Multi-harness agentic plugin marketplace for Claude Code, Codex CLI, Cursor, OpenCode, GitHub Copilot, and Gemini CLI",
+      "category": "AI 与 Agent",
+      "language": "Python",
+      "license": "MIT",
+      "stars": 37745,
+      "growthValue": 108,
+      "growthLabel": "创建以来约 108 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 84,
+      "reuseScore": 70,
+      "trend": "约 108/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2025-07-24，当前有 37,745 Star；因尚无第二次快照，当前只把“创建以来约 108 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "收藏",
+      "fit": "当前被归入“AI 与 Agent”，命中 9 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "AI 与 Agent",
+        "agent skills",
+        "agentic ai",
+        "agents",
+        "ai agents"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "automation",
+        "cli",
+        "code",
+        "developer",
+        "github",
+        "mcp",
+        "tool",
+        "workflow",
+        "agent skills",
+        "agentic ai",
+        "agents",
+        "ai agents",
+        "anthropic",
+        "claude code"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 37,745 Star、4,048 Fork，最近推送 2026-07-08。",
+          "href": "https://api.github.com/repos/wshobson/agents"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/wshobson/agents"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "openhands--openhands",
+      "repo": "OpenHands/OpenHands",
+      "title": "OpenHands",
+      "description": "🙌 OpenHands: AI-Driven Development",
+      "category": "AI 与 Agent",
+      "language": "Python",
+      "license": "NOASSERTION",
+      "stars": 80321,
+      "growthValue": 95,
+      "growthLabel": "创建以来约 95 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 84,
+      "reuseScore": 60,
+      "trend": "约 95/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2024-03-13，当前有 80,321 Star；因尚无第二次快照，当前只把“创建以来约 95 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "了解",
+      "fit": "当前被归入“AI 与 Agent”，命中 5 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。",
+      "capabilities": [
+        "AI 与 Agent",
+        "agent",
+        "artificial intelligence",
+        "chatgpt",
+        "claude ai"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "cli",
+        "developer",
+        "llm",
+        "tool",
+        "artificial intelligence",
+        "chatgpt",
+        "claude ai",
+        "developer tools",
+        "gpt",
+        "openai"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 80,321 Star、10,250 Fork，最近推送 2026-07-10。",
+          "href": "https://api.github.com/repos/OpenHands/OpenHands"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 2 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/OpenHands/OpenHands"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    },
+    {
+      "slug": "thedotmack--claude-mem",
+      "repo": "thedotmack/claude-mem",
+      "title": "claude-mem",
+      "description": "Persistent Context Across Sessions for Every Agent –  Captures everything your agent does during sessions, compresses it with AI, and injects relevant context back into future sessions. Works with Claude Code, OpenClaw, Codex, Gemini, Hermes, Copilot, OpenCode + More",
+      "category": "AI 与 Agent",
+      "language": "JavaScript",
+      "license": "Apache-2.0",
+      "stars": 86710,
+      "growthValue": 277,
+      "growthLabel": "创建以来约 277 Star/日（首次观察代理）",
+      "growthKind": "velocity_proxy",
+      "globalScore": 83,
+      "reuseScore": 70,
+      "trend": "约 277/日 · 代理值",
+      "analysisState": "事实初筛",
+      "whyNow": "仓库创建于 2025-08-31，当前有 86,710 Star；因尚无第二次快照，当前只把“创建以来约 277 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
+      "recommendation": "收藏",
+      "fit": "当前被归入“AI 与 Agent”，命中 3 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。",
+      "capabilities": [
+        "AI 与 Agent",
+        "ai",
+        "ai agents",
+        "ai memory",
+        "anthropic"
+      ],
+      "taskTerms": [
+        "AI 与 Agent",
+        "agent",
+        "code",
+        "sdk",
+        "ai",
+        "ai agents",
+        "ai memory",
+        "anthropic",
+        "artificial intelligence",
+        "chromadb",
+        "claude",
+        "claude agent sdk",
+        "claude agents",
+        "claude code",
+        "claude code plugin",
+        "claude skills"
+      ],
+      "evidence": [
+        {
+          "label": "GitHub API 事实快照",
+          "detail": "采集到 86,710 Star、7,492 Fork，最近推送 2026-07-09。",
+          "href": "https://api.github.com/repos/thedotmack/claude-mem"
+        },
+        {
+          "label": "候选召回依据",
+          "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
+          "href": "https://github.com/thedotmack/claude-mem"
+        }
+      ],
+      "capturedAt": "2026-07-10 20:35 中国标准时间"
+    }
+  ]
+}

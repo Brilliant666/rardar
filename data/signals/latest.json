@@ -1,0 +1,762 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-10T13:18:21.072277+00:00",
+  "windowHours": 48,
+  "signalCount": 30,
+  "healthySourceCount": 6,
+  "failedSourceCount": 0,
+  "sourceStatus": [
+    {
+      "id": "openai_news",
+      "name": "OpenAI News",
+      "url": "https://openai.com/news/rss.xml",
+      "state": "healthy",
+      "itemCount": 6,
+      "latestItemAt": "2026-07-10T07:00:00+00:00",
+      "error": null
+    },
+    {
+      "id": "github_changelog",
+      "name": "GitHub Changelog",
+      "url": "https://github.blog/changelog/feed/",
+      "state": "healthy",
+      "itemCount": 10,
+      "latestItemAt": "2026-07-10T09:45:30+00:00",
+      "error": null
+    },
+    {
+      "id": "huggingface_blog",
+      "name": "Hugging Face Blog",
+      "url": "https://huggingface.co/blog/feed.xml",
+      "state": "healthy",
+      "itemCount": 2,
+      "latestItemAt": "2026-07-10T00:00:00+00:00",
+      "error": null
+    },
+    {
+      "id": "ai_news_radar",
+      "name": "AI News Radar",
+      "url": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "state": "healthy",
+      "itemCount": 20,
+      "latestItemAt": "2026-07-10T09:59:00+00:00",
+      "error": null
+    },
+    {
+      "id": "open_githubs_daily_rank",
+      "name": "OpenGithubs Daily Rank",
+      "url": "https://raw.githubusercontent.com/OpenGithubs/github-daily-rank/main/README.md",
+      "state": "healthy",
+      "itemCount": 10,
+      "latestItemAt": "2026-07-08T16:00:00+00:00",
+      "error": null
+    },
+    {
+      "id": "hellogithub",
+      "name": "HelloGitHub",
+      "url": "https://github.com/521xueweihan/HelloGitHub/releases",
+      "state": "healthy",
+      "itemCount": 1,
+      "latestItemAt": "2026-06-29T00:36:02+00:00",
+      "error": null
+    }
+  ],
+  "topSignals": [
+    {
+      "id": "signal_cd1e04a236d6",
+      "kind": "official",
+      "title": "OpenAI’s GPT-5.6 Sol, Terra, and Luna are now available in GitHub Copilot",
+      "summaryZh": "GitHub Changelog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://github.blog/changelog/2026-07-09-openais-gpt-5-6-sol-terra-and-luna-are-now-available-in-github-copilot",
+      "source": "GitHub Changelog",
+      "sourceUrl": "https://github.blog/changelog/feed/",
+      "publishedAt": "2026-07-09T16:41:29+00:00",
+      "score": 0.9399,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "GitHub Changelog"
+      ]
+    },
+    {
+      "id": "signal_2aa380daeea9",
+      "kind": "official",
+      "title": "GPT-5.6 is now the preferred model in Microsoft 365 Copilot",
+      "summaryZh": "OpenAI News 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://openai.com/index/gpt-5-6-preferred-model-microsoft-365-copilot",
+      "source": "OpenAI News",
+      "sourceUrl": "https://openai.com/news/rss.xml",
+      "publishedAt": "2026-07-09T13:00:00+00:00",
+      "score": 0.9179,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "OpenAI News"
+      ]
+    },
+    {
+      "id": "signal_ad223990b9c5",
+      "kind": "official",
+      "title": "GitHub Mobile: Improved filters and sorting for Copilot sessions",
+      "summaryZh": "GitHub Changelog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://github.blog/changelog/2026-07-10-github-mobile-improved-filters-and-sorting-for-copilot-sessions",
+      "source": "GitHub Changelog",
+      "sourceUrl": "https://github.blog/changelog/feed/",
+      "publishedAt": "2026-07-10T09:45:30+00:00",
+      "score": 0.8833,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "GitHub Changelog"
+      ]
+    },
+    {
+      "id": "signal_26da59cadbe3",
+      "kind": "official",
+      "title": "How Deutsche Telekom is rewiring telecommunications with AI",
+      "summaryZh": "OpenAI News 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://openai.com/index/deutsche-telekom",
+      "source": "OpenAI News",
+      "sourceUrl": "https://openai.com/news/rss.xml",
+      "publishedAt": "2026-07-10T07:00:00+00:00",
+      "score": 0.8385,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "OpenAI News"
+      ]
+    },
+    {
+      "id": "signal_449c4eb80d7f",
+      "kind": "official",
+      "title": "Profiling in PyTorch (Part 3): Attention is all you profile",
+      "summaryZh": "Hugging Face Blog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://huggingface.co/blog/torch-attention-profile",
+      "source": "Hugging Face Blog",
+      "sourceUrl": "https://huggingface.co/blog/feed.xml",
+      "publishedAt": "2026-07-10T00:00:00+00:00",
+      "score": 0.8305,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "Hugging Face Blog"
+      ]
+    }
+  ],
+  "signals": [
+    {
+      "id": "signal_cd1e04a236d6",
+      "kind": "official",
+      "title": "OpenAI’s GPT-5.6 Sol, Terra, and Luna are now available in GitHub Copilot",
+      "summaryZh": "GitHub Changelog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://github.blog/changelog/2026-07-09-openais-gpt-5-6-sol-terra-and-luna-are-now-available-in-github-copilot",
+      "source": "GitHub Changelog",
+      "sourceUrl": "https://github.blog/changelog/feed/",
+      "publishedAt": "2026-07-09T16:41:29+00:00",
+      "score": 0.9399,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "GitHub Changelog"
+      ]
+    },
+    {
+      "id": "signal_2aa380daeea9",
+      "kind": "official",
+      "title": "GPT-5.6 is now the preferred model in Microsoft 365 Copilot",
+      "summaryZh": "OpenAI News 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://openai.com/index/gpt-5-6-preferred-model-microsoft-365-copilot",
+      "source": "OpenAI News",
+      "sourceUrl": "https://openai.com/news/rss.xml",
+      "publishedAt": "2026-07-09T13:00:00+00:00",
+      "score": 0.9179,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "OpenAI News"
+      ]
+    },
+    {
+      "id": "signal_ad223990b9c5",
+      "kind": "official",
+      "title": "GitHub Mobile: Improved filters and sorting for Copilot sessions",
+      "summaryZh": "GitHub Changelog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://github.blog/changelog/2026-07-10-github-mobile-improved-filters-and-sorting-for-copilot-sessions",
+      "source": "GitHub Changelog",
+      "sourceUrl": "https://github.blog/changelog/feed/",
+      "publishedAt": "2026-07-10T09:45:30+00:00",
+      "score": 0.8833,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "GitHub Changelog"
+      ]
+    },
+    {
+      "id": "signal_26da59cadbe3",
+      "kind": "official",
+      "title": "How Deutsche Telekom is rewiring telecommunications with AI",
+      "summaryZh": "OpenAI News 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://openai.com/index/deutsche-telekom",
+      "source": "OpenAI News",
+      "sourceUrl": "https://openai.com/news/rss.xml",
+      "publishedAt": "2026-07-10T07:00:00+00:00",
+      "score": 0.8385,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "OpenAI News"
+      ]
+    },
+    {
+      "id": "signal_449c4eb80d7f",
+      "kind": "official",
+      "title": "Profiling in PyTorch (Part 3): Attention is all you profile",
+      "summaryZh": "Hugging Face Blog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://huggingface.co/blog/torch-attention-profile",
+      "source": "Hugging Face Blog",
+      "sourceUrl": "https://huggingface.co/blog/feed.xml",
+      "publishedAt": "2026-07-10T00:00:00+00:00",
+      "score": 0.8305,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "Hugging Face Blog"
+      ]
+    },
+    {
+      "id": "signal_e37e9c030599",
+      "kind": "ranking",
+      "title": "MadsLorentzen/ai-job-search",
+      "summaryZh": "OpenGithubs 日榜第 1 名，来源报告日增 3,477 Star、总量 18.4k。该数值只作为外部候选信号，Rardar 会用自己的快照验证增长。",
+      "url": "https://github.com/MadsLorentzen/ai-job-search",
+      "source": "OpenGithubs Daily Rank",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenGithubs/github-daily-rank/main/README.md",
+      "publishedAt": "2026-07-08T16:00:00+00:00",
+      "score": 0.82,
+      "evidence": [
+        "external_daily_rank",
+        "requires_independent_verification"
+      ],
+      "sources": [
+        "OpenGithubs Daily Rank"
+      ],
+      "repo": "MadsLorentzen/ai-job-search",
+      "reportedDailyGrowth": 3477
+    },
+    {
+      "id": "signal_e4245cb000d0",
+      "kind": "aggregated",
+      "title": "社交媒体AI生成内容泛滥：LinkedIn超过40%长文为AI写作",
+      "summaryZh": "AI News Radar 将其归入“multi_source”信号，合并 4 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://www.pangram.com/blog/ai-in-your-feed",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-09T21:46:29.789000+00:00",
+      "score": 0.8083,
+      "evidence": [
+        "multi_source",
+        "high_ai_relevance",
+        "high_importance"
+      ],
+      "sources": [
+        "Hacker News",
+        "Hacker News 热门（buzzing.cc 中文翻译）",
+        "hackernews",
+        "www.pangram.com"
+      ]
+    },
+    {
+      "id": "signal_b87fff950f17",
+      "kind": "official",
+      "title": "Ask Copilot for a repository overview",
+      "summaryZh": "GitHub Changelog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://github.blog/changelog/2026-07-09-ask-copilot-for-a-repository-overview",
+      "source": "GitHub Changelog",
+      "sourceUrl": "https://github.blog/changelog/feed/",
+      "publishedAt": "2026-07-09T14:25:33+00:00",
+      "score": 0.803,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance",
+        "official_feed",
+        "official_source",
+        "timestamped_source"
+      ],
+      "sources": [
+        "AI News Radar",
+        "GitHub Changelog"
+      ]
+    },
+    {
+      "id": "signal_adf57ab874a7",
+      "kind": "official",
+      "title": "GitHub Copilot in Visual Studio Code, June 2026 releases",
+      "summaryZh": "GitHub Changelog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://github.blog/changelog/2026-07-08-github-copilot-in-visual-studio-code-june-2026-releases",
+      "source": "GitHub Changelog",
+      "sourceUrl": "https://github.blog/changelog/feed/",
+      "publishedAt": "2026-07-08T18:24:55+00:00",
+      "score": 0.7965,
+      "evidence": [
+        "official_feed",
+        "timestamped_source"
+      ],
+      "sources": [
+        "GitHub Changelog"
+      ]
+    },
+    {
+      "id": "signal_9e22cfe2d37f",
+      "kind": "ranking",
+      "title": "addyosmani/agent-skills",
+      "summaryZh": "OpenGithubs 日榜第 2 名，来源报告日增 2,054 Star、总量 75.7k。该数值只作为外部候选信号，Rardar 会用自己的快照验证增长。",
+      "url": "https://github.com/addyosmani/agent-skills",
+      "source": "OpenGithubs Daily Rank",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenGithubs/github-daily-rank/main/README.md",
+      "publishedAt": "2026-07-08T16:00:00+00:00",
+      "score": 0.795,
+      "evidence": [
+        "external_daily_rank",
+        "requires_independent_verification"
+      ],
+      "sources": [
+        "OpenGithubs Daily Rank"
+      ],
+      "repo": "addyosmani/agent-skills",
+      "reportedDailyGrowth": 2054
+    },
+    {
+      "id": "signal_1d1b8dd79835",
+      "kind": "aggregated",
+      "title": "扎克伯格首度回应 Meta\"算力过剩\"：没人会嫌算力太多，但租出去更赚钱",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 2 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://www.ithome.com/0/975/078.htm",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-10T07:26:10+00:00",
+      "score": 0.7891,
+      "evidence": [
+        "multi_source",
+        "high_ai_relevance",
+        "high_importance"
+      ],
+      "sources": [
+        "IT之家 (ITHome)",
+        "IT之家（RSS）"
+      ]
+    },
+    {
+      "id": "signal_dc62b4205b8a",
+      "kind": "official",
+      "title": "ChatGPT is now a partner for your most ambitious work",
+      "summaryZh": "OpenAI News 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://openai.com/index/chatgpt-for-your-most-ambitious-work",
+      "source": "OpenAI News",
+      "sourceUrl": "https://openai.com/news/rss.xml",
+      "publishedAt": "2026-07-09T10:00:00+00:00",
+      "score": 0.7748,
+      "evidence": [
+        "official_feed",
+        "timestamped_source"
+      ],
+      "sources": [
+        "OpenAI News"
+      ]
+    },
+    {
+      "id": "signal_79c89e6000d6",
+      "kind": "ranking",
+      "title": "iOfficeAI/OfficeCLI",
+      "summaryZh": "OpenGithubs 日榜第 3 名，来源报告日增 1,705 Star、总量 13.3k。该数值只作为外部候选信号，Rardar 会用自己的快照验证增长。",
+      "url": "https://github.com/iOfficeAI/OfficeCLI",
+      "source": "OpenGithubs Daily Rank",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenGithubs/github-daily-rank/main/README.md",
+      "publishedAt": "2026-07-08T16:00:00+00:00",
+      "score": 0.77,
+      "evidence": [
+        "external_daily_rank",
+        "requires_independent_verification"
+      ],
+      "sources": [
+        "OpenGithubs Daily Rank"
+      ],
+      "repo": "iOfficeAI/OfficeCLI",
+      "reportedDailyGrowth": 1705
+    },
+    {
+      "id": "signal_f163290afb5a",
+      "kind": "official",
+      "title": "Organization-level targeting for GitHub Code Quality",
+      "summaryZh": "GitHub Changelog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://github.blog/changelog/2026-07-09-organization-level-targeting-for-github-code-quality",
+      "source": "GitHub Changelog",
+      "sourceUrl": "https://github.blog/changelog/feed/",
+      "publishedAt": "2026-07-09T15:54:01+00:00",
+      "score": 0.764,
+      "evidence": [
+        "official_feed",
+        "timestamped_source"
+      ],
+      "sources": [
+        "GitHub Changelog"
+      ]
+    },
+    {
+      "id": "signal_1384444ab57b",
+      "kind": "aggregated",
+      "title": "马斯克承认Anthropic是当前AI领导者",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 1 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://x.com/rohanpaul_ai/status/2075480331600417141",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-10T07:20:46+00:00",
+      "score": 0.7639,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance"
+      ],
+      "sources": [
+        "X：Rohan Paul (@rohanpaul_ai)"
+      ]
+    },
+    {
+      "id": "signal_87a4771d9848",
+      "kind": "aggregated",
+      "title": "Elon Musk称赞Anthropic并承诺不切断其算力",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 2 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://techcrunch.com/2026/07/09/elon-musk-praises-mythos-fable-promises-not-to-cut-off-anthropic",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-09T21:57:42+00:00",
+      "score": 0.7617,
+      "evidence": [
+        "multi_source",
+        "high_ai_relevance",
+        "high_importance"
+      ],
+      "sources": [
+        "TechCrunch AI",
+        "TechCrunch：AI（RSS）"
+      ]
+    },
+    {
+      "id": "signal_940d2a968a75",
+      "kind": "aggregated",
+      "title": "AI 能否回答 3 万亿美元的问题？",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 2 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://techcrunch.com/2026/07/09/can-ai-answer-the-3-trillion-question",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-09T21:47:50+00:00",
+      "score": 0.7614,
+      "evidence": [
+        "multi_source",
+        "high_ai_relevance",
+        "high_importance"
+      ],
+      "sources": [
+        "TechCrunch AI",
+        "TechCrunch：AI（RSS）"
+      ]
+    },
+    {
+      "id": "signal_5f16e379a028",
+      "kind": "aggregated",
+      "title": "AI日报：GPT5.6系列模型发布 Codex消失;腾讯拟接盘Manus成最大股东；MiniMax创始人宣布零薪酬直至实现AGI",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 1 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://www.aibase.com/news/29529",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-10T09:35:00.128733+00:00",
+      "score": 0.7604,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance"
+      ],
+      "sources": [
+        "AIbase"
+      ]
+    },
+    {
+      "id": "signal_81e311ef155a",
+      "kind": "aggregated",
+      "title": "Kimi联合美国运通与农业银行正式发行首张AI原生信用卡",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 1 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://www.aibase.com/news/29526",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-10T09:35:00.128733+00:00",
+      "score": 0.7604,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance"
+      ],
+      "sources": [
+        "AIbase"
+      ]
+    },
+    {
+      "id": "signal_1e92ad9f7199",
+      "kind": "aggregated",
+      "title": "小红书发布大模型新架构 PIPO",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 1 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://mp.weixin.qq.com/s/1eo7rrCAH-OA0TnXwwqJEg",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-10T09:59:00+00:00",
+      "score": 0.7554,
+      "evidence": [
+        "high_ai_relevance",
+        "high_importance"
+      ],
+      "sources": [
+        "公众号：小红书技术（dots.llm）"
+      ]
+    },
+    {
+      "id": "signal_e0ad009c1af9",
+      "kind": "aggregated",
+      "title": "OpenAI 发布 GPT-5.6 公开版及 ChatGPT Work 智能体",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 2 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://the-decoder.com/openai-pairs-its-gpt-5-6-public-rollout-with-chatgpt-work-a-new-agent-that-handles-entire-workflows",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-09T17:59:22+00:00",
+      "score": 0.7506,
+      "evidence": [
+        "multi_source",
+        "high_ai_relevance",
+        "high_importance"
+      ],
+      "sources": [
+        "The Decoder AI News",
+        "The Decoder：AI News（RSS）"
+      ]
+    },
+    {
+      "id": "signal_2943c7b189be",
+      "kind": "official",
+      "title": "GPT-5.6: Frontier intelligence that scales with your ambition",
+      "summaryZh": "OpenAI News 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://openai.com/index/gpt-5-6",
+      "source": "OpenAI News",
+      "sourceUrl": "https://openai.com/news/rss.xml",
+      "publishedAt": "2026-07-09T10:00:00+00:00",
+      "score": 0.7468,
+      "evidence": [
+        "official_feed",
+        "timestamped_source"
+      ],
+      "sources": [
+        "OpenAI News"
+      ]
+    },
+    {
+      "id": "signal_ae22117bfd0c",
+      "kind": "official",
+      "title": "GPT-5.5 Bio Bug Bounty",
+      "summaryZh": "OpenAI News 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://openai.com/index/bio-bug-bounty",
+      "source": "OpenAI News",
+      "sourceUrl": "https://openai.com/news/rss.xml",
+      "publishedAt": "2026-07-09T10:00:00+00:00",
+      "score": 0.7468,
+      "evidence": [
+        "official_feed",
+        "timestamped_source"
+      ],
+      "sources": [
+        "OpenAI News"
+      ]
+    },
+    {
+      "id": "signal_3fbe11a01da3",
+      "kind": "aggregated",
+      "title": "Claude 推出反思功能（Beta）",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 2 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://www.anthropic.com/news/reflect-with-claude",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-09T13:40:30.163000+00:00",
+      "score": 0.7452,
+      "evidence": [
+        "multi_source",
+        "high_ai_relevance"
+      ],
+      "sources": [
+        "Anthropic：Newsroom（网页）",
+        "Hacker News · 24h最热"
+      ]
+    },
+    {
+      "id": "signal_d769669458fb",
+      "kind": "ranking",
+      "title": "jamiepine/voicebox",
+      "summaryZh": "OpenGithubs 日榜第 4 名，来源报告日增 1,205 Star、总量 39.9k。该数值只作为外部候选信号，Rardar 会用自己的快照验证增长。",
+      "url": "https://github.com/jamiepine/voicebox",
+      "source": "OpenGithubs Daily Rank",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenGithubs/github-daily-rank/main/README.md",
+      "publishedAt": "2026-07-08T16:00:00+00:00",
+      "score": 0.745,
+      "evidence": [
+        "external_daily_rank",
+        "requires_independent_verification"
+      ],
+      "sources": [
+        "OpenGithubs Daily Rank"
+      ],
+      "repo": "jamiepine/voicebox",
+      "reportedDailyGrowth": 1205
+    },
+    {
+      "id": "signal_c6603d510a9c",
+      "kind": "aggregated",
+      "title": "Elon Musk 转发用户称赞 Grok Build 的反馈",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 1 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://x.com/elonmusk/status/2075478792273842370",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-10T07:14:39+00:00",
+      "score": 0.7427,
+      "evidence": [
+        "high_ai_relevance"
+      ],
+      "sources": [
+        "X：Elon Musk (@elonmusk, xAI)"
+      ]
+    },
+    {
+      "id": "signal_117a7a2b2cca",
+      "kind": "official",
+      "title": "Innersource security advisories are generally available",
+      "summaryZh": "GitHub Changelog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://github.blog/changelog/2026-07-08-innersource-security-advisories-are-generally-available",
+      "source": "GitHub Changelog",
+      "sourceUrl": "https://github.blog/changelog/feed/",
+      "publishedAt": "2026-07-08T21:30:35+00:00",
+      "score": 0.7383,
+      "evidence": [
+        "official_feed",
+        "timestamped_source"
+      ],
+      "sources": [
+        "GitHub Changelog"
+      ]
+    },
+    {
+      "id": "signal_bd918238ce65",
+      "kind": "aggregated",
+      "title": "Claude Code v2.1.206 发布",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 2 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.206",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-10T01:45:26+00:00",
+      "score": 0.7369,
+      "evidence": [
+        "multi_source",
+        "high_ai_relevance"
+      ],
+      "sources": [
+        "Claude Code Releases",
+        "Claude Code：GitHub Releases（RSS）"
+      ]
+    },
+    {
+      "id": "signal_2b8e3808f6e4",
+      "kind": "official",
+      "title": "Deploy managed Copilot settings via MDM in VS Code and CLI",
+      "summaryZh": "GitHub Changelog 发布官方更新。该条目直接来自官方订阅源，建议先阅读原文再判断是否影响当前项目。",
+      "url": "https://github.blog/changelog/2026-07-08-deploy-managed-copilot-settings-via-mdm-in-vs-code-and-cli",
+      "source": "GitHub Changelog",
+      "sourceUrl": "https://github.blog/changelog/feed/",
+      "publishedAt": "2026-07-08T20:38:56+00:00",
+      "score": 0.7358,
+      "evidence": [
+        "official_feed",
+        "timestamped_source"
+      ],
+      "sources": [
+        "GitHub Changelog"
+      ]
+    },
+    {
+      "id": "signal_a9c397d75d58",
+      "kind": "aggregated",
+      "title": "Google Research 推出 SensorFM：面向可穿戴健康数据的通用基础模型",
+      "summaryZh": "AI News Radar 将其归入“industry”信号，合并 1 个来源；Rardar 保留原文入口并独立展示来源。",
+      "url": "https://research.google/blog/sensorfm-towards-a-general-intelligence-and-interface-for-wearable-health-data",
+      "source": "AI News Radar",
+      "sourceUrl": "https://raw.githubusercontent.com/LearnPrompt/ai-news-radar/master/data/daily-brief.json",
+      "publishedAt": "2026-07-10T00:20:20.110000+00:00",
+      "score": 0.7328,
+      "evidence": [
+        "high_ai_relevance"
+      ],
+      "sources": [
+        "Google Research：Blog（网页）"
+      ]
+    }
+  ]
+}

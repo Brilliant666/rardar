@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-10T13:20:00Z",
+  "model": "local-codex",
+  "items": {
+    "https://github.blog/changelog/2026-07-09-openais-gpt-5-6-sol-terra-and-luna-are-now-available-in-github-copilot": {
+      "titleZh": "GPT-5.6 三种规格开始进入 GitHub Copilot",
+      "takeawayZh": "GitHub 正在逐步上线 GPT-5.6 Sol、Terra 和 Luna：分别面向大型代码库与长任务、日常均衡编码，以及低成本快速任务。",
+      "whyItMattersZh": "编程 Agent 的模型选择开始按任务复杂度和成本分层；以后不能只比较“最强模型”，还要记录任务类型、价格与延迟。",
+      "categoryZh": "模型与开发工具"
+    },
+    "https://openai.com/index/gpt-5-6-preferred-model-microsoft-365-copilot": {
+      "titleZh": "GPT-5.6 成为 Microsoft 365 Copilot 的首选模型",
+      "takeawayZh": "GPT-5.6 将进入 Word、Excel、PowerPoint、Copilot Chat 和 Cowork，重点改善文档生成、数据分析、演示制作与跨团队任务。",
+      "whyItMattersZh": "Office 类 Agent 从单独工具转向平台内原生模型能力；评估开源 Office 自动化项目时，需要区分本地可控性与平台原生体验。",
+      "categoryZh": "生产力平台"
+    },
+    "https://github.blog/changelog/2026-07-10-github-mobile-improved-filters-and-sorting-for-copilot-sessions": {
+      "titleZh": "GitHub Mobile 改进 Copilot 会话筛选和排序",
+      "takeawayZh": "GitHub Mobile 为不断增长的 Copilot 会话列表增加更易用的筛选与排序，帮助用户更快找到目标会话。",
+      "whyItMattersZh": "当 Agent 会话数量增加后，检索、状态管理和历史回溯会成为基础能力；Rardar 未来的分析任务也需要类似的信息组织。",
+      "categoryZh": "Agent 体验"
+    },
+    "https://openai.com/index/deutsche-telekom": {
+      "titleZh": "德国电信公开 AI 原生运营改造案例",
+      "takeawayZh": "德国电信把 AI 用于员工工作流、客服和网络运营，并探索实时翻译、通话助手与自动摘要；文章披露其 ChatGPT 与 API 工具月活超过五万。",
+      "whyItMattersZh": "这不是新模型发布，而是企业流程重构案例。更值得参考的是从高频任务切入、逐步重做工作流，而不是简单增加聊天入口。",
+      "categoryZh": "企业实践"
+    },
+    "https://huggingface.co/blog/torch-attention-profile": {
+      "titleZh": "Hugging Face 发布 PyTorch Attention 性能分析系列第三篇",
+      "takeawayZh": "文章聚焦如何分析 PyTorch Attention 工作负载的性能表现，属于模型训练和推理优化的工程信号。",
+      "whyItMattersZh": "对需要控制显存、吞吐与延迟的本地模型项目有参考价值；当前 Rardar 只确认官方文章发布，尚未复现实验结果。",
+      "categoryZh": "模型工程"
+    }
+  }
+}

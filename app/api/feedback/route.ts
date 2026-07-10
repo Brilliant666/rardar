@@ -1,31 +1,12 @@
 import { and, eq, sql } from "drizzle-orm";
-import { env } from "cloudflare:workers";
 import { getDb } from "../../../db";
-import { feedback } from "../../../db/schema";
+import { ensureDecisionSchema } from "../../../db/ensure";
+import { decisionEvents, feedback } from "../../../db/schema";
 
 const allowedValues = new Set(["有用", "无用", "复用", "待确定"]);
 
-async function ensureSchema() {
-  await env.DB.batch([
-    env.DB.prepare(`
-      CREATE TABLE IF NOT EXISTS feedback (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        device_id TEXT NOT NULL,
-        project_slug TEXT NOT NULL,
-        value TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    env.DB.prepare(`
-      CREATE UNIQUE INDEX IF NOT EXISTS feedback_device_project_idx
-      ON feedback (device_id, project_slug)
-    `),
-  ]);
-}
-
 export async function GET(request: Request) {
-  await ensureSchema();
+  await ensureDecisionSchema();
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("deviceId")?.trim();
   const projectSlug = url.searchParams.get("projectSlug")?.trim();
@@ -42,7 +23,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  await ensureSchema();
+  await ensureDecisionSchema();
   const payload = (await request.json()) as { deviceId?: string; projectSlug?: string; value?: string };
   const deviceId = payload.deviceId?.trim();
   const projectSlug = payload.projectSlug?.trim();
@@ -53,6 +34,11 @@ export async function POST(request: Request) {
   }
 
   const db = getDb();
+  const [previous] = await db
+    .select({ value: feedback.value })
+    .from(feedback)
+    .where(and(eq(feedback.deviceId, deviceId), eq(feedback.projectSlug, projectSlug)))
+    .limit(1);
   await db
     .insert(feedback)
     .values({ deviceId, projectSlug, value })
@@ -61,5 +47,10 @@ export async function POST(request: Request) {
       set: { value, updatedAt: sql`CURRENT_TIMESTAMP` },
     });
 
-  return Response.json({ ok: true, value });
+  const changed = previous?.value !== value;
+  if (changed) {
+    await db.insert(decisionEvents).values({ deviceId, projectSlug, value });
+  }
+
+  return Response.json({ ok: true, value, changed });
 }

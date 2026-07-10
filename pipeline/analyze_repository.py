@@ -14,6 +14,7 @@ import re
 import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -58,6 +59,7 @@ TEXT_SUFFIXES = {
 class StaticEvidence:
     repository: str
     source: str
+    analyzed_at: str
     scanned_files: int
     language_files: dict[str, int]
     indicators: dict[str, bool]
@@ -146,6 +148,7 @@ def analyze_path(root: Path, repository: str = "local") -> StaticEvidence:
     return StaticEvidence(
         repository=repository,
         source=str(root),
+        analyzed_at=datetime.now(timezone.utc).isoformat(),
         scanned_files=len(files),
         language_files=dict(sorted(language_files.items(), key=lambda item: item[1], reverse=True)[:12]),
         indicators=indicators,
@@ -163,6 +166,16 @@ def _validate_repo(repo: str) -> str:
     return value
 
 
+def _git_environment() -> dict[str, str]:
+    """Isolate read-only clones from user-level URL rewrites and proxy rules."""
+    return {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+
+
 def analyze_remote(repo: str) -> StaticEvidence:
     normalized = _validate_repo(repo)
     with tempfile.TemporaryDirectory(prefix="rardar-") as directory:
@@ -172,13 +185,26 @@ def analyze_remote(repo: str) -> StaticEvidence:
             "clone",
             "--depth",
             "1",
-            "--filter=blob:limit=2m",
+            "--filter=blob:limit=512k",
+            "--no-tags",
             "--single-branch",
             f"https://github.com/{normalized}.git",
             str(checkout),
         ]
-        environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-        subprocess.run(command, check=True, timeout=180, env=environment, capture_output=True, text=True)
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                timeout=180,
+                env=_git_environment(),
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(f"shallow clone timed out after {error.timeout} seconds: {normalized}") from None
+        except subprocess.CalledProcessError as error:
+            detail = (error.stderr or error.stdout or "git clone failed").strip().splitlines()[-1]
+            raise RuntimeError(f"shallow clone failed for {normalized}: {detail}") from None
         evidence = analyze_path(checkout, normalized)
         evidence.source = f"https://github.com/{normalized}"
         return evidence

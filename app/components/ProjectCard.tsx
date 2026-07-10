@@ -6,10 +6,12 @@ export function ProjectCard({
   project,
   index,
   compact = false,
+  rankingReason = "",
 }: {
   project: Project;
   index?: number;
   compact?: boolean;
+  rankingReason?: string;
 }) {
   return (
     <article className={`project-card ${compact ? "compact" : ""}`}>
@@ -20,6 +22,9 @@ export function ProjectCard({
         <span className="category-pill">{project.category}</span>
         <span className="analysis-pill">{project.analysisState}</span>
       </div>
+      {rankingReason && (
+        <p className="ranking-reason"><span>偏好重排</span>{rankingReason}</p>
+      )}
       <div className="project-card-main">
         <div>
           <Link className="repo-name" href={`/projects/${project.slug}`}>
@@ -44,7 +49,7 @@ export function ProjectCard({
       {!compact && <p className="why-now"><span>为什么现在</span>{project.whyNow}</p>}
       <div className="project-meta">
         <span>★ {formatNumber(project.stars)}</span>
-        <span className="trend-up">今日 +{formatNumber(project.starsToday)}</span>
+        <span className="trend-up" title={project.growthLabel}>{project.trend}</span>
         <span>{project.language}</span>
         <span>{project.license}</span>
         <span className="action-tag">建议：{project.recommendation}</span>

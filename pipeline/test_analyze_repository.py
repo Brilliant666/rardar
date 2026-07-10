@@ -4,10 +4,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pipeline.analyze_repository import analyze_path
+from pipeline.analyze_repository import _git_environment, analyze_path
 
 
 class AnalyzeRepositoryTests(unittest.TestCase):
+    def test_remote_clone_ignores_user_git_rewrites_and_prompts(self) -> None:
+        environment = _git_environment()
+        self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
+        self.assertEqual(environment["GIT_CONFIG_NOSYSTEM"], "1")
+        self.assertTrue(environment["GIT_CONFIG_GLOBAL"])
+
     def test_extracts_static_evidence_without_running_code(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

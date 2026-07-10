@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const feedback = sqliteTable(
   "feedback",
@@ -12,4 +12,16 @@ export const feedback = sqliteTable(
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [uniqueIndex("feedback_device_project_idx").on(table.deviceId, table.projectSlug)],
+);
+
+export const decisionEvents = sqliteTable(
+  "decision_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    deviceId: text("device_id").notNull(),
+    projectSlug: text("project_slug").notNull(),
+    value: text("value").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [index("decision_events_device_created_idx").on(table.deviceId, table.createdAt)],
 );

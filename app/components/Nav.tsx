@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { catalog } from "../data";
 
 const links = [
   ["/", "今日"],
+  ["/signals", "动态"],
   ["/discover", "发现"],
   ["/search", "找项目"],
   ["/candidates", "候选池"],
@@ -23,7 +25,7 @@ export function Nav() {
         ))}
       </nav>
       <div className="header-status">
-        <span className="live-dot" /> 演示快照
+        <span className="live-dot" /> {catalog.growthMode === "observed" ? "真实增长快照" : "真实首轮快照"}
       </div>
     </header>
   );
