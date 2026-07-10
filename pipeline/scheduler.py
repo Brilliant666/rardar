@@ -64,12 +64,16 @@ def should_catch_up(
     minute: int,
     timezone_name: str,
     window_hours: int = 12,
+    latest_snapshot_at: object = None,
 ) -> bool:
     """Return whether today's missed or failed scheduled run should resume."""
     now = now.astimezone(timezone.utc)
     target = scheduled_run_for_local_day(now, hour, minute, timezone_name)
     elapsed = now - target
     if elapsed.total_seconds() < 0 or elapsed > timedelta(hours=max(1, window_hours)):
+        return False
+    committed_snapshot = _parse_datetime(latest_snapshot_at)
+    if committed_snapshot and target <= committed_snapshot <= now + timedelta(hours=2):
         return False
     completed = _parse_datetime(last_run_completed_at)
     return last_state == "failed" or completed is None or completed < target
@@ -92,6 +96,20 @@ def _read_status(path: Path) -> dict[str, object]:
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def committed_refresh_at(data_dir: Path) -> str | None:
+    """Return the capture time only when every scheduled artifact agrees."""
+    snapshot_at = _read_status(data_dir / "snapshots" / "latest.json").get("captured_at")
+    catalog_at = _read_status(data_dir / "catalog" / "latest.json").get("capturedAt")
+    signal_at = _read_status(data_dir / "signals" / "latest.json").get("capturedAt")
+    queue_at = _read_status(data_dir / "queues" / "codex.json").get("generatedAt")
+    instants = [_parse_datetime(value) for value in (snapshot_at, catalog_at, signal_at, queue_at)]
+    if any(value is None for value in instants):
+        return None
+    if len(set(instants)) != 1:
+        return None
+    return str(snapshot_at)
 
 
 def run_cycle(
@@ -209,6 +227,7 @@ def main() -> None:
         hour,
         minute,
         arguments.timezone,
+        latest_snapshot_at=committed_refresh_at(arguments.data_dir),
     )
     attempts_in_cycle = 0
     if not arguments.skip_initial or catch_up:

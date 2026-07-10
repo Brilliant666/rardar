@@ -7,10 +7,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline.scheduler import next_run_at, parse_clock, run_cycle, should_catch_up, should_retry
+from pipeline.scheduler import committed_refresh_at, next_run_at, parse_clock, run_cycle, should_catch_up, should_retry
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_committed_refresh_requires_all_artifacts_to_match(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            captured = "2026-07-10T00:00:02+00:00"
+            artifacts = {
+                root / "snapshots" / "latest.json": {"captured_at": captured},
+                root / "catalog" / "latest.json": {"capturedAt": captured},
+                root / "signals" / "latest.json": {"capturedAt": captured},
+                root / "queues" / "codex.json": {"generatedAt": captured},
+            }
+            for path, payload in artifacts.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(payload), encoding="utf-8")
+
+            self.assertEqual(committed_refresh_at(root), captured)
+            (root / "catalog" / "latest.json").write_text(
+                json.dumps({"capturedAt": "2026-07-09T00:00:00+00:00"}),
+                encoding="utf-8",
+            )
+            self.assertIsNone(committed_refresh_at(root))
+
     def test_cycle_publishes_running_state_before_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             status_path = Path(directory) / "scheduler.json"
@@ -59,6 +80,20 @@ class SchedulerTests(unittest.TestCase):
                 8,
                 0,
                 "Asia/Shanghai",
+            )
+        )
+
+    def test_committed_snapshot_prevents_duplicate_catch_up_after_status_crash(self) -> None:
+        now = datetime(2026, 7, 10, 0, 5, tzinfo=timezone.utc)
+        self.assertFalse(
+            should_catch_up(
+                now,
+                None,
+                "running",
+                8,
+                0,
+                "Asia/Shanghai",
+                latest_snapshot_at="2026-07-10T00:00:02+00:00",
             )
         )
 
