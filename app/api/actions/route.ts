@@ -56,19 +56,10 @@ export async function POST(request: Request) {
 
   await ensureDecisionSchema();
   const db = getDb();
-  const [existing] = await db
-    .select({ id: projectActions.id })
-    .from(projectActions)
-    .where(
-      and(
-        eq(projectActions.deviceId, deviceId),
-        eq(projectActions.projectSlug, projectSlug),
-        eq(projectActions.action, action),
-      ),
-    )
-    .limit(1);
-  if (!existing) {
-    await db.insert(projectActions).values({ deviceId, projectSlug, action }).onConflictDoNothing();
-  }
-  return Response.json({ ok: true, action, recorded: !existing });
+  const inserted = await db
+    .insert(projectActions)
+    .values({ deviceId, projectSlug, action })
+    .onConflictDoNothing()
+    .returning({ id: projectActions.id });
+  return Response.json({ ok: true, action, recorded: inserted.length === 1 });
 }

@@ -66,6 +66,8 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(metricsRoute, /project_actions/);
   assert.match(actionsRoute, /allowedActions/);
   assert.match(actionsRoute, /unknown project/);
+  assert.match(actionsRoute, /onConflictDoNothing\(\).*returning/s);
+  assert.match(actionsRoute, /recorded: inserted\.length === 1/);
   assert.match(validation, /request\.json\(\)/);
   assert.match(validation, /typeof value === "string"/);
   assert.match(projectActions, /确认复用/);
