@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from pipeline.codex_queue import build_codex_queue
+
 
 def _parse_time(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
@@ -235,6 +237,41 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     _check_count(issues, queue.get("signalPendingCount"), signal_pending, "signal_queue_count_mismatch", "signalPendingCount is inconsistent")
     _add_if(issues, len(queue_ids) != len(set(queue_ids)) or "" in queue_ids, "duplicate_queue_id", "queue IDs must be non-empty and unique")
     _add_if(issues, project_pending + signal_pending != len(queue_items), "invalid_queue_kind", "queue kind must be project or signal")
+    if isinstance(queue.get("scope"), dict) and queue_at:
+        project_limit_value = _integer(queue["scope"].get("projectLimit"))
+        signal_limit_value = _integer(queue["scope"].get("signalLimit"))
+        project_limit = max(0, min(project_limit_value if project_limit_value is not None else 5, 30))
+        signal_limit = max(0, min(signal_limit_value if signal_limit_value is not None else 10, 30))
+        expected_queue = build_codex_queue(
+            catalog,
+            signals,
+            data_dir / "enrichment",
+            data_dir / "signals" / "enrichment.json",
+            queue_at,
+            project_limit,
+            signal_limit,
+        )
+        expected_ids = [str(item.get("id") or "") for item in expected_queue["items"]]
+        _add_if(
+            issues,
+            queue_ids != expected_ids,
+            "stale_queue_items",
+            "Codex queue items differ from a read-only rebuild of current inputs",
+        )
+        _check_count(
+            issues,
+            queue.get("completedProjectCount"),
+            int(expected_queue["completedProjectCount"]),
+            "completed_project_count_mismatch",
+            "completedProjectCount differs from current project enrichments",
+        )
+        _check_count(
+            issues,
+            queue.get("completedSignalCount"),
+            int(expected_queue["completedSignalCount"]),
+            "completed_signal_count_mismatch",
+            "completedSignalCount differs from current signal enrichments",
+        )
 
     previous_at = _parse_time(catalog.get("previousCapturedAt"))
     history_matches = 0

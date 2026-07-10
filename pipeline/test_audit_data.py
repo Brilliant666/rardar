@@ -127,12 +127,32 @@ class AuditDataTests(unittest.TestCase):
                     "signals": [signal],
                 },
             )
-            write_json(root / "queues/codex.json", {"generatedAt": captured, "pendingCount": 0, "projectPendingCount": 0, "signalPendingCount": 0, "items": []})
+            write_json(
+                root / "queues/codex.json",
+                {
+                    "generatedAt": captured,
+                    "scope": {"projectLimit": 5, "signalLimit": 10},
+                    "pendingCount": 2,
+                    "projectPendingCount": 1,
+                    "signalPendingCount": 1,
+                    "completedProjectCount": 0,
+                    "completedSignalCount": 0,
+                    "items": [
+                        {"id": "project:demo--tool", "kind": "project"},
+                        {"id": "signal:signal-1", "kind": "signal"},
+                    ],
+                },
+            )
 
             result = audit_data(root)
+            queue_payload = json.loads((root / "queues/codex.json").read_text(encoding="utf-8"))
+            queue_payload["items"].reverse()
+            write_json(root / "queues/codex.json", queue_payload)
+            stale_queue = audit_data(root)
 
         self.assertEqual(result["status"], "healthy")
         self.assertEqual(result["errorCount"], 0)
+        self.assertIn("stale_queue_items", {item["code"] for item in stale_queue["issues"]})
 
     def test_reports_count_time_url_and_window_corruption(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
