@@ -95,7 +95,8 @@ class AuditDataTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             captured = "2026-07-10T12:00:00+00:00"
-            repository = {"repo": "demo/tool", "stars": 100}
+            query = "pushed:>=2026-07-01 stars:>=500 archived:false fork:false"
+            repository = {"repo": "demo/tool", "stars": 100, "candidate_query": query}
             project = {
                 "repo": "demo/tool",
                 "slug": "demo--tool",
@@ -113,8 +114,19 @@ class AuditDataTests(unittest.TestCase):
                 "url": "https://example.com/feed.xml",
                 "state": "healthy",
             }
-            write_json(root / "snapshots/latest.json", {"captured_at": captured, "count": 1, "repositories": [repository]})
-            write_json(root / "catalog/latest.json", {"capturedAt": captured, "sourceCount": 1, "projectCount": 1, "previousCapturedAt": None, "projects": [project]})
+            snapshot = {
+                "captured_at": captured,
+                "queries": [query],
+                "query_status": [
+                    {"query": query, "state": "healthy", "item_count": 1, "error": None}
+                ],
+                "successful_query_count": 1,
+                "failed_query_count": 0,
+                "count": 1,
+                "repositories": [repository],
+            }
+            write_json(root / "snapshots/latest.json", snapshot)
+            write_json(root / "catalog/latest.json", {"capturedAt": captured, "sourceCount": 1, "projectCount": 1, "previousCapturedAt": None, "queryFailureCount": 0, "projects": [project]})
             write_json(
                 root / "signals/latest.json",
                 {
@@ -149,10 +161,27 @@ class AuditDataTests(unittest.TestCase):
             queue_payload["items"].reverse()
             write_json(root / "queues/codex.json", queue_payload)
             stale_queue = audit_data(root)
+            snapshot["query_status"][0] = {
+                "query": "stars:>=999999",
+                "state": "failed",
+                "item_count": 0,
+                "error": "rate limited",
+            }
+            snapshot["successful_query_count"] = 0
+            snapshot["failed_query_count"] = 1
+            repository["candidate_query"] = "stars:>=999999"
+            write_json(root / "snapshots/latest.json", snapshot)
+            corrupted_queries = audit_data(root)
 
         self.assertEqual(result["status"], "healthy")
         self.assertEqual(result["errorCount"], 0)
+        self.assertEqual(result["successfulQueryCount"], 1)
+        self.assertEqual(result["failedQueryCount"], 0)
         self.assertIn("stale_queue_items", {item["code"] for item in stale_queue["issues"]})
+        corrupted_query_codes = {item["code"] for item in corrupted_queries["issues"]}
+        self.assertIn("query_status_coverage_mismatch", corrupted_query_codes)
+        self.assertIn("catalog_query_failure_count_mismatch", corrupted_query_codes)
+        self.assertIn("unknown_candidate_query", corrupted_query_codes)
 
     def test_reports_count_time_url_and_window_corruption(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

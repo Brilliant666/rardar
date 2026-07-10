@@ -140,6 +140,117 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         f"{project_star_mismatches} catalog star values differ from the current snapshot",
     )
 
+    successful_query_count: int | None = None
+    failed_query_count: int | None = None
+    if "query_status" in snapshot:
+        query_value = snapshot.get("queries")
+        query_status_value = snapshot.get("query_status")
+        queries = query_value if isinstance(query_value, list) else []
+        query_status = query_status_value if isinstance(query_status_value, list) else []
+        _add_if(issues, not isinstance(query_value, list), "invalid_query_rows", "snapshot queries must be a list")
+        _add_if(issues, not isinstance(query_status_value, list), "invalid_query_status_rows", "snapshot query_status must be a list")
+        _add_if(
+            issues,
+            not queries
+            or any(not isinstance(item, str) or not item for item in queries)
+            or len(queries) != len(set(item for item in queries if isinstance(item, str))),
+            "invalid_query_definition",
+            "GitHub candidate queries must be non-empty and unique",
+        )
+        _add_if(
+            issues,
+            any(not isinstance(item, dict) for item in query_status),
+            "invalid_query_status_row",
+            "GitHub query status rows must be objects",
+        )
+        status_rows = [item for item in query_status if isinstance(item, dict)]
+        status_queries = [str(item.get("query") or "") for item in status_rows]
+        _add_if(
+            issues,
+            len(status_queries) != len(queries)
+            or len(status_queries) != len(set(status_queries))
+            or set(status_queries) != set(item for item in queries if isinstance(item, str)),
+            "query_status_coverage_mismatch",
+            "query_status must contain exactly one row for each candidate query",
+        )
+        invalid_query_states = sum(item.get("state") not in {"healthy", "failed"} for item in status_rows)
+        _add_if(
+            issues,
+            invalid_query_states > 0,
+            "invalid_query_state",
+            f"{invalid_query_states} GitHub query rows have an invalid state",
+        )
+        invalid_query_counts = sum(
+            _integer(item.get("item_count")) is None or int(item["item_count"]) < 0
+            for item in status_rows
+        )
+        _add_if(
+            issues,
+            invalid_query_counts > 0,
+            "invalid_query_item_count",
+            f"{invalid_query_counts} GitHub query rows have an invalid item_count",
+        )
+        invalid_query_errors = sum(
+            (item.get("state") == "healthy" and item.get("error") is not None)
+            or (
+                item.get("state") == "failed"
+                and (not isinstance(item.get("error"), str) or not str(item.get("error")).strip())
+            )
+            for item in status_rows
+        )
+        _add_if(
+            issues,
+            invalid_query_errors > 0,
+            "invalid_query_error",
+            f"{invalid_query_errors} GitHub query rows have inconsistent error evidence",
+        )
+        successful_query_count = sum(item.get("state") == "healthy" for item in status_rows)
+        failed_query_count = sum(item.get("state") == "failed" for item in status_rows)
+        _add_if(
+            issues,
+            successful_query_count == 0,
+            "no_successful_query",
+            "at least one GitHub candidate query must succeed",
+        )
+        _check_count(
+            issues,
+            snapshot.get("successful_query_count"),
+            successful_query_count,
+            "successful_query_count_mismatch",
+            "successful_query_count differs from query_status",
+        )
+        _check_count(
+            issues,
+            snapshot.get("failed_query_count"),
+            failed_query_count,
+            "failed_query_count_mismatch",
+            "failed_query_count differs from query_status",
+        )
+        _check_count(
+            issues,
+            catalog.get("queryFailureCount"),
+            failed_query_count,
+            "catalog_query_failure_count_mismatch",
+            "catalog queryFailureCount differs from the GitHub snapshot",
+        )
+        query_set = {item for item in queries if isinstance(item, str)}
+        unknown_candidate_queries = sum(
+            1
+            for repository in repositories
+            if isinstance(repository, dict)
+            and (
+                not isinstance(repository.get("candidate_query"), str)
+                or not repository.get("candidate_query")
+                or not set(str(repository["candidate_query"]).split(" | ")).issubset(query_set)
+            )
+        )
+        _add_if(
+            issues,
+            unknown_candidate_queries > 0,
+            "unknown_candidate_query",
+            f"{unknown_candidate_queries} repositories reference an undeclared candidate query",
+        )
+
     track_metadata_present = "dailyTrackCounts" in catalog or any(
         isinstance(item, dict) and "heatTrack" in item for item in projects
     )
@@ -358,6 +469,8 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         "negativeGrowthProjectCount": sum(value < 0 for value in observed_values),
         "observedNetStarChange": sum(observed_values),
         "dailyTrackCounts": catalog.get("dailyTrackCounts"),
+        "successfulQueryCount": successful_query_count,
+        "failedQueryCount": failed_query_count,
         "signalCount": len(signal_items),
         "healthySourceCount": healthy_sources,
         "failedSourceCount": failed_sources,
