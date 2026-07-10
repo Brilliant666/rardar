@@ -266,6 +266,12 @@ def _score(
         # growth or polished documentation to promote them into the Daily Five.
         global_score = min(global_score, 49)
         reuse_score = min(reuse_score, 35)
+    if repository.get("license") in (None, "NOASSERTION"):
+        detected_license = str((analysis or {}).get("license_hint") or "")
+        recognized_license = detected_license in {"Apache-2.0", "MIT", "GPL", "BSD"}
+        # A static text signature is useful evidence but not equivalent to the
+        # repository API declaring a machine-readable license.
+        reuse_score = min(reuse_score, 78 if recognized_license else 59)
     return global_score, reuse_score
 
 
@@ -303,6 +309,8 @@ def _project(
     query_count = len(str(repository.get("candidate_query") or "").split(" | "))
     repository_url = _safe_http_url(repository.get("url"), f"https://github.com/{repo}")
     enrichment_current = _enrichment_is_current(enrichment, repository.get("pushed_at"))
+    api_license = repository.get("license")
+    detected_license = str((analysis or {}).get("license_hint") or "").strip()
 
     if growth["kind"] == "observed":
         why_now = f"Rardar 两次事实快照之间观测到 {growth['label']}，且仓库最近推送于 {pushed_label}。"
@@ -333,8 +341,16 @@ def _project(
         analysis_state = "深度分析" if enrichment_current else "画像待复核"
     if risk_detected:
         risk = "仓库描述触发安全或滥用风险关键词，应先人工审查；当前不建议下载、运行或复用。"
-    elif repository.get("license") in (None, "NOASSERTION"):
-        risk = "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。"
+    elif api_license in (None, "NOASSERTION"):
+        if detected_license:
+            risk = (
+                f"GitHub API 未返回标准许可证；只读静态扫描识别到“{detected_license}”文本线索，"
+                "但这不能代替法律与文件范围核验。"
+            )
+        elif analysis:
+            risk = "GitHub API 与只读静态扫描均未确认明确许可证；复用前必须核验授权范围。"
+        else:
+            risk = "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。"
 
     title = repo.split("/", 1)[-1]
     description = repository.get("description") or "仓库尚未提供公开描述，需进入静态分析阶段后再判断具体能力。"
@@ -363,7 +379,13 @@ def _project(
         "description": description,
         "category": category,
         "language": repository.get("language") or "未标注",
-        "license": repository.get("license") or "待核验",
+        "license": (
+            str(api_license)
+            if api_license not in (None, "NOASSERTION")
+            else f"{detected_license}（静态线索）"
+            if detected_license
+            else "待核验"
+        ),
         "stars": int(repository.get("stars") or 0),
         "growthValue": int(growth["value"]),
         "growthLabel": growth["label"],

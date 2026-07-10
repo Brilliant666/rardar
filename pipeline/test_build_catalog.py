@@ -22,6 +22,37 @@ def repository(repo: str, stars: int, created_at: str, description: str = "AI de
 
 
 class BuildCatalogTests(unittest.TestCase):
+    def test_static_license_hint_is_disclosed_without_overstating_reuse_safety(self) -> None:
+        item = repository("demo/license-hint", 900, "2026-07-07T12:00:00Z")
+        item["license"] = None
+        analysis = {
+            "repository": "demo/license-hint",
+            "scanned_files": 100,
+            "confidence": 90,
+            "license_hint": "MIT",
+            "indicators": {
+                "readme": True,
+                "license": True,
+                "tests": True,
+                "ci": True,
+                "docs": True,
+                "examples": True,
+                "package_manifest": True,
+                "dependency_lock": True,
+            },
+            "counts": {"test_files": 12},
+        }
+
+        project = build_catalog(
+            {"captured_at": "2026-07-10T12:00:00Z", "count": 1, "repositories": [item]},
+            analyses={"demo/license-hint": analysis},
+        )["projects"][0]
+
+        self.assertEqual(project["license"], "MIT（静态线索）")
+        self.assertIn("只读静态扫描识别", project["risk"])
+        self.assertNotIn("尚未进行代码静态检查", project["risk"])
+        self.assertLessEqual(project["reuseScore"], 78)
+
     def test_risky_repository_stays_visible_but_cannot_enter_daily_five(self) -> None:
         risky = repository(
             "demo/unsafe-tool",
