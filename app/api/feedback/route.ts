@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ensureDecisionSchema } from "../../../db/ensure";
 import { decisionEvents, feedback } from "../../../db/schema";
@@ -53,20 +53,17 @@ export async function POST(request: Request) {
 
   await ensureDecisionSchema();
   const db = getDb();
-  const [previous] = await db
-    .select({ value: feedback.value })
-    .from(feedback)
-    .where(and(eq(feedback.deviceId, deviceId), eq(feedback.projectSlug, projectSlug)))
-    .limit(1);
-  await db
+  const changedRows = await db
     .insert(feedback)
     .values({ deviceId, projectSlug, value })
     .onConflictDoUpdate({
       target: [feedback.deviceId, feedback.projectSlug],
       set: { value, updatedAt: sql`CURRENT_TIMESTAMP` },
-    });
+      setWhere: ne(feedback.value, value),
+    })
+    .returning({ id: feedback.id });
 
-  const changed = previous?.value !== value;
+  const changed = changedRows.length === 1;
   if (changed) {
     await db.insert(decisionEvents).values({ deviceId, projectSlug, value });
   }

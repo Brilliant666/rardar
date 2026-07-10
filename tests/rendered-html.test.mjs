@@ -63,6 +63,8 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(metricsRoute, /cache-control.*no-store/s);
   assert.match(feedbackRoute, /projectSlugs/);
   assert.match(feedbackRoute, /noStoreHeaders/);
+  assert.match(feedbackRoute, /setWhere: ne\(feedback\.value, value\)/);
+  assert.match(feedbackRoute, /changedRows\.length === 1/);
   assert.match(metricsRoute, /project_actions/);
   assert.match(actionsRoute, /allowedActions/);
   assert.match(actionsRoute, /unknown project/);
