@@ -33,6 +33,7 @@ class CodexQueueTests(unittest.TestCase):
             signal_path.write_text(
                 json.dumps(
                     {
+                        "generatedAt": "2026-07-10T12:00:00Z",
                         "items": {
                             "https://complete.example": {
                                 "titleZh": "标题",
@@ -49,8 +50,17 @@ class CodexQueueTests(unittest.TestCase):
                 {"projects": [{"repo": "owner/complete"}, {"repo": "owner/pending"}]},
                 {
                     "signals": [
-                        {"id": "complete", "url": "https://complete.example"},
-                        {"id": "pending", "url": "https://pending.example", "title": "Pending"},
+                        {
+                            "id": "complete",
+                            "url": "https://complete.example",
+                            "publishedAt": "2026-07-10T11:00:00Z",
+                        },
+                        {
+                            "id": "pending",
+                            "url": "https://pending.example",
+                            "title": "Pending",
+                            "publishedAt": "2026-07-10T11:00:00Z",
+                        },
                     ]
                 },
                 enrichment_dir,
@@ -63,6 +73,51 @@ class CodexQueueTests(unittest.TestCase):
         self.assertEqual(queue["signalPendingCount"], 1)
         self.assertEqual({item["id"] for item in queue["items"]}, {"project:owner--pending", "signal:pending"})
         self.assertIn("safety", queue["items"][0])
+
+    def test_updated_signal_url_reenters_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            enrichment_dir = root / "enrichment"
+            enrichment_dir.mkdir()
+            signal_path = root / "signals.json"
+            signal_path.write_text(
+                json.dumps(
+                    {
+                        "generatedAt": "2026-07-10T12:00:00Z",
+                        "items": {
+                            "https://same.example": {
+                                "titleZh": "旧标题",
+                                "takeawayZh": "旧要点",
+                                "whyItMattersZh": "旧影响",
+                                "categoryZh": "旧分类",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            queue = build_codex_queue(
+                {"projects": []},
+                {
+                    "signals": [
+                        {
+                            "id": "updated",
+                            "url": "https://same.example",
+                            "title": "Updated",
+                            "publishedAt": "2026-07-11T09:00:00Z",
+                        }
+                    ]
+                },
+                enrichment_dir,
+                signal_path,
+                datetime(2026, 7, 11, 10, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(queue["signalPendingCount"], 1)
+        self.assertIn("更新的发布时间", queue["items"][0]["reason"])
+        self.assertEqual(queue["items"][0]["sourcePublishedAt"], "2026-07-11T09:00:00Z")
+        self.assertIn("analyzedAt", queue["items"][0]["requiredFields"])
 
     def test_stale_complete_project_reenters_queue(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

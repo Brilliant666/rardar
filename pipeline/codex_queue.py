@@ -23,7 +23,8 @@ PROJECT_REQUIRED_FIELDS = {
     "evidenceSummary",
     "sourceUrl",
 }
-SIGNAL_REQUIRED_FIELDS = {"titleZh", "takeawayZh", "whyItMattersZh", "categoryZh"}
+SIGNAL_CONTENT_FIELDS = {"titleZh", "takeawayZh", "whyItMattersZh", "categoryZh"}
+SIGNAL_REQUIRED_FIELDS = {*SIGNAL_CONTENT_FIELDS, "analyzedAt", "sourcePublishedAt"}
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -61,6 +62,21 @@ def _project_enrichment_is_current(payload: dict[str, Any] | None, project: dict
     pushed_at = _parse_time(project.get("sourcePushedAt"))
     analyzed_at = _parse_time(payload.get("analyzedAt") if payload else None)
     return bool(analyzed_at and (not pushed_at or analyzed_at >= pushed_at))
+
+
+def _signal_enrichment_is_current(
+    payload: dict[str, Any] | None,
+    signal: dict[str, Any],
+    fallback_analyzed_at: object,
+) -> bool:
+    if not _is_complete(payload, SIGNAL_CONTENT_FIELDS):
+        return False
+    published_at = _parse_time(signal.get("publishedAt"))
+    analyzed_at = _parse_time((payload or {}).get("analyzedAt") or fallback_analyzed_at)
+    source_published_at = _parse_time((payload or {}).get("sourcePublishedAt"))
+    if not published_at or not analyzed_at or analyzed_at < published_at:
+        return False
+    return not source_published_at or source_published_at == published_at
 
 
 def build_codex_queue(
@@ -113,15 +129,17 @@ def build_codex_queue(
 
     signal_enrichment = _read_json(signal_enrichment_path) or {}
     enriched_signals = signal_enrichment.get("items") or {}
+    legacy_analyzed_at = signal_enrichment.get("generatedAt")
     ranked_signals = signals.get("signals") or signals.get("topSignals") or []
     for index, signal_item in enumerate(ranked_signals[: max(0, signal_limit)]):
         url = str(signal_item.get("url") or "").strip()
         if not url:
             continue
         enrichment = enriched_signals.get(url) if isinstance(enriched_signals, dict) else None
-        if _is_complete(enrichment, SIGNAL_REQUIRED_FIELDS):
+        if _signal_enrichment_is_current(enrichment, signal_item, legacy_analyzed_at):
             completed_signals += 1
             continue
+        complete_but_stale = _is_complete(enrichment, SIGNAL_CONTENT_FIELDS)
         items.append(
             {
                 "id": f"signal:{signal_item.get('id') or index}",
@@ -130,7 +148,13 @@ def build_codex_queue(
                 "title": signal_item.get("title") or url,
                 "url": url,
                 "source": signal_item.get("source"),
-                "reason": "进入高优先级技术动态区，但缺少中文事实摘要与影响判断",
+                "reason": (
+                    "同一链接出现了更新的发布时间或事件版本，需要重新核对中文结论"
+                    if complete_but_stale
+                    else "进入高优先级技术动态区，但缺少中文事实摘要与影响判断"
+                ),
+                "sourcePublishedAt": signal_item.get("publishedAt"),
+                "previousAnalyzedAt": (enrichment or {}).get("analyzedAt") or legacy_analyzed_at,
                 "inputPaths": ["data/signals/latest.json"],
                 "outputPath": "data/signals/enrichment.json",
                 "requiredFields": sorted(SIGNAL_REQUIRED_FIELDS),

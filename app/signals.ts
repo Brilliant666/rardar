@@ -58,14 +58,31 @@ type SignalEnrichment = {
   takeawayZh: string;
   whyItMattersZh: string;
   categoryZh: string;
+  analyzedAt?: string;
+  sourcePublishedAt?: string;
 };
 
 const rawSignals = signalJson as SignalSnapshot;
 const enrichments = enrichmentJson.items as Record<string, SignalEnrichment>;
+const legacyAnalyzedAt = enrichmentJson.generatedAt;
+
+function isCurrentEnrichment(signal: TechnicalSignal, enrichment?: SignalEnrichment) {
+  if (
+    !enrichment?.titleZh ||
+    !enrichment.takeawayZh ||
+    !enrichment.whyItMattersZh ||
+    !enrichment.categoryZh
+  ) return false;
+  const publishedAt = new Date(signal.publishedAt).getTime();
+  const analyzedAt = new Date(enrichment.analyzedAt ?? legacyAnalyzedAt).getTime();
+  if (!Number.isFinite(publishedAt) || !Number.isFinite(analyzedAt) || analyzedAt < publishedAt) return false;
+  if (!enrichment.sourcePublishedAt) return true;
+  return new Date(enrichment.sourcePublishedAt).getTime() === publishedAt;
+}
 
 export const signals = rawSignals.signals.map((signal) => ({
   ...signal,
-  ...(enrichments[signal.url] ?? {}),
+  ...(isCurrentEnrichment(signal, enrichments[signal.url]) ? enrichments[signal.url] : {}),
 }));
 const signalById = new Map(signals.map((signal) => [signal.id, signal]));
 

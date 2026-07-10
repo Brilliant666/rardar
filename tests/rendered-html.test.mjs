@@ -79,6 +79,8 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(schema, /decisionEvents/);
   assert.match(ensure, /schemaReady/);
   assert.match(signals, /signalJson/);
+  assert.match(signals, /isCurrentEnrichment/);
+  assert.match(signals, /sourcePublishedAt/);
   assert.doesNotMatch(signals, /schedulerJson/);
   assert.match(signalsPage, /sourceStatus/);
   assert.match(signalsPage, /RuntimeStatus/);
