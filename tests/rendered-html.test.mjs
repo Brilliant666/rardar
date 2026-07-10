@@ -5,7 +5,26 @@ import test from "node:test";
 const templateRoot = new URL("../", import.meta.url);
 
 test("contains the complete Rardar home experience", async () => {
-  const [page, data, signals, signalsPage, runtimeStatus, feedbackRoute, metricsRoute, actionsRoute, recommendationsRoute, dailyList, projectActions, watchlist, personalization, queue, schema, ensure, build] = await Promise.all([
+  const [
+    page,
+    data,
+    signals,
+    signalsPage,
+    runtimeStatus,
+    feedbackRoute,
+    metricsRoute,
+    actionsRoute,
+    validation,
+    recommendationsRoute,
+    dailyList,
+    projectActions,
+    watchlist,
+    personalization,
+    queue,
+    schema,
+    ensure,
+    build,
+  ] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals.ts", import.meta.url), "utf8"),
@@ -14,6 +33,7 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/api/feedback/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/metrics/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/actions/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/validation.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/recommendations/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PersonalizedDailyList.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/ProjectActions.tsx", import.meta.url), "utf8"),
@@ -42,6 +62,9 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(feedbackRoute, /noStoreHeaders/);
   assert.match(metricsRoute, /project_actions/);
   assert.match(actionsRoute, /allowedActions/);
+  assert.match(actionsRoute, /unknown project/);
+  assert.match(validation, /request\.json\(\)/);
+  assert.match(validation, /typeof value === "string"/);
   assert.match(projectActions, /确认复用/);
   assert.match(watchlist, /item\.action !== "saved"/);
   assert.match(watchlist, /已收藏/);

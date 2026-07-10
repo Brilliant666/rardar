@@ -3,19 +3,23 @@ import { getDb } from "../../../db";
 import { ensureDecisionSchema } from "../../../db/ensure";
 import { projectActions } from "../../../db/schema";
 import { projects } from "../../data";
+import { readJsonObject, trimmedString } from "../validation";
 
 const allowedActions = ["opened", "saved", "tried", "cloned", "reused"] as const;
 const projectSlugs = new Set(projects.map((project) => project.slug));
 
 export async function GET(request: Request) {
-  await ensureDecisionSchema();
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("deviceId")?.trim();
   const projectSlug = url.searchParams.get("projectSlug")?.trim();
   if (!deviceId || deviceId.length > 200) {
     return Response.json({ error: "deviceId is required" }, { status: 400 });
   }
+  if (projectSlug && !projectSlugs.has(projectSlug)) {
+    return Response.json({ error: "unknown project" }, { status: 404 });
+  }
 
+  await ensureDecisionSchema();
   const db = getDb();
   const rows = projectSlug
     ? await db
@@ -32,11 +36,13 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  await ensureDecisionSchema();
-  const payload = (await request.json()) as { deviceId?: string; projectSlug?: string; action?: string };
-  const deviceId = payload.deviceId?.trim();
-  const projectSlug = payload.projectSlug?.trim();
-  const action = payload.action?.trim();
+  const payload = await readJsonObject(request);
+  if (!payload) {
+    return Response.json({ error: "invalid project action" }, { status: 400 });
+  }
+  const deviceId = trimmedString(payload, "deviceId");
+  const projectSlug = trimmedString(payload, "projectSlug");
+  const action = trimmedString(payload, "action");
   if (
     !deviceId ||
     deviceId.length > 200 ||
@@ -48,6 +54,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "invalid project action" }, { status: 400 });
   }
 
+  await ensureDecisionSchema();
   const db = getDb();
   const [existing] = await db
     .select({ id: projectActions.id })

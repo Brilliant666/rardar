@@ -3,13 +3,13 @@ import { getDb } from "../../../db";
 import { ensureDecisionSchema } from "../../../db/ensure";
 import { decisionEvents, feedback } from "../../../db/schema";
 import { projects } from "../../data";
+import { readJsonObject, trimmedString } from "../validation";
 
 const allowedValues = new Set(["有用", "无用", "复用", "待确定"]);
 const projectSlugs = new Set(projects.map((project) => project.slug));
 const noStoreHeaders = { "cache-control": "no-store" };
 
 export async function GET(request: Request) {
-  await ensureDecisionSchema();
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("deviceId")?.trim();
   const projectSlug = url.searchParams.get("projectSlug")?.trim();
@@ -20,6 +20,7 @@ export async function GET(request: Request) {
     return Response.json({ error: "unknown project" }, { status: 404 });
   }
 
+  await ensureDecisionSchema();
   const db = getDb();
   if (projectSlug) {
     const [row] = await db.select().from(feedback).where(and(eq(feedback.deviceId, deviceId), eq(feedback.projectSlug, projectSlug))).limit(1);
@@ -31,11 +32,13 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  await ensureDecisionSchema();
-  const payload = (await request.json()) as { deviceId?: string; projectSlug?: string; value?: string };
-  const deviceId = payload.deviceId?.trim();
-  const projectSlug = payload.projectSlug?.trim();
-  const value = payload.value?.trim();
+  const payload = await readJsonObject(request);
+  if (!payload) {
+    return Response.json({ error: "invalid feedback" }, { status: 400 });
+  }
+  const deviceId = trimmedString(payload, "deviceId");
+  const projectSlug = trimmedString(payload, "projectSlug");
+  const value = trimmedString(payload, "value");
 
   if (
     !deviceId ||
@@ -48,6 +51,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "invalid feedback" }, { status: 400 });
   }
 
+  await ensureDecisionSchema();
   const db = getDb();
   const [previous] = await db
     .select({ value: feedback.value })
