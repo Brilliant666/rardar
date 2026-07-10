@@ -27,6 +27,7 @@ class BuildCatalogTests(unittest.TestCase):
         item["license"] = None
         analysis = {
             "repository": "demo/license-hint",
+            "analyzed_at": "2026-07-10T10:00:00Z",
             "scanned_files": 100,
             "confidence": 90,
             "license_hint": "MIT",
@@ -103,6 +104,7 @@ class BuildCatalogTests(unittest.TestCase):
         }
         analysis = {
             "repository": "demo/new-tool",
+            "analyzed_at": "2026-07-10T10:00:00Z",
             "scanned_files": 240,
             "confidence": 91,
             "indicators": {
@@ -125,6 +127,27 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertGreater(inspected["projects"][0]["reuseScore"], facts_only["projects"][0]["reuseScore"])
         self.assertEqual(inspected["projects"][0]["analysisState"], "静态分析")
         self.assertEqual(len(inspected["projects"][0]["evidence"]), 3)
+
+    def test_stale_static_analysis_cannot_raise_reuse_confidence(self) -> None:
+        item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
+        stale_analysis = {
+            "repository": "demo/new-tool",
+            "analyzed_at": "2026-07-09T08:00:00Z",
+            "scanned_files": 240,
+            "confidence": 95,
+            "indicators": {"readme": True, "license": True, "tests": True, "ci": True, "docs": True},
+            "counts": {"test_files": 18},
+        }
+
+        project = build_catalog(
+            {"captured_at": "2026-07-10T12:00:00Z", "count": 1, "repositories": [item]},
+            analyses={"demo/new-tool": stale_analysis},
+        )["projects"][0]
+
+        self.assertEqual(project["analysisState"], "事实初筛")
+        self.assertLessEqual(project["reuseScore"], 72)
+        self.assertIn("早于仓库最近推送", project["risk"])
+        self.assertEqual(len(project["evidence"]), 2)
 
     def test_codex_enrichment_replaces_copy_and_adds_task_terms(self) -> None:
         snapshot = {

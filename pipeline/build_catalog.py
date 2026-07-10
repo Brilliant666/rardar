@@ -91,6 +91,14 @@ def _enrichment_is_current(enrichment: dict[str, Any] | None, pushed_at: str | N
     return bool(analyzed_at and (not source_pushed_at or analyzed_at >= source_pushed_at))
 
 
+def _analysis_is_current(analysis: dict[str, Any] | None, pushed_at: str | None) -> bool:
+    if not analysis:
+        return False
+    analyzed_at = _parse_time(str(analysis.get("analyzed_at") or ""))
+    source_pushed_at = _parse_time(pushed_at)
+    return bool(analyzed_at and (not source_pushed_at or analyzed_at >= source_pushed_at))
+
+
 def _clamp(value: float, minimum: int = 0, maximum: int = 100) -> int:
     return round(max(minimum, min(maximum, value)))
 
@@ -299,6 +307,9 @@ def _project(
 ) -> dict[str, Any]:
     repo = str(repository["repo"])
     growth = _growth(repository, captured_at, previous_repository, previous_captured_at)
+    analysis_payload = analysis
+    analysis_current = _analysis_is_current(analysis_payload, repository.get("pushed_at"))
+    analysis = analysis_payload if analysis_current else None
     global_score, reuse_score = _score(repository, growth, captured_at, analysis)
     content = _text(repository)
     risk_detected = any(term in content for term in RISK_TERMS)
@@ -321,7 +332,11 @@ def _project(
         )
 
     analysis_state = "事实初筛"
-    risk = "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。"
+    risk = (
+        "已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。"
+        if analysis_payload and not analysis_current
+        else "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。"
+    )
     if analysis:
         analysis_state = "静态分析"
         indicators = analysis.get("indicators") or {}
@@ -342,7 +357,9 @@ def _project(
     if risk_detected:
         risk = "仓库描述触发安全或滥用风险关键词，应先人工审查；当前不建议下载、运行或复用。"
     elif api_license in (None, "NOASSERTION"):
-        if detected_license:
+        if analysis_payload and not analysis_current:
+            risk = "GitHub API 未返回标准许可证，现有静态报告也已过期；复用前必须重新检查授权范围。"
+        elif detected_license:
             risk = (
                 f"GitHub API 未返回标准许可证；只读静态扫描识别到“{detected_license}”文本线索，"
                 "但这不能代替法律与文件范围核验。"
@@ -395,6 +412,7 @@ def _project(
         "trend": growth["trend"],
         "analysisState": analysis_state,
         "sourcePushedAt": repository.get("pushed_at"),
+        "analysisAnalyzedAt": analysis_payload.get("analyzed_at") if analysis_payload else None,
         "enrichmentAnalyzedAt": enrichment.get("analyzedAt") if enrichment else None,
         "whyNow": why_now,
         "recommendation": _recommendation(global_score, reuse_score, risk_detected),

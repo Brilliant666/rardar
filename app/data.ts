@@ -23,6 +23,7 @@ export type Project = {
   trend: string;
   analysisState: "事实初筛" | "静态分析" | "深度分析" | "画像待复核";
   sourcePushedAt?: string | null;
+  analysisAnalyzedAt?: string | null;
   enrichmentAnalyzedAt?: string | null;
   whyNow: string;
   recommendation: "了解" | "收藏" | "试用" | "复用" | "观望";
