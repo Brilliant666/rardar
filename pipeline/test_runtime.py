@@ -12,10 +12,24 @@ from pipeline.runtime import (
     heartbeat_is_fresh,
     parse_node_version,
     release_manager_lock,
+    rotate_log,
 )
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_runtime_logs_rotate_with_bounded_backups(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            log_path = Path(temporary) / "website.log"
+            log_path.write_bytes(b"first-version")
+            rotate_log(log_path, max_bytes=5, backup_count=2)
+            self.assertFalse(log_path.exists())
+            self.assertEqual((Path(temporary) / "website.log.1").read_bytes(), b"first-version")
+
+            log_path.write_bytes(b"second-version")
+            rotate_log(log_path, max_bytes=5, backup_count=2)
+            self.assertEqual((Path(temporary) / "website.log.1").read_bytes(), b"second-version")
+            self.assertEqual((Path(temporary) / "website.log.2").read_bytes(), b"first-version")
+
     def test_manager_lock_allows_only_one_owner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             lock_path = Path(temporary) / "manager.lock"

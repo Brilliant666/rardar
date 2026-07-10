@@ -44,6 +44,8 @@ LOCAL_URL = "http://127.0.0.1:3000/"
 STATUS_HOST = "127.0.0.1"
 STATUS_PORT = 3002
 MINIMUM_NODE = (22, 13, 0)
+MAX_LOG_BYTES = 5 * 1024 * 1024
+LOG_BACKUP_COUNT = 2
 _latest_status: dict[str, Any] = {}
 _latest_status_lock = threading.Lock()
 
@@ -85,6 +87,23 @@ def release_manager_lock(handle: Any) -> None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     finally:
         handle.close()
+
+
+def rotate_log(path: Path, max_bytes: int = MAX_LOG_BYTES, backup_count: int = LOG_BACKUP_COUNT) -> None:
+    """Bound append-only runtime logs while retaining recent history."""
+    try:
+        if backup_count < 1 or path.stat().st_size <= max(1, max_bytes):
+            return
+        oldest = path.with_name(f"{path.name}.{backup_count}")
+        oldest.unlink(missing_ok=True)
+        for index in range(backup_count - 1, 0, -1):
+            source = path.with_name(f"{path.name}.{index}")
+            if source.exists():
+                source.replace(path.with_name(f"{path.name}.{index + 1}"))
+        path.replace(path.with_name(f"{path.name}.1"))
+    except (FileNotFoundError, OSError):
+        # Log maintenance must never prevent the local services from starting.
+        return
 
 
 def utc_now() -> str:
@@ -318,6 +337,7 @@ class ManagedService:
         if self.process is not None:
             self.restart_count += 1
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        rotate_log(self.log_path)
         self._log_handle = self.log_path.open("ab")
         creation_flags = 0
         if os.name == "nt":
@@ -523,7 +543,9 @@ def start_manager(open_browser: bool = False) -> int:
     CONTROL_PATH.unlink(missing_ok=True)
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    manager_log = (LOG_DIR / "manager.log").open("ab")
+    manager_log_path = LOG_DIR / "manager.log"
+    rotate_log(manager_log_path)
+    manager_log = manager_log_path.open("ab")
     creation_flags = 0
     if os.name == "nt":
         creation_flags = (
