@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pipeline.refresh import _write_json_batch, refresh
+from pipeline.scheduler import committed_refresh_at
 
 
 class StubClient:
@@ -36,6 +37,33 @@ class StubClient:
 
 
 class RefreshTests(unittest.TestCase):
+    def test_successful_full_refresh_writes_a_consistent_commit_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            now = datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
+            signals = {
+                "schemaVersion": 1,
+                "capturedAt": now.isoformat(),
+                "windowHours": 48,
+                "signalCount": 0,
+                "healthySourceCount": 0,
+                "failedSourceCount": 0,
+                "sourceStatus": [],
+                "topSignals": [],
+                "signals": [],
+            }
+
+            with patch("pipeline.refresh.collect_signals", return_value=signals):
+                refresh(
+                    data_dir,
+                    now,
+                    analyze_top=0,
+                    client=StubClient(100),
+                    collect_external_signals=True,
+                )
+
+            self.assertEqual(committed_refresh_at(data_dir), now.isoformat())
+
     def test_json_batch_rolls_back_replacement_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
