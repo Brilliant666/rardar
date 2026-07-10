@@ -37,6 +37,7 @@ export type CatalogSnapshot = {
   schemaVersion: number;
   capturedAt: string;
   sourceCount: number;
+  queryFailureCount: number;
   projectCount: number;
   deepAnalysisCount: number;
   pendingDeepAnalysis: string[];

@@ -413,6 +413,7 @@ def build_catalog(
     bounded = projects[: max(5, min(limit, 100))]
     observed_count = sum(1 for item in bounded if item["growthKind"] == "observed")
     deep_analysis_count = sum(1 for item in bounded if item["analysisState"] == "深度分析")
+    query_failure_count = int(snapshot.get("failed_query_count") or 0)
     pending_deep_analysis = [
         item["repo"] for item in bounded[:5] if item["analysisState"] != "深度分析"
     ]
@@ -420,6 +421,7 @@ def build_catalog(
         "schemaVersion": 1,
         "capturedAt": captured_at.isoformat(),
         "sourceCount": int(snapshot.get("count") or len(snapshot.get("repositories", []))),
+        "queryFailureCount": query_failure_count,
         "projectCount": len(bounded),
         "deepAnalysisCount": deep_analysis_count,
         "pendingDeepAnalysis": pending_deep_analysis,
@@ -442,6 +444,11 @@ def build_catalog(
                     if observed_count > 0
                     else "这是首次观察：页面明确使用创建以来速度代理，不将其表述为 24 小时新增。"
                 )
+            )
+            + (
+                f"注意：本轮有 {query_failure_count} 条 GitHub 搜索规则失败，候选覆盖不完整。"
+                if query_failure_count
+                else ""
             )
         ),
         "projects": bounded,

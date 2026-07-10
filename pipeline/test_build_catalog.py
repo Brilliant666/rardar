@@ -155,6 +155,19 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertIn("1 个项目具有两次快照", catalog["notice"])
         self.assertIn("新进入", catalog["notice"])
 
+    def test_partial_candidate_collection_is_disclosed(self) -> None:
+        snapshot = {
+            "captured_at": "2026-07-10T12:00:00Z",
+            "count": 1,
+            "failed_query_count": 2,
+            "repositories": [repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")],
+        }
+
+        catalog = build_catalog(snapshot)
+
+        self.assertEqual(catalog["queryFailureCount"], 2)
+        self.assertIn("候选覆盖不完整", catalog["notice"])
+
     def test_recent_actionable_repository_outranks_old_reference_list(self) -> None:
         snapshot = {
             "captured_at": "2026-07-10T12:00:00Z",

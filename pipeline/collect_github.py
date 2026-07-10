@@ -80,9 +80,30 @@ def collect(client: GitHubClient, now: datetime, since_days: int = 14) -> dict[s
     captured_at = now.astimezone(timezone.utc).isoformat()
     repositories: dict[str, dict[str, Any]] = {}
     queries = candidate_queries(now, since_days)
+    query_status: list[dict[str, Any]] = []
 
     for query in queries:
-        for item in client.search(query):
+        try:
+            items = client.search(query)
+        except Exception as error:
+            query_status.append(
+                {
+                    "query": query,
+                    "state": "failed",
+                    "item_count": 0,
+                    "error": str(error)[:300],
+                }
+            )
+            continue
+        query_status.append(
+            {
+                "query": query,
+                "state": "healthy",
+                "item_count": len(items),
+                "error": None,
+            }
+        )
+        for item in items:
             repo = item.get("full_name")
             if not repo:
                 continue
@@ -96,6 +117,11 @@ def collect(client: GitHubClient, now: datetime, since_days: int = 14) -> dict[s
             else:
                 repositories[repo] = normalized
 
+    healthy_query_count = sum(item["state"] == "healthy" for item in query_status)
+    if healthy_query_count == 0:
+        details = "; ".join(str(item["error"]) for item in query_status if item.get("error"))
+        raise RuntimeError(f"all GitHub candidate queries failed: {details[:500]}")
+
     ranked = sorted(
         repositories.values(),
         key=lambda item: (int(item["stars"]), item.get("pushed_at") or ""),
@@ -105,6 +131,9 @@ def collect(client: GitHubClient, now: datetime, since_days: int = 14) -> dict[s
         "schema_version": 1,
         "captured_at": captured_at,
         "queries": queries,
+        "query_status": query_status,
+        "successful_query_count": healthy_query_count,
+        "failed_query_count": len(query_status) - healthy_query_count,
         "count": len(ranked),
         "repositories": ranked,
     }
