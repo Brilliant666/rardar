@@ -4,14 +4,8 @@
   "sourceCount": 166,
   "queryFailureCount": 0,
   "projectCount": 30,
-  "deepAnalysisCount": 0,
-  "pendingDeepAnalysis": [
-    "synthetic-sciences/openscience",
-    "DietrichGebert/ponytail",
-    "oomol-lab/open-connector",
-    "n8n-io/n8n",
-    "OpenHands/OpenHands"
-  ],
+  "deepAnalysisCount": 5,
+  "pendingDeepAnalysis": [],
   "dailyTrackCounts": {
     "recentMomentum": 3,
     "longTerm": 2
@@ -28,9 +22,9 @@
     {
       "slug": "synthetic-sciences--openscience",
       "repo": "synthetic-sciences/openscience",
-      "title": "openscience",
-      "description": "The open-source AI workbench for scientific research",
-      "category": "AI 与 Agent",
+      "title": "把文献、假设、代码实验和报告串成研究工作台",
+      "description": "OpenScience 是本地浏览器研究工作台，Agent 可以围绕目标检索文献、形成假设、编写并运行代码、执行实验、连接科学数据库并生成研究结果，支持多家模型和自带 API Key。",
+      "category": "AI 研究工作台",
       "language": "TypeScript",
       "license": "Apache-2.0",
       "stars": 2028,
@@ -38,7 +32,7 @@
       "growthLabel": "创建以来约 294 Star/日（首次观察代理）",
       "growthKind": "velocity_proxy",
       "globalScore": 100,
-      "reuseScore": 70,
+      "reuseScore": 91,
       "momentumScore": 100,
       "enduranceScore": 38,
       "heatTrack": "recent_momentum",
@@ -47,21 +41,22 @@
       "heatObservationCount": 1,
       "heatObservationWindow": 1,
       "trend": "约 294/日 · 代理值",
-      "analysisState": "画像待复核",
+      "analysisState": "深度分析",
       "sourcePushedAt": "2026-07-10T12:20:50Z",
-      "analysisAnalyzedAt": null,
+      "analysisAnalyzedAt": "2026-07-10T19:40:57.060012+00:00",
       "enrichmentAnalyzedAt": "2026-07-10T13:00:00Z",
       "whyNow": "仓库创建于 2026-07-03，当前有 2,028 Star；因尚无第二次快照，当前只把“创建以来约 294 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
-      "recommendation": "收藏",
-      "fit": "当前被归入“AI 与 Agent”，命中 5 个生产力相关信号；下一步需结合具体任务做能力匹配。",
-      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
-      "risk": "现有中文画像缺少与仓库最新推送对应的只读静态证据，本轮不采用其能力与复用结论。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
+      "recommendation": "复用",
+      "fit": "适合需要把资料检索、证据整理、代码实验和报告输出放进同一条可追溯流程的研究型任务。",
+      "reusePlan": "重点参考其研究循环、会话与产物溯源、工具层和模型路由；若用于普通内容分析，可只抽取工作流思想而非整套科学数据库能力。",
+      "risk": "项目明确说明 Agent 本身没有沙箱隔离；运行陌生代码或处理敏感凭据时应使用容器或虚拟机，并核对模型与云计算成本。 已只读扫描 3,828 个文件，发现 145 个测试文件。README、许可证、测试、CI 和文档证据较完整。静态检查不能代替实际运行验证。",
       "capabilities": [
-        "AI 与 Agent",
-        "agent",
-        "ai",
-        "ai agent",
-        "bun"
+        "文献检索",
+        "假设与实验规划",
+        "代码与实验执行",
+        "科学数据库连接",
+        "研究报告生成",
+        "模型路由"
       ],
       "taskTerms": [
         "AI 与 Agent",
@@ -79,7 +74,17 @@
         "open source",
         "research tools",
         "science",
-        "scientific computing"
+        "scientific computing",
+        "文献综述",
+        "证据丰富",
+        "研究工作台",
+        "实验",
+        "论文",
+        "代码执行",
+        "报告生成",
+        "多模型",
+        "科学数据库",
+        "研究 agent"
       ],
       "evidence": [
         {
@@ -91,6 +96,16 @@
           "label": "候选召回依据",
           "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
           "href": "https://github.com/synthetic-sciences/openscience"
+        },
+        {
+          "label": "只读仓库静态检查",
+          "detail": "扫描 3,828 个文件；测试文件 145 个；置信度 95%。未执行仓库代码。",
+          "href": "https://github.com/synthetic-sciences/openscience"
+        },
+        {
+          "label": "Codex 中文能力画像",
+          "detail": "README 明确覆盖文献、假设、代码、实验、分析和报告完整研究循环，列出科学数据库、浏览器工作区、模型兼容性与未提供沙箱的安全边界。",
+          "href": "https://github.com/synthetic-sciences/openscience#readme"
         }
       ],
       "capturedAt": "2026-07-10 20:35 CST"
@@ -98,9 +113,9 @@
     {
       "slug": "dietrichgebert--ponytail",
       "repo": "DietrichGebert/ponytail",
-      "title": "ponytail",
-      "description": "Makes your AI agent think like the laziest senior dev in the room. The best code is the code you never wrote.",
-      "category": "AI 与 Agent",
+      "title": "让编程 Agent 优先复用现有能力而不是过度开发",
+      "description": "Ponytail 是面向多种编程 Agent 的最小实现规则集：先判断功能是否需要、代码库是否已有实现、标准库或原生平台能否完成，再考虑新增依赖和代码，同时保留验证、安全、错误处理和可访问性要求。",
+      "category": "开发效率",
       "language": "JavaScript",
       "license": "MIT",
       "stars": 79784,
@@ -108,7 +123,7 @@
       "growthLabel": "创建以来约 2801 Star/日（首次观察代理）",
       "growthKind": "velocity_proxy",
       "globalScore": 96,
-      "reuseScore": 70,
+      "reuseScore": 96,
       "momentumScore": 96,
       "enduranceScore": 77,
       "heatTrack": "recent_momentum",
@@ -117,21 +132,22 @@
       "heatObservationCount": 1,
       "heatObservationWindow": 1,
       "trend": "约 2801/日 · 代理值",
-      "analysisState": "画像待复核",
+      "analysisState": "深度分析",
       "sourcePushedAt": "2026-07-10T02:44:32Z",
-      "analysisAnalyzedAt": null,
+      "analysisAnalyzedAt": "2026-07-10T19:41:17.063020+00:00",
       "enrichmentAnalyzedAt": "2026-07-10T13:00:00Z",
       "whyNow": "仓库创建于 2026-06-12，当前有 79,784 Star；因尚无第二次快照，当前只把“创建以来约 2801 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
-      "recommendation": "收藏",
-      "fit": "当前被归入“AI 与 Agent”，命中 5 个生产力相关信号；下一步需结合具体任务做能力匹配。",
-      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
-      "risk": "现有中文画像缺少与仓库最新推送对应的只读静态证据，本轮不采用其能力与复用结论。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
+      "recommendation": "复用",
+      "fit": "适合经常遇到 Agent 过度封装、随意引入依赖或重复实现已有功能的代码项目。",
+      "reusePlan": "可以先把它作为代码审查和实现前决策规则使用，再根据真实项目对比是否减少代码量、依赖和返工。",
+      "risk": "README 的主要 Agent 基准覆盖 12 个功能任务和特定模型，不能直接外推到所有技术栈；它优化的是必要性和简洁度，不是盲目追求最少行数。 已只读扫描 150 个文件，发现 20 个测试文件。README、许可证、测试、CI 和文档证据较完整。静态检查不能代替实际运行验证。",
       "capabilities": [
-        "AI 与 Agent",
-        "agent skills",
-        "ai agents",
-        "claude",
-        "claude code"
+        "YAGNI 决策阶梯",
+        "现有代码复用",
+        "依赖控制",
+        "代码精简",
+        "代码审查",
+        "多 Agent 插件"
       ],
       "taskTerms": [
         "AI 与 Agent",
@@ -148,7 +164,15 @@
         "cursor rules",
         "developer tools",
         "prompt engineering",
-        "yagni"
+        "yagni",
+        "减少代码",
+        "避免过度开发",
+        "复用现有代码",
+        "减少依赖",
+        "代码审查",
+        "技术债",
+        "codex 插件",
+        "开发效率"
       ],
       "evidence": [
         {
@@ -160,6 +184,16 @@
           "label": "候选召回依据",
           "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
           "href": "https://github.com/DietrichGebert/ponytail"
+        },
+        {
+          "label": "只读仓库静态检查",
+          "detail": "扫描 150 个文件；测试文件 20 个；置信度 95%。未执行仓库代码。",
+          "href": "https://github.com/DietrichGebert/ponytail"
+        },
+        {
+          "label": "Codex 中文能力画像",
+          "detail": "README 给出七级复用决策阶梯、跨 Codex/Claude 等安装方式，并公开基准方法、修正后的平均结果和适用限制。",
+          "href": "https://github.com/DietrichGebert/ponytail#readme"
         }
       ],
       "capturedAt": "2026-07-10 20:35 CST"
@@ -167,9 +201,9 @@
     {
       "slug": "oomol-lab--open-connector",
       "repo": "oomol-lab/open-connector",
-      "title": "open-connector",
-      "description": "Open-source auth gateway connecting 1000+ SaaS providers to AI agents through SDK, CLI, MCP, HTTP, and OpenAPI.",
-      "category": "AI 与 Agent",
+      "title": "为 Agent 统一管理第三方账号、OAuth 和工具调用",
+      "description": "OpenConnector 把第三方应用连接、凭据、权限范围、动作定义和运行日志收拢到可检查的网关中，并通过 SDK、CLI、MCP、HTTP 与 OpenAPI 暴露给 Agent 或业务应用。",
+      "category": "Agent 集成",
       "language": "TypeScript",
       "license": "Apache-2.0",
       "stars": 1206,
@@ -177,7 +211,7 @@
       "growthLabel": "创建以来约 109 Star/日（首次观察代理）",
       "growthKind": "velocity_proxy",
       "globalScore": 94,
-      "reuseScore": 69,
+      "reuseScore": 96,
       "momentumScore": 94,
       "enduranceScore": 31,
       "heatTrack": "recent_momentum",
@@ -186,21 +220,22 @@
       "heatObservationCount": 1,
       "heatObservationWindow": 1,
       "trend": "约 109/日 · 代理值",
-      "analysisState": "画像待复核",
+      "analysisState": "深度分析",
       "sourcePushedAt": "2026-07-10T06:25:26Z",
-      "analysisAnalyzedAt": null,
+      "analysisAnalyzedAt": "2026-07-10T19:41:34.077892+00:00",
       "enrichmentAnalyzedAt": "2026-07-10T13:00:00Z",
       "whyNow": "仓库创建于 2026-06-29，当前有 1,206 Star；因尚无第二次快照，当前只把“创建以来约 109 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
-      "recommendation": "了解",
-      "fit": "当前被归入“AI 与 Agent”，命中 7 个生产力相关信号；下一步需结合具体任务做能力匹配。",
-      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
-      "risk": "现有中文画像缺少与仓库最新推送对应的只读静态证据，本轮不采用其能力与复用结论。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
+      "recommendation": "复用",
+      "fit": "适合需要让 Agent 安全调用 GitHub、Gmail、Notion、Slack、数据平台等外部服务，同时避免把用户凭据直接交给 Agent 进程的产品。",
+      "reusePlan": "优先评估其凭据边界、Action 合约和 MCP/OpenAPI 接口；若只需少数服务，可复用网关思想而不必引入完整连接器目录。",
+      "risk": "真正接入 OAuth 服务仍涉及供应商审核、密钥管理和运行安全；README 声明的连接器数量需要按具体服务逐一验证可用性。 已只读扫描 3,991 个文件，发现 51 个测试文件。README、许可证、测试、CI 和文档证据较完整。静态检查不能代替实际运行验证。",
       "capabilities": [
-        "AI 与 Agent",
-        "agent tools",
-        "ai agents",
-        "api gateway",
-        "automation"
+        "OAuth 与凭据边界",
+        "第三方应用连接器",
+        "MCP 工具网关",
+        "SDK 与 OpenAPI",
+        "动作权限策略",
+        "自托管控制台"
       ],
       "taskTerms": [
         "AI 与 Agent",
@@ -218,7 +253,16 @@
         "connectors",
         "integration platform",
         "model context protocol",
-        "oauth"
+        "oauth",
+        "第三方登录",
+        "api key",
+        "gmail",
+        "notion",
+        "slack",
+        "github 集成",
+        "saas 连接器",
+        "agent 工具调用",
+        "凭据管理"
       ],
       "evidence": [
         {
@@ -230,6 +274,16 @@
           "label": "候选召回依据",
           "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
           "href": "https://github.com/oomol-lab/open-connector"
+        },
+        {
+          "label": "只读仓库静态检查",
+          "detail": "扫描 3,991 个文件；测试文件 51 个；置信度 95%。未执行仓库代码。",
+          "href": "https://github.com/oomol-lab/open-connector"
+        },
+        {
+          "label": "Codex 中文能力画像",
+          "detail": "README 描述统一凭据与权限边界、连接器目录、SDK/CLI/MCP/HTTP 接口、本地与 Cloudflare 部署方式以及运行日志和策略控制。",
+          "href": "https://github.com/oomol-lab/open-connector#readme"
         }
       ],
       "capturedAt": "2026-07-10 20:35 CST"
@@ -237,11 +291,11 @@
     {
       "slug": "n8n-io--n8n",
       "repo": "n8n-io/n8n",
-      "title": "n8n",
-      "description": "Fair-code workflow automation platform with native AI capabilities. Combine visual building with custom code, self-host or cloud, 400+ integrations.",
-      "category": "AI 与 Agent",
+      "title": "n8n：可自托管的 AI 与工作流自动化平台",
+      "description": "n8n 用可视化画布、代码节点和大量集成把 API、数据、消息与 AI Agent 编排成可运行的工作流，可自托管或使用云服务，适合把分散的开发与运营步骤连接成自动化流水线。",
+      "category": "生产力",
       "language": "TypeScript",
-      "license": "待核验",
+      "license": "存在许可证文件（静态线索）",
       "stars": 195928,
       "growthValue": 76,
       "growthLabel": "创建以来约 76 Star/日（首次观察代理）",
@@ -256,21 +310,22 @@
       "heatObservationCount": 1,
       "heatObservationWindow": 1,
       "trend": "约 76/日 · 代理值",
-      "analysisState": "事实初筛",
+      "analysisState": "深度分析",
       "sourcePushedAt": "2026-07-10T12:29:03Z",
-      "analysisAnalyzedAt": null,
-      "enrichmentAnalyzedAt": null,
+      "analysisAnalyzedAt": "2026-07-10T19:39:45.300019+00:00",
+      "enrichmentAnalyzedAt": "2026-07-10T19:42:20.119784+00:00",
       "whyNow": "仓库创建于 2019-06-22，当前有 195,928 Star；因尚无第二次快照，当前只把“创建以来约 76 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。 长期热度评分为 100/100，当前依据总 Star、仓库年龄、近期维护和 Fork 生态计算；Rardar 已积累 1 次快照，达到 7 次后再判断多周期持续性。",
       "recommendation": "了解",
-      "fit": "当前被归入“AI 与 Agent”，命中 6 个生产力相关信号；下一步需结合具体任务做能力匹配。",
-      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
-      "risk": "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。",
+      "fit": "适合需要把采集、模型调用、内容处理、审批、通知和外部平台 API 串成可观察工作流的开发者与小团队，也可作为自媒体工作台的外围编排层。",
+      "reusePlan": "先在隔离实例中复用工作流定义、触发器和现成集成，验证数据权限与失败重试；只有缺少现成节点时再编写自定义节点。业务核心数据模型仍应由自己的服务掌控。",
+      "risk": "n8n 是 fair-code/source-available 项目而非宽松开源许可证；商用、托管转售和企业功能必须逐条核对 Sustainable Use License 与 Enterprise License。仓库很大，本次只读扫描在 12,000 个文件处停止，且未安装依赖或执行代码。 GitHub API 未返回标准许可证；只读静态扫描识别到“存在许可证文件”文本线索，但这不能代替法律与文件范围核验。",
       "capabilities": [
-        "AI 与 Agent",
-        "ai",
-        "apis",
-        "automation",
-        "cli"
+        "可视化工作流与多步 AI Agent 编排",
+        "连接 API、Webhook、数据库和第三方服务",
+        "在节点中混合 JavaScript、Python 与 npm 包",
+        "定时、事件触发与人工审批流程",
+        "自托管、云端部署与自定义节点扩展",
+        "模板化复用跨系统自动化流程"
       ],
       "taskTerms": [
         "AI 与 Agent",
@@ -288,7 +343,14 @@
         "integrations",
         "ipaas",
         "low code",
-        "low code platform"
+        "low code platform",
+        "AI agent",
+        "API integration",
+        "webhook",
+        "scheduled task",
+        "data pipeline",
+        "content operations",
+        "notification"
       ],
       "evidence": [
         {
@@ -300,6 +362,16 @@
           "label": "候选召回依据",
           "detail": "仓库由 2 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
           "href": "https://github.com/n8n-io/n8n"
+        },
+        {
+          "label": "只读仓库静态检查",
+          "detail": "扫描 12,000 个文件；测试文件 5297 个；置信度 95%。未执行仓库代码。",
+          "href": "https://github.com/n8n-io/n8n"
+        },
+        {
+          "label": "Codex 中文能力画像",
+          "detail": "官方 README 说明其支持 AI 工作流、代码节点、自托管、云端和大量集成；只读源码扫描覆盖 12,000 个文件，检测到 README、许可证、测试、CI、Docker、依赖锁、包清单和文档，并发现 5,297 个测试文件。Git 浅克隆失败后使用了受限的 GitHub 官方源码归档，未执行仓库代码。",
+          "href": "https://github.com/n8n-io/n8n#readme"
         }
       ],
       "capturedAt": "2026-07-10 20:35 CST"
@@ -307,17 +379,17 @@
     {
       "slug": "openhands--openhands",
       "repo": "OpenHands/OpenHands",
-      "title": "OpenHands",
-      "description": "🙌 OpenHands: AI-Driven Development",
+      "title": "OpenHands：面向编码 Agent 的自托管控制中心",
+      "description": "OpenHands Agent Canvas 用统一界面连接本地、Docker、虚拟机或云端的编码 Agent，并通过定时任务与 Webhook 自动执行报告生成、Issue 拆解等工程流程；它支持 OpenHands、Codex、Claude Code、Gemini 及 ACP 兼容 Agent。",
       "category": "AI 与 Agent",
       "language": "Python",
-      "license": "待核验",
+      "license": "MIT（静态线索）",
       "stars": 80321,
       "growthValue": 95,
       "growthLabel": "创建以来约 95 Star/日（首次观察代理）",
       "growthKind": "velocity_proxy",
       "globalScore": 90,
-      "reuseScore": 59,
+      "reuseScore": 78,
       "momentumScore": 76,
       "enduranceScore": 98,
       "heatTrack": "long_term",
@@ -326,21 +398,22 @@
       "heatObservationCount": 1,
       "heatObservationWindow": 1,
       "trend": "约 95/日 · 代理值",
-      "analysisState": "事实初筛",
+      "analysisState": "深度分析",
       "sourcePushedAt": "2026-07-10T12:15:14Z",
-      "analysisAnalyzedAt": null,
-      "enrichmentAnalyzedAt": null,
+      "analysisAnalyzedAt": "2026-07-10T19:40:22.489969+00:00",
+      "enrichmentAnalyzedAt": "2026-07-10T19:42:20.119784+00:00",
       "whyNow": "仓库创建于 2024-03-13，当前有 80,321 Star；因尚无第二次快照，当前只把“创建以来约 95 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。 长期热度评分为 98/100，当前依据总 Star、仓库年龄、近期维护和 Fork 生态计算；Rardar 已积累 1 次快照，达到 7 次后再判断多周期持续性。",
-      "recommendation": "了解",
-      "fit": "当前被归入“AI 与 Agent”，命中 5 个生产力相关信号；下一步需结合具体任务做能力匹配。",
-      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
-      "risk": "GitHub API 未返回明确许可证，且尚未进行代码静态检查；复用前必须核验许可证和实现完整度。",
+      "recommendation": "试用",
+      "fit": "适合希望集中运行多个编码 Agent、把 GitHub Issue 拆解、报告发布、代码审查和依赖更新变成长期自动任务的开发者或工程团队。",
+      "reusePlan": "优先研究 Agent Canvas 的多后端抽象、ACP 兼容层和自动化触发方式；试用时使用 Docker 或独立虚拟机沙箱，并分别核对 agent-canvas、software-agent-sdk 与 automation 子项目，而不是只依赖当前聚合仓库。",
+      "risk": "官方 README 明确提示代码正在拆分迁移，Agent/Server 与 Canvas 的真实源码已分布到其他仓库；直接无沙箱运行会让 Agent 获得完整文件系统权限。当前状态含 beta/RC 成分，生产使用前必须验证版本兼容、隔离、凭据和网络权限。 GitHub API 未返回标准许可证；只读静态扫描识别到“MIT”文本线索，但这不能代替法律与文件范围核验。",
       "capabilities": [
-        "AI 与 Agent",
-        "agent",
-        "artificial intelligence",
-        "chatgpt",
-        "claude ai"
+        "统一管理多个本地、远程和云端编码 Agent",
+        "通过 Agent Canvas 启动对话与工程自动化",
+        "按计划或 Webhook 触发 Agent 工作流",
+        "连接 GitHub、Slack、Linear、Notion 等工具",
+        "切换不同 Agent 后端与任意 LLM",
+        "本机、Docker、虚拟机和服务器自托管"
       ],
       "taskTerms": [
         "AI 与 Agent",
@@ -354,7 +427,17 @@
         "claude ai",
         "developer tools",
         "gpt",
-        "openai"
+        "openai",
+        "coding agent",
+        "agent control center",
+        "ACP",
+        "issue decomposition",
+        "code review",
+        "scheduled automation",
+        "webhook",
+        "self-hosted",
+        "multi-agent",
+        "developer workflow"
       ],
       "evidence": [
         {
@@ -366,6 +449,16 @@
           "label": "候选召回依据",
           "detail": "仓库由 2 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
           "href": "https://github.com/OpenHands/OpenHands"
+        },
+        {
+          "label": "只读仓库静态检查",
+          "detail": "扫描 2,547 个文件；测试文件 593 个；置信度 95%。未执行仓库代码。",
+          "href": "https://github.com/OpenHands/OpenHands"
+        },
+        {
+          "label": "Codex 中文能力画像",
+          "detail": "官方 README 将其描述为编码 Agent 的自托管控制中心，并列出多后端、定时/Webhook 自动化及第三方工具集成；只读源码扫描覆盖 2,547 个文件，检测到 README、MIT 许可证线索、测试、CI、Docker、依赖锁和包清单，并发现 593 个测试文件。未安装依赖或执行仓库代码。",
+          "href": "https://github.com/OpenHands/OpenHands#readme"
         }
       ],
       "capturedAt": "2026-07-10 20:35 CST"
@@ -2006,5 +2099,5 @@
   "analysisFailures": [],
   "signalCount": 30,
   "healthySignalSourceCount": 6,
-  "codexPendingCount": 5
+  "codexPendingCount": 0
 }

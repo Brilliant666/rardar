@@ -1,0 +1,32 @@
+{
+  "repository": "n8n-io/n8n",
+  "analyzedAt": "2026-07-10T19:42:20.119784+00:00",
+  "titleZh": "n8n：可自托管的 AI 与工作流自动化平台",
+  "summaryZh": "n8n 用可视化画布、代码节点和大量集成把 API、数据、消息与 AI Agent 编排成可运行的工作流，可自托管或使用云服务，适合把分散的开发与运营步骤连接成自动化流水线。",
+  "category": "生产力",
+  "capabilities": [
+    "可视化工作流与多步 AI Agent 编排",
+    "连接 API、Webhook、数据库和第三方服务",
+    "在节点中混合 JavaScript、Python 与 npm 包",
+    "定时、事件触发与人工审批流程",
+    "自托管、云端部署与自定义节点扩展",
+    "模板化复用跨系统自动化流程"
+  ],
+  "taskTerms": [
+    "workflow",
+    "automation",
+    "AI agent",
+    "API integration",
+    "webhook",
+    "scheduled task",
+    "data pipeline",
+    "self-hosted",
+    "content operations",
+    "notification"
+  ],
+  "bestFor": "适合需要把采集、模型调用、内容处理、审批、通知和外部平台 API 串成可观察工作流的开发者与小团队，也可作为自媒体工作台的外围编排层。",
+  "reusePlan": "先在隔离实例中复用工作流定义、触发器和现成集成，验证数据权限与失败重试；只有缺少现成节点时再编写自定义节点。业务核心数据模型仍应由自己的服务掌控。",
+  "limitation": "n8n 是 fair-code/source-available 项目而非宽松开源许可证；商用、托管转售和企业功能必须逐条核对 Sustainable Use License 与 Enterprise License。仓库很大，本次只读扫描在 12,000 个文件处停止，且未安装依赖或执行代码。",
+  "evidenceSummary": "官方 README 说明其支持 AI 工作流、代码节点、自托管、云端和大量集成；只读源码扫描覆盖 12,000 个文件，检测到 README、许可证、测试、CI、Docker、依赖锁、包清单和文档，并发现 5,297 个测试文件。Git 浅克隆失败后使用了受限的 GitHub 官方源码归档，未执行仓库代码。",
+  "sourceUrl": "https://github.com/n8n-io/n8n#readme"
+}
