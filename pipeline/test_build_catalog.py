@@ -46,6 +46,55 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertEqual(catalog["dailyTrackCounts"], {"recentMomentum": 3, "longTerm": 2})
         self.assertTrue(all(item["enduranceScore"] >= 60 for item in daily if item["heatTrack"] == "long_term"))
 
+    def test_long_term_heat_upgrades_after_persistent_snapshot_evidence(self) -> None:
+        enduring = repository("demo/enduring", 120_000, "2018-01-01T00:00:00Z")
+        history = [
+            {
+                "captured_at": f"2026-07-0{day}T12:00:00Z",
+                "repositories": [enduring],
+            }
+            for day in range(4, 10)
+        ]
+        catalog = build_catalog(
+            {
+                "captured_at": "2026-07-10T12:00:00Z",
+                "count": 1,
+                "repositories": [enduring],
+            },
+            history=history,
+        )
+        project = catalog["projects"][0]
+
+        self.assertEqual(project["heatTrack"], "long_term")
+        self.assertEqual(project["longTermEvidenceKind"], "multi_snapshot")
+        self.assertEqual(project["heatObservationCount"], 7)
+        self.assertEqual(project["heatObservationWindow"], 7)
+        self.assertIn("多周期验证", project["heatLabel"])
+        self.assertEqual(catalog["heatHistory"]["verifiedLongTermCount"], 1)
+
+    def test_sparse_history_stays_a_structural_proxy(self) -> None:
+        enduring = repository("demo/enduring", 120_000, "2018-01-01T00:00:00Z")
+        other = repository("demo/other", 80_000, "2019-01-01T00:00:00Z")
+        history = [
+            {
+                "captured_at": f"2026-07-0{day}T12:00:00Z",
+                "repositories": [enduring if day < 7 else other],
+            }
+            for day in range(4, 10)
+        ]
+        project = build_catalog(
+            {
+                "captured_at": "2026-07-10T12:00:00Z",
+                "count": 1,
+                "repositories": [enduring],
+            },
+            history=history,
+        )["projects"][0]
+
+        self.assertEqual(project["heatObservationCount"], 4)
+        self.assertEqual(project["heatObservationWindow"], 7)
+        self.assertEqual(project["longTermEvidenceKind"], "structural_proxy")
+
     def test_static_license_hint_is_disclosed_without_overstating_reuse_safety(self) -> None:
         item = repository("demo/license-hint", 900, "2026-07-07T12:00:00Z")
         item["license"] = None

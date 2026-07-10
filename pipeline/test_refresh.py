@@ -112,6 +112,9 @@ class RefreshTests(unittest.TestCase):
             self.assertEqual(catalog["projects"][0]["growthKind"], "observed")
             self.assertEqual(catalog["projects"][0]["growthValue"], 40)
             self.assertEqual(catalog["previousCapturedAt"], "2026-07-09T12:00:00+00:00")
+            self.assertEqual(catalog["projects"][0]["heatObservationCount"], 2)
+            self.assertEqual(catalog["projects"][0]["heatObservationWindow"], 2)
+            self.assertEqual(catalog["heatHistory"]["snapshotCount"], 2)
 
     def test_failed_derived_collection_does_not_advance_snapshot_or_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

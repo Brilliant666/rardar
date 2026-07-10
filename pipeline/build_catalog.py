@@ -20,6 +20,9 @@ from zoneinfo import ZoneInfo
 
 
 DISPLAY_ZONE = ZoneInfo("Asia/Shanghai")
+MAX_HEAT_OBSERVATIONS = 30
+MIN_PERSISTENCE_OBSERVATIONS = 7
+MIN_PERSISTENCE_RATIO = 0.7
 
 
 PRODUCTIVITY_TERMS = {
@@ -168,6 +171,44 @@ def _previous_index(previous: dict[str, Any] | None) -> dict[str, dict[str, Any]
     }
 
 
+def heat_observation_counts(
+    snapshot: dict[str, Any],
+    history: list[dict[str, Any]] | None = None,
+) -> tuple[int, dict[str, int]]:
+    """Count candidate presence across a bounded, de-duplicated snapshot window."""
+    by_capture: dict[str, dict[str, Any]] = {}
+    for item in [*(history or []), snapshot]:
+        if not isinstance(item, dict) or not isinstance(item.get("repositories"), list):
+            continue
+        captured_at = _parse_time(str(item.get("captured_at") or ""))
+        if not captured_at:
+            continue
+        by_capture[captured_at.isoformat()] = item
+    ordered = sorted(
+        by_capture.values(),
+        key=lambda item: _parse_time(str(item.get("captured_at") or ""))
+        or datetime.min.replace(tzinfo=timezone.utc),
+    )[-MAX_HEAT_OBSERVATIONS:]
+    counts: dict[str, int] = {}
+    for item in ordered:
+        repositories = {
+            str(repository.get("repo"))
+            for repository in item.get("repositories", [])
+            if isinstance(repository, dict) and repository.get("repo")
+        }
+        for repository in repositories:
+            counts[repository] = counts.get(repository, 0) + 1
+    return len(ordered), counts
+
+
+def persistence_is_verified(observation_count: int, observation_window: int) -> bool:
+    return (
+        observation_window >= MIN_PERSISTENCE_OBSERVATIONS
+        and observation_count >= 5
+        and observation_count / max(observation_window, 1) >= MIN_PERSISTENCE_RATIO
+    )
+
+
 def _growth(
     repository: dict[str, Any],
     captured_at: datetime,
@@ -208,7 +249,9 @@ def _score(
     growth: dict[str, Any],
     captured_at: datetime,
     analysis: dict[str, Any] | None,
-) -> tuple[int, int, int, int, bool]:
+    observation_count: int,
+    observation_window: int,
+) -> tuple[int, int, int, int, bool, bool]:
     content = _text(repository)
     stars = int(repository.get("stars") or 0)
     age_days = float(growth["age_days"])
@@ -244,16 +287,26 @@ def _score(
     maintenance_score = max(0.0, 15 * (1 - push_age_days / 120))
     ecosystem_score = min(10, math.log10(max(int(repository.get("forks") or 0), 1)) * 2.5)
     sustained_relevance_score = min(10, len(matched) * 2)
+    long_term_eligible = age_days >= 180 and stars >= 5_000 and push_age_days <= 120
+    persistence_verified = long_term_eligible and persistence_is_verified(
+        observation_count,
+        observation_window,
+    )
+    persistence_score = (
+        min(10, 5 + observation_count / max(observation_window, 1) * 5)
+        if persistence_verified
+        else 0
+    )
     endurance_score = _clamp(
         star_depth_score
         + longevity_score
         + maintenance_score
         + ecosystem_score
         + sustained_relevance_score
+        + persistence_score
         - low_actionability_penalty
         - risk_penalty
     )
-    long_term_eligible = age_days >= 180 and stars >= 5_000 and push_age_days <= 120
     global_score = max(momentum_score, round(endurance_score * 0.92))
 
     if analysis:
@@ -296,7 +349,14 @@ def _score(
         # A static text signature is useful evidence but not equivalent to the
         # repository API declaring a machine-readable license.
         reuse_score = min(reuse_score, 78 if recognized_license else 59)
-    return global_score, reuse_score, momentum_score, endurance_score, long_term_eligible
+    return (
+        global_score,
+        reuse_score,
+        momentum_score,
+        endurance_score,
+        long_term_eligible,
+        persistence_verified,
+    )
 
 
 def _recommendation(global_score: int, reuse_score: int, risk_detected: bool) -> str:
@@ -320,17 +380,28 @@ def _project(
     previous_captured_at: datetime | None,
     analysis: dict[str, Any] | None,
     enrichment: dict[str, Any] | None,
+    observation_count: int,
+    observation_window: int,
 ) -> dict[str, Any]:
     repo = str(repository["repo"])
     growth = _growth(repository, captured_at, previous_repository, previous_captured_at)
     analysis_payload = analysis
     analysis_current = _analysis_is_current(analysis_payload, repository.get("pushed_at"))
     analysis = analysis_payload if analysis_current else None
-    global_score, reuse_score, momentum_score, endurance_score, long_term_eligible = _score(
+    (
+        global_score,
+        reuse_score,
+        momentum_score,
+        endurance_score,
+        long_term_eligible,
+        persistence_verified,
+    ) = _score(
         repository,
         growth,
         captured_at,
         analysis,
+        observation_count,
+        observation_window,
     )
     content = _text(repository)
     risk_detected = any(term in content for term in RISK_TERMS)
@@ -353,7 +424,9 @@ def _project(
         )
     heat_track = "long_term" if long_term_eligible else "recent_momentum"
     heat_label = (
-        "长期高热 · 结构代理"
+        "长期高热 · 多周期验证"
+        if long_term_eligible and persistence_verified
+        else "长期高热 · 结构代理"
         if long_term_eligible
         else "近期动量 · 区间上升"
         if growth["kind"] == "observed" and growth["value"] > 0
@@ -364,7 +437,16 @@ def _project(
         else "近期动量 · 首次代理"
     )
     if long_term_eligible:
-        why_now += f" 长期热度评分为 {endurance_score}/100，依据总 Star、仓库年龄、近期维护和 Fork 生态计算。"
+        if persistence_verified:
+            why_now += (
+                f" 长期热度评分为 {endurance_score}/100；该仓库在最近 {observation_window} 次 Rardar "
+                f"候选快照中出现 {observation_count} 次，已达到多周期持续性阈值。"
+            )
+        else:
+            why_now += (
+                f" 长期热度评分为 {endurance_score}/100，当前依据总 Star、仓库年龄、近期维护和 Fork 生态计算；"
+                f"Rardar 已积累 {observation_window} 次快照，达到 {MIN_PERSISTENCE_OBSERVATIONS} 次后再判断多周期持续性。"
+            )
 
     analysis_state = "事实初筛"
     risk = (
@@ -448,6 +530,15 @@ def _project(
         "enduranceScore": endurance_score,
         "heatTrack": heat_track,
         "heatLabel": heat_label,
+        "longTermEvidenceKind": (
+            "multi_snapshot"
+            if persistence_verified
+            else "structural_proxy"
+            if long_term_eligible
+            else None
+        ),
+        "heatObservationCount": observation_count,
+        "heatObservationWindow": observation_window,
         "trend": growth["trend"],
         "analysisState": analysis_state,
         "sourcePushedAt": repository.get("pushed_at"),
@@ -471,6 +562,20 @@ def _project(
                 "detail": f"仓库由 {query_count} 条 GitHub 搜索规则召回；当前增长字段类型为 {growth['kind']}。",
                 "href": repository_url,
             },
+            *(
+                [
+                    {
+                        "label": "Rardar 多周期热度证据",
+                        "detail": (
+                            f"最近 {observation_window} 次候选快照中出现 {observation_count} 次；"
+                            f"覆盖率 {observation_count / max(observation_window, 1):.0%}。"
+                        ),
+                        "href": repository_url,
+                    }
+                ]
+                if long_term_eligible and persistence_verified
+                else []
+            ),
             *(
                 [
                     {
@@ -542,10 +647,12 @@ def build_catalog(
     limit: int = 30,
     analyses: dict[str, dict[str, Any]] | None = None,
     enrichments: dict[str, dict[str, Any]] | None = None,
+    history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     captured_at = _parse_time(snapshot.get("captured_at")) or datetime.now(timezone.utc)
     previous_captured_at = _parse_time(previous.get("captured_at")) if previous else None
     previous_repositories = _previous_index(previous)
+    observation_window, observation_counts = heat_observation_counts(snapshot, history)
     projects = [
         _project(
             repository,
@@ -554,6 +661,8 @@ def build_catalog(
             previous_captured_at,
             (analyses or {}).get(repository.get("repo")),
             (enrichments or {}).get(repository.get("repo")),
+            observation_counts.get(str(repository.get("repo")), 0),
+            observation_window,
         )
         for repository in snapshot.get("repositories", [])
         if repository.get("repo")
@@ -562,6 +671,9 @@ def build_catalog(
     observed_count = sum(1 for item in bounded if item["growthKind"] == "observed")
     daily_count = min(5, len(bounded))
     daily_long_term_count = sum(1 for item in bounded[:5] if item["heatTrack"] == "long_term")
+    verified_long_term_count = sum(
+        1 for item in bounded if item.get("longTermEvidenceKind") == "multi_snapshot"
+    )
     deep_analysis_count = sum(1 for item in bounded if item["analysisState"] == "深度分析")
     query_failure_count = int(snapshot.get("failed_query_count") or 0)
     pending_deep_analysis = [
@@ -578,6 +690,12 @@ def build_catalog(
         "dailyTrackCounts": {
             "recentMomentum": daily_count - daily_long_term_count,
             "longTerm": daily_long_term_count,
+        },
+        "heatHistory": {
+            "snapshotCount": observation_window,
+            "maximumSnapshotCount": MAX_HEAT_OBSERVATIONS,
+            "minimumPersistenceSnapshots": MIN_PERSISTENCE_OBSERVATIONS,
+            "verifiedLongTermCount": verified_long_term_count,
         },
         "growthMode": (
             "observed"
@@ -605,7 +723,11 @@ def build_catalog(
                 else ""
             )
             + f"每日五项包含 {daily_long_term_count} 个长期高热项目，其余席位用于近期动量项目；"
-            + "长期高热当前是总 Star、仓库年龄、近期维护和 Fork 生态的结构代理，不冒充历史每日排名。"
+            + (
+                f"已有 {verified_long_term_count} 个长期项目通过至少 {MIN_PERSISTENCE_OBSERVATIONS} 次快照的多周期持续性验证。"
+                if verified_long_term_count
+                else f"长期高热当前先使用结构代理；已积累 {observation_window} 次快照，达到 {MIN_PERSISTENCE_OBSERVATIONS} 次后自动升级多周期验证，不冒充历史每日排名。"
+            )
         ),
         "projects": bounded,
     }

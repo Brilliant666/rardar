@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from pipeline.build_catalog import (
+    MAX_HEAT_OBSERVATIONS,
+    MIN_PERSISTENCE_OBSERVATIONS,
+    heat_observation_counts,
+    persistence_is_verified,
+)
 from pipeline.codex_queue import build_codex_queue
 
 
@@ -72,6 +78,9 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     catalog = _load(data_dir / "catalog" / "latest.json", issues)
     signals = _load(data_dir / "signals" / "latest.json", issues)
     queue = _load(data_dir / "queues" / "codex.json", issues)
+    history_dir = data_dir / "snapshots" / "history"
+    history_paths = sorted(history_dir.glob("*.json")) if history_dir.exists() else []
+    history_snapshots = [_load(path, issues) for path in history_paths]
 
     repository_value = snapshot.get("repositories")
     project_value = catalog.get("projects")
@@ -307,6 +316,65 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             "Daily Five must reserve two long-term and three recent-momentum slots when available",
         )
 
+    heat_history_present = "heatHistory" in catalog or any(
+        isinstance(item, dict) and "heatObservationWindow" in item for item in projects
+    )
+    if heat_history_present:
+        observation_window, observation_counts = heat_observation_counts(
+            snapshot,
+            history_snapshots,
+        )
+        declared_heat_history = catalog.get("heatHistory")
+        verified_long_term_count = sum(
+            isinstance(item, dict)
+            and item.get("heatTrack") == "long_term"
+            and persistence_is_verified(
+                observation_counts.get(str(item.get("repo") or ""), 0),
+                observation_window,
+            )
+            for item in projects
+        )
+        heat_history_matches = (
+            isinstance(declared_heat_history, dict)
+            and _integer(declared_heat_history.get("snapshotCount")) == observation_window
+            and _integer(declared_heat_history.get("maximumSnapshotCount")) == MAX_HEAT_OBSERVATIONS
+            and _integer(declared_heat_history.get("minimumPersistenceSnapshots"))
+            == MIN_PERSISTENCE_OBSERVATIONS
+            and _integer(declared_heat_history.get("verifiedLongTermCount"))
+            == verified_long_term_count
+        )
+        _add_if(
+            issues,
+            not heat_history_matches,
+            "heat_history_mismatch",
+            "heatHistory differs from the retained snapshot evidence",
+        )
+        invalid_heat_observations = 0
+        for item in projects:
+            if not isinstance(item, dict):
+                continue
+            repository = str(item.get("repo") or "")
+            observation_count = observation_counts.get(repository, 0)
+            expected_kind = (
+                "multi_snapshot"
+                if item.get("heatTrack") == "long_term"
+                and persistence_is_verified(observation_count, observation_window)
+                else "structural_proxy"
+                if item.get("heatTrack") == "long_term"
+                else None
+            )
+            invalid_heat_observations += (
+                _integer(item.get("heatObservationCount")) != observation_count
+                or _integer(item.get("heatObservationWindow")) != observation_window
+                or item.get("longTermEvidenceKind") != expected_kind
+            )
+        _add_if(
+            issues,
+            invalid_heat_observations > 0,
+            "heat_observation_mismatch",
+            f"{invalid_heat_observations} projects differ from the retained snapshot evidence",
+        )
+
     invalid_evidence_urls = 0
     for project in projects:
         if not isinstance(project, dict):
@@ -394,10 +462,8 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     previous_at = _parse_time(catalog.get("previousCapturedAt"))
     history_matches = 0
     previous_snapshot: dict[str, Any] | None = None
-    history_dir = data_dir / "snapshots" / "history"
-    if previous_at and history_dir.exists():
-        for path in history_dir.glob("*.json"):
-            payload = _load(path, issues)
+    if previous_at:
+        for payload in history_snapshots:
             if _parse_time(payload.get("captured_at")) == previous_at:
                 history_matches += 1
                 previous_snapshot = payload
@@ -482,7 +548,7 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         "healthySourceCount": healthy_sources,
         "failedSourceCount": failed_sources,
         "queuePendingCount": len(queue_items),
-        "historyCount": len(list(history_dir.glob("*.json"))) if history_dir.exists() else 0,
+        "historyCount": len(history_paths),
         "errorCount": error_count,
         "warningCount": warning_count,
         "issues": issues,

@@ -39,6 +39,9 @@ class AuditDataTests(unittest.TestCase):
                 "enduranceScore": 90,
                 "heatTrack": "long_term",
                 "heatLabel": "长期高热 · 结构代理",
+                "longTermEvidenceKind": "structural_proxy",
+                "heatObservationCount": 2,
+                "heatObservationWindow": 2,
                 "evidence": [{"href": "https://github.com/demo/tool"}],
             }
             catalog = {
@@ -47,6 +50,12 @@ class AuditDataTests(unittest.TestCase):
                 "projectCount": 1,
                 "previousCapturedAt": previous_at,
                 "dailyTrackCounts": {"recentMomentum": 0, "longTerm": 1},
+                "heatHistory": {
+                    "snapshotCount": 2,
+                    "maximumSnapshotCount": 30,
+                    "minimumPersistenceSnapshots": 7,
+                    "verifiedLongTermCount": 0,
+                },
                 "projects": [project],
             }
             signals = {
@@ -81,6 +90,7 @@ class AuditDataTests(unittest.TestCase):
 
             healthy = audit_data(root)
             project["growthValue"] = 19
+            project["heatObservationCount"] = 1
             write_json(root / "catalog/latest.json", catalog)
             corrupted = audit_data(root)
 
@@ -90,6 +100,7 @@ class AuditDataTests(unittest.TestCase):
         self.assertEqual(healthy["observedNetStarChange"], 20)
         self.assertEqual(healthy["dailyTrackCounts"], {"recentMomentum": 0, "longTerm": 1})
         self.assertIn("observed_growth_mismatch", {item["code"] for item in corrupted["issues"]})
+        self.assertIn("heat_observation_mismatch", {item["code"] for item in corrupted["issues"]})
 
     def test_accepts_consistent_first_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

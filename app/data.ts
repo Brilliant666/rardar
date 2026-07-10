@@ -24,6 +24,9 @@ export type Project = {
   enduranceScore?: number;
   heatTrack?: "recent_momentum" | "long_term";
   heatLabel?: string;
+  longTermEvidenceKind?: "structural_proxy" | "multi_snapshot" | null;
+  heatObservationCount?: number;
+  heatObservationWindow?: number;
   trend: string;
   analysisState: "事实初筛" | "静态分析" | "深度分析" | "画像待复核";
   sourcePushedAt?: string | null;
@@ -49,6 +52,12 @@ export type CatalogSnapshot = {
   deepAnalysisCount: number;
   pendingDeepAnalysis: string[];
   dailyTrackCounts?: { recentMomentum: number; longTerm: number };
+  heatHistory?: {
+    snapshotCount: number;
+    maximumSnapshotCount: number;
+    minimumPersistenceSnapshots: number;
+    verifiedLongTermCount: number;
+  };
   growthMode: "observed" | "mixed_observation" | "first_observation_proxy";
   notice: string;
   projects: Project[];

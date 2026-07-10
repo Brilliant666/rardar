@@ -46,7 +46,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
             <div><span>建议行动</span><strong className="big-action">{project.recommendation}</strong></div>
             <div><span>适合怎么用</span><p>{project.fit}</p></div>
             <div><span>风险与未知</span><p>{project.risk}</p></div>
-            <div className="fact-grid"><p><span>语言</span>{project.language}</p><p><span>许可证</span>{project.license}</p><p><span>增长口径</span>{project.growthLabel}</p><p><span>采集时间</span>{project.capturedAt}</p></div>
+            <div className="fact-grid"><p><span>语言</span>{project.language}</p><p><span>许可证</span>{project.license}</p><p><span>增长口径</span>{project.growthLabel}</p><p><span>采集时间</span>{project.capturedAt}</p>{project.heatObservationWindow ? <p><span>热度观察</span>{project.heatObservationCount ?? 0}/{project.heatObservationWindow} 次快照</p> : null}</div>
           </aside>
         </section>
       </main>

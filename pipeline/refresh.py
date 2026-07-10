@@ -120,6 +120,21 @@ def _load_enrichments(directory: Path) -> dict[str, dict[str, Any]]:
     return enrichments
 
 
+def _load_snapshot_history(
+    directory: Path,
+    previous: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    snapshots: dict[str, dict[str, Any]] = {}
+    if directory.exists():
+        for path in directory.glob("*.json"):
+            payload = _read_json(path)
+            if payload and payload.get("captured_at"):
+                snapshots[str(payload["captured_at"])] = payload
+    if previous and previous.get("captured_at"):
+        snapshots[str(previous["captured_at"])] = previous
+    return sorted(snapshots.values(), key=lambda item: str(item.get("captured_at") or ""))
+
+
 def refresh(
     data_dir: Path,
     now: datetime,
@@ -138,9 +153,10 @@ def refresh(
     catalog_path = data_dir / "catalog" / "latest.json"
 
     previous = _read_json(latest_snapshot_path)
+    history = _load_snapshot_history(history_dir, previous)
     current = collect(client or GitHubClient(os.environ.get("GITHUB_TOKEN")), now, since_days)
 
-    preliminary = build_catalog(current, previous, limit)
+    preliminary = build_catalog(current, previous, limit, history=history)
     failures: list[dict[str, str]] = []
     for project in preliminary["projects"][: max(0, min(analyze_top, 10))]:
         repository = project["repo"]
@@ -156,6 +172,7 @@ def refresh(
         limit,
         _load_analyses(analysis_dir),
         _load_enrichments(enrichment_dir),
+        history,
     )
     catalog["previousCapturedAt"] = previous.get("captured_at") if previous else None
     catalog["analysisFailures"] = failures
