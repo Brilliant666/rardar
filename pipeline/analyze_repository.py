@@ -96,19 +96,25 @@ class StaticEvidence:
 def _iter_files(root: Path) -> Iterable[Path]:
     seen = 0
     for current, directories, files in os.walk(root):
-        directories[:] = sorted(item for item in directories if item.lower() not in SKIP_DIRECTORIES)
+        current_path = Path(current)
+        directories[:] = sorted(
+            item
+            for item in directories
+            if item.lower() not in SKIP_DIRECTORIES and not (current_path / item).is_symlink()
+        )
         for name in sorted(files):
-            if Path(name).suffix.lower() in SKIP_FILE_SUFFIXES:
+            candidate = current_path / name
+            if candidate.is_symlink() or Path(name).suffix.lower() in SKIP_FILE_SUFFIXES:
                 continue
             seen += 1
             if seen > MAX_FILES:
                 return
-            yield Path(current, name)
+            yield candidate
 
 
 def _safe_read(path: Path) -> str:
     try:
-        if path.stat().st_size > MAX_TEXT_BYTES:
+        if path.is_symlink() or path.stat().st_size > MAX_TEXT_BYTES:
             return ""
         return path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
@@ -132,7 +138,11 @@ def _is_test_file(relative: str) -> bool:
 
 
 def _license_hint(root: Path) -> str | None:
-    candidates = [path for path in root.iterdir() if path.is_file() and path.name.lower().startswith(("license", "copying"))]
+    candidates = [
+        path
+        for path in root.iterdir()
+        if not path.is_symlink() and path.is_file() and path.name.lower().startswith(("license", "copying"))
+    ]
     if not candidates:
         return None
     content = _safe_read(candidates[0]).lower()
