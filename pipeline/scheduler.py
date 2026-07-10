@@ -68,13 +68,14 @@ def main() -> None:
     parser.add_argument("--at", default="08:00", help="local daily time in HH:MM")
     parser.add_argument("--timezone", default="Asia/Shanghai")
     parser.add_argument("--analyze-top", type=int, default=5)
+    parser.add_argument("--status-path", type=Path, help="write scheduler heartbeat outside the data snapshot tree")
     parser.add_argument("--skip-initial", action="store_true", help="wait until the next scheduled time before the first refresh")
     parser.add_argument("--once", action="store_true", help="run one refresh and exit")
     arguments = parser.parse_args()
 
     hour, minute = parse_clock(arguments.at)
     analyze_top = max(0, min(arguments.analyze_top, 10))
-    status_path = arguments.data_dir / "scheduler" / "status.json"
+    status_path = arguments.status_path or arguments.data_dir / "scheduler" / "status.json"
 
     if arguments.once:
         status = run_cycle(arguments.data_dir, analyze_top)

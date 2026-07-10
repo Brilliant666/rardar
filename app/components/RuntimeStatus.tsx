@@ -23,6 +23,7 @@ type RuntimeSnapshot = {
 };
 
 const heartbeatLimit = 35_000;
+const runtimeStatusUrl = "http://127.0.0.1:3002/status";
 
 function formatTime(value?: string | null) {
   if (!value) return "等待调度";
@@ -50,11 +51,19 @@ export function RuntimeStatus() {
 
   const refresh = useCallback(async () => {
     try {
-      const response = await fetch(`/runtime-status.json?t=${Date.now()}`, { cache: "no-store" });
+      const response = await fetch(`${runtimeStatusUrl}?t=${Date.now()}`, { cache: "no-store" });
       if (!response.ok) throw new Error("runtime status unavailable");
       setSnapshot(normalizeSnapshot((await response.json()) as RuntimeSnapshot));
     } catch {
-      setSnapshot(null);
+      setSnapshot({
+        state: "stopped",
+        checkedAt: new Date().toISOString(),
+        message: "本地运行管理器未响应，请使用一键启动入口",
+        services: {
+          website: { state: "unknown", pid: null },
+          scheduler: { state: "unknown", pid: null, schedule: { time: "08:00", timezone: "Asia/Shanghai" } },
+        },
+      });
     }
   }, []);
 

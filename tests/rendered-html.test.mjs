@@ -46,7 +46,7 @@ test("contains the complete Rardar home experience", async () => {
   assert.doesNotMatch(signals, /schedulerJson/);
   assert.match(signalsPage, /sourceStatus/);
   assert.match(signalsPage, /RuntimeStatus/);
-  assert.match(runtimeStatus, /runtime-status\.json/);
+  assert.match(runtimeStatus, /127\.0\.0\.1:3002\/status/);
   assert.match(runtimeStatus, /heartbeatLimit/);
   assert.match(queue, /pendingCount/);
   assert.doesNotMatch(page, /codex-preview|react-loading-skeleton|Your site is taking shape/i);

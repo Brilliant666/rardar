@@ -10,22 +10,41 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_DIR = ROOT / "data" / "runtime"
+
+
+def default_runtime_dir() -> Path:
+    configured = os.environ.get("RARDAR_RUNTIME_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    else:
+        base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    return base / "Rardar" / "runtime"
+
+
+RUNTIME_DIR = default_runtime_dir()
 LOG_DIR = RUNTIME_DIR / "logs"
 CONTROL_PATH = RUNTIME_DIR / "manager.json"
 STATUS_PATH = RUNTIME_DIR / "status.json"
-PUBLIC_STATUS_PATH = ROOT / "public" / "runtime-status.json"
+SCHEDULER_STATUS_PATH = RUNTIME_DIR / "scheduler-status.json"
 LOCAL_URL = "http://127.0.0.1:3000/"
+STATUS_HOST = "127.0.0.1"
+STATUS_PORT = 3002
 MINIMUM_NODE = (22, 13, 0)
+_latest_status: dict[str, Any] = {}
+_latest_status_lock = threading.Lock()
 
 
 def utc_now() -> str:
@@ -47,8 +66,45 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def write_runtime_status(payload: dict[str, Any]) -> None:
+    global _latest_status
+    with _latest_status_lock:
+        _latest_status = payload
     _write_json(STATUS_PATH, payload)
-    _write_json(PUBLIC_STATUS_PATH, payload)
+
+
+class RuntimeStatusHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler uses HTTP method names.
+        if self.path.split("?", 1)[0] != "/status":
+            self.send_error(404)
+            return
+        with _latest_status_lock:
+            payload = dict(_latest_status)
+        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        origin = self.headers.get("Origin")
+        if origin in {"http://127.0.0.1:3000", "http://localhost:3000"}:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def log_message(self, _format: str, *_arguments: Any) -> None:
+        return
+
+
+class LocalStatusServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+
+
+def start_status_server() -> ThreadingHTTPServer:
+    server = LocalStatusServer((STATUS_HOST, STATUS_PORT), RuntimeStatusHandler)
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever, name="rardar-status", daemon=True)
+    thread.start()
+    return server
 
 
 def parse_node_version(value: str) -> tuple[int, int, int] | None:
@@ -268,7 +324,7 @@ def _service_payload(service: ManagedService, state: str) -> dict[str, Any]:
 
 
 def _scheduler_details() -> dict[str, Any]:
-    status = _read_json(ROOT / "data" / "scheduler" / "status.json") or {}
+    status = _read_json(SCHEDULER_STATUS_PATH) or {}
     return {
         "schedule": status.get("schedule", {"time": "08:00", "timezone": "Asia/Shanghai"}),
         "nextRunAt": status.get("nextRunAt"),
@@ -326,6 +382,8 @@ def run_manager() -> int:
             "Asia/Shanghai",
             "--analyze-top",
             "5",
+            "--status-path",
+            str(SCHEDULER_STATUS_PATH),
             "--skip-initial",
         ],
         LOG_DIR / "scheduler.log",
@@ -341,6 +399,12 @@ def run_manager() -> int:
     signal.signal(signal.SIGTERM, request_stop)
     _write_json(CONTROL_PATH, {"pid": current_pid, "startedAt": utc_now()})
 
+    starting_status = _stopped_status("网站与每日刷新正在启动")
+    starting_status.update({"state": "starting", "managerPid": current_pid})
+    starting_status["services"]["website"]["state"] = "starting"
+    starting_status["services"]["scheduler"]["state"] = "starting"
+    write_runtime_status(starting_status)
+    status_server = start_status_server()
     try:
         for service in services:
             service.start(environment)
@@ -375,6 +439,8 @@ def run_manager() -> int:
             write_runtime_status(payload)
             time.sleep(10)
     finally:
+        status_server.shutdown()
+        status_server.server_close()
         for service in reversed(services):
             service.stop()
         write_runtime_status(_stopped_status("本地运行管理器已停止"))
