@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pipeline.analyze_repository import _git_environment, analyze_path
+from pipeline.analyze_repository import _git_environment, _is_test_file, analyze_path
 
 
 class AnalyzeRepositoryTests(unittest.TestCase):
@@ -23,6 +23,8 @@ class AnalyzeRepositoryTests(unittest.TestCase):
             tests = root / "tests"
             tests.mkdir()
             (tests / "test_demo.py").write_text("# TODO: add edge case", encoding="utf-8")
+            (root / "latest.json").write_text("{}", encoding="utf-8")
+            (root / "debug.log").write_text("test should be ignored", encoding="utf-8")
 
             evidence = analyze_path(root, "demo/repo")
 
@@ -30,9 +32,17 @@ class AnalyzeRepositoryTests(unittest.TestCase):
             self.assertTrue(evidence.indicators["readme"])
             self.assertTrue(evidence.indicators["license"])
             self.assertTrue(evidence.indicators["tests"])
+            self.assertEqual(evidence.counts["test_files"], 1)
+            self.assertNotIn(".log", evidence.language_files)
             self.assertEqual(evidence.license_hint, "MIT")
             self.assertEqual(evidence.counts["todo_markers"], 1)
             self.assertIn("static inspection only; code was not executed", evidence.warnings)
+
+    def test_test_file_detection_avoids_latest_false_positive(self) -> None:
+        self.assertFalse(_is_test_file("data/latest.json"))
+        self.assertTrue(_is_test_file("tests/demo.py"))
+        self.assertTrue(_is_test_file("src/widget.test.ts"))
+        self.assertTrue(_is_test_file("pkg/worker_test.go"))
 
 
 if __name__ == "__main__":

@@ -23,13 +23,37 @@ MAX_TEXT_BYTES = 512_000
 MAX_FILES = 12_000
 SKIP_DIRECTORIES = {
     ".git",
+    ".mypy_cache",
     ".next",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
     ".venv",
+    ".wrangler",
+    "__pycache__",
     "build",
+    "coverage",
     "dist",
     "node_modules",
     "target",
     "vendor",
+}
+SKIP_FILE_SUFFIXES = {
+    ".db",
+    ".gif",
+    ".gz",
+    ".jpeg",
+    ".jpg",
+    ".log",
+    ".pdf",
+    ".png",
+    ".pyc",
+    ".pyo",
+    ".sqlite",
+    ".sqlite3",
+    ".tsbuildinfo",
+    ".woff",
+    ".woff2",
 }
 TEXT_SUFFIXES = {
     ".c",
@@ -72,8 +96,10 @@ class StaticEvidence:
 def _iter_files(root: Path) -> Iterable[Path]:
     seen = 0
     for current, directories, files in os.walk(root):
-        directories[:] = sorted(item for item in directories if item not in SKIP_DIRECTORIES)
+        directories[:] = sorted(item for item in directories if item.lower() not in SKIP_DIRECTORIES)
         for name in sorted(files):
+            if Path(name).suffix.lower() in SKIP_FILE_SUFFIXES:
+                continue
             seen += 1
             if seen > MAX_FILES:
                 return
@@ -87,6 +113,22 @@ def _safe_read(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return ""
+
+
+def _is_test_file(relative: str) -> bool:
+    path = Path(relative)
+    parts = {part.lower() for part in path.parts[:-1]}
+    if parts.intersection({"test", "tests", "__tests__", "spec", "specs"}):
+        return True
+    name = path.name.lower()
+    stem = path.stem.lower()
+    return (
+        stem in {"test", "tests", "spec"}
+        or stem.startswith("test_")
+        or stem.endswith(("_test", "_spec"))
+        or ".test." in name
+        or ".spec." in name
+    )
 
 
 def _license_hint(root: Path) -> str | None:
@@ -117,7 +159,7 @@ def analyze_path(root: Path, repository: str = "local") -> StaticEvidence:
     for path, relative in zip(files, relative_names):
         suffix = path.suffix.lower() or "[none]"
         language_files[suffix] = language_files.get(suffix, 0) + 1
-        if "test" in Path(relative).name.lower() or "/tests/" in f"/{relative}":
+        if _is_test_file(relative):
             test_files += 1
         if suffix in TEXT_SUFFIXES:
             content = _safe_read(path)
