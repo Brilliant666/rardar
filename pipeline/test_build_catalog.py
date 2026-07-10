@@ -103,6 +103,7 @@ class BuildCatalogTests(unittest.TestCase):
         }
         enrichment = {
             "repository": "demo/new-tool",
+            "analyzedAt": "2026-07-10T10:00:00Z",
             "titleZh": "自动化工作流工具",
             "summaryZh": "把重复开发步骤组织成可复用流程。",
             "category": "开发工具",
@@ -124,6 +125,30 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertEqual(len(project["evidence"]), 3)
         self.assertEqual(catalog["deepAnalysisCount"], 1)
         self.assertEqual(catalog["pendingDeepAnalysis"], [])
+
+    def test_enrichment_older_than_latest_push_is_marked_for_review(self) -> None:
+        item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
+        enrichment = {
+            "repository": "demo/new-tool",
+            "analyzedAt": "2026-07-09T08:00:00Z",
+            "titleZh": "旧画像",
+            "summaryZh": "这份画像生成后仓库又更新了。",
+            "capabilities": ["旧能力"],
+            "taskTerms": ["旧任务"],
+            "reusePlan": "重新核对后再复用。",
+            "limitation": "尚未复核。",
+        }
+
+        catalog = build_catalog(
+            {"captured_at": "2026-07-10T12:00:00Z", "count": 1, "repositories": [item]},
+            enrichments={"demo/new-tool": enrichment},
+        )
+        project = catalog["projects"][0]
+
+        self.assertEqual(project["analysisState"], "画像待复核")
+        self.assertIn("最近推送晚于当前中文画像", project["risk"])
+        self.assertEqual(catalog["deepAnalysisCount"], 0)
+        self.assertEqual(catalog["pendingDeepAnalysis"], ["demo/new-tool"])
 
     def test_first_snapshot_labels_velocity_as_proxy(self) -> None:
         snapshot = {

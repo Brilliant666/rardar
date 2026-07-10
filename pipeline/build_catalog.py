@@ -83,6 +83,14 @@ def _parse_time(value: str | None) -> datetime | None:
         return None
 
 
+def _enrichment_is_current(enrichment: dict[str, Any] | None, pushed_at: str | None) -> bool:
+    if not enrichment:
+        return False
+    analyzed_at = _parse_time(str(enrichment.get("analyzedAt") or ""))
+    source_pushed_at = _parse_time(pushed_at)
+    return bool(analyzed_at and (not source_pushed_at or analyzed_at >= source_pushed_at))
+
+
 def _clamp(value: float, minimum: int = 0, maximum: int = 100) -> int:
     return round(max(minimum, min(maximum, value)))
 
@@ -294,6 +302,7 @@ def _project(
     pushed_label = (_parse_time(repository.get("pushed_at")) or captured_at).date().isoformat()
     query_count = len(str(repository.get("candidate_query") or "").split(" | "))
     repository_url = _safe_http_url(repository.get("url"), f"https://github.com/{repo}")
+    enrichment_current = _enrichment_is_current(enrichment, repository.get("pushed_at"))
 
     if growth["kind"] == "observed":
         why_now = f"Rardar 两次事实快照之间观测到 {growth['label']}，且仓库最近推送于 {pushed_label}。"
@@ -321,7 +330,7 @@ def _project(
             + "静态检查不能代替实际运行验证。"
         )
     if enrichment:
-        analysis_state = "深度分析"
+        analysis_state = "深度分析" if enrichment_current else "画像待复核"
     if risk_detected:
         risk = "仓库描述触发安全或滥用风险关键词，应先人工审查；当前不建议下载、运行或复用。"
     elif repository.get("license") in (None, "NOASSERTION"):
@@ -344,6 +353,8 @@ def _project(
         limitation = str(enrichment.get("limitation") or "").strip()
         if limitation:
             risk = f"{limitation} {risk}"
+        if not enrichment_current:
+            risk = "仓库最近推送晚于当前中文画像，能力与复用判断需要重新核对。 " + risk
 
     return {
         "slug": re.sub(r"[^a-z0-9-]+", "-", repo.lower().replace("/", "--")).strip("-"),
@@ -361,6 +372,8 @@ def _project(
         "reuseScore": reuse_score,
         "trend": growth["trend"],
         "analysisState": analysis_state,
+        "sourcePushedAt": repository.get("pushed_at"),
+        "enrichmentAnalyzedAt": enrichment.get("analyzedAt") if enrichment else None,
         "whyNow": why_now,
         "recommendation": _recommendation(global_score, reuse_score, risk_detected),
         "fit": fit,

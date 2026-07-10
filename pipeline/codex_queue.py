@@ -10,7 +10,19 @@ from pathlib import Path
 from typing import Any
 
 
-PROJECT_REQUIRED_FIELDS = {"repository", "titleZh", "summaryZh", "capabilities", "taskTerms", "reusePlan", "limitation"}
+PROJECT_REQUIRED_FIELDS = {
+    "repository",
+    "analyzedAt",
+    "titleZh",
+    "summaryZh",
+    "capabilities",
+    "taskTerms",
+    "bestFor",
+    "reusePlan",
+    "limitation",
+    "evidenceSummary",
+    "sourceUrl",
+}
 SIGNAL_REQUIRED_FIELDS = {"titleZh", "takeawayZh", "whyItMattersZh", "categoryZh"}
 
 
@@ -29,6 +41,26 @@ def _is_complete(payload: dict[str, Any] | None, required: set[str]) -> bool:
     if not payload or not required.issubset(payload):
         return False
     return all(payload.get(field) not in (None, "", []) for field in required)
+
+
+def _parse_time(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _project_enrichment_is_current(payload: dict[str, Any] | None, project: dict[str, Any]) -> bool:
+    if not _is_complete(payload, PROJECT_REQUIRED_FIELDS):
+        return False
+    pushed_at = _parse_time(project.get("sourcePushedAt"))
+    analyzed_at = _parse_time(payload.get("analyzedAt") if payload else None)
+    return bool(analyzed_at and (not pushed_at or analyzed_at >= pushed_at))
 
 
 def build_codex_queue(
@@ -50,9 +82,11 @@ def build_codex_queue(
             continue
         safe_name = _safe_name(repository)
         enrichment_path = project_enrichment_dir / f"{safe_name}.json"
-        if _is_complete(_read_json(enrichment_path), PROJECT_REQUIRED_FIELDS):
+        enrichment = _read_json(enrichment_path)
+        if _project_enrichment_is_current(enrichment, project):
             completed_projects += 1
             continue
+        complete_but_stale = _is_complete(enrichment, PROJECT_REQUIRED_FIELDS)
         items.append(
             {
                 "id": f"project:{safe_name}",
@@ -60,7 +94,13 @@ def build_codex_queue(
                 "priority": 100 - index * 4,
                 "repository": repository,
                 "title": project.get("title") or repository,
-                "reason": "进入高优先级项目区，但缺少完整中文能力画像",
+                "reason": (
+                    "仓库在上次中文画像之后有新推送，需要基于最新 README 与静态证据复核"
+                    if complete_but_stale
+                    else "进入高优先级项目区，但缺少完整中文能力画像"
+                ),
+                "sourcePushedAt": project.get("sourcePushedAt"),
+                "previousAnalyzedAt": enrichment.get("analyzedAt") if enrichment else None,
                 "inputPaths": [
                     f"data/analysis/{safe_name}.json",
                     "data/catalog/latest.json",
