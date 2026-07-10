@@ -40,7 +40,7 @@ class StubClient:
         self.responses[HELLOGITHUB_RELEASE_URL] = json.dumps(
             {
                 "tag_name": "vol.123",
-                "published_at": "2026-07-01T00:00:00Z",
+                "published_at": "2026-07-10T10:00:00Z",
                 "html_url": "https://github.com/521xueweihan/HelloGitHub/releases/tag/vol.123",
             }
         ).encode()
@@ -50,6 +50,55 @@ class StubClient:
 
 
 class CollectSignalsTests(unittest.TestCase):
+    def test_excludes_stale_curated_release_from_48_hour_stream(self) -> None:
+        client = StubClient()
+        client.responses[HELLOGITHUB_RELEASE_URL] = json.dumps(
+            {
+                "tag_name": "vol.122",
+                "published_at": "2026-07-01T00:00:00Z",
+                "html_url": "https://github.com/521xueweihan/HelloGitHub/releases/tag/vol.122",
+            }
+        ).encode()
+
+        payload = collect_signals(client, datetime(2026, 7, 10, 12, tzinfo=timezone.utc))
+        hello_status = next(item for item in payload["sourceStatus"] if item["id"] == "hellogithub")
+
+        self.assertFalse(any(item["source"] == "HelloGitHub" for item in payload["signals"]))
+        self.assertEqual(hello_status["state"], "healthy")
+        self.assertEqual(hello_status["itemCount"], 0)
+
+    def test_excludes_future_aggregated_signal(self) -> None:
+        client = StubClient()
+        client.responses[AI_RADAR_URL] = json.dumps(
+            {
+                "items": [
+                    {
+                        "title": "Future announcement",
+                        "primary_url": "https://example.com/future",
+                        "latest_at": "2026-07-11T12:00:00Z",
+                    }
+                ]
+            }
+        ).encode()
+
+        payload = collect_signals(client, datetime(2026, 7, 10, 12, tzinfo=timezone.utc))
+
+        self.assertFalse(any(item["title"] == "Future announcement" for item in payload["signals"]))
+
+    def test_excludes_stale_daily_rank(self) -> None:
+        client = StubClient()
+        client.responses[DAILY_RANK_URL] = """## 2026.07.01 日榜排行
+| 排名 | 项目名 | Star⭐ | 今日增长量 |
+| 1 | [demo/stale](https://github.com/demo/stale)| 1.2k | 300 |
+""".encode()
+
+        payload = collect_signals(client, datetime(2026, 7, 10, 12, tzinfo=timezone.utc))
+        rank_status = next(item for item in payload["sourceStatus"] if item["id"] == "open_githubs_daily_rank")
+
+        self.assertFalse(any(item.get("repo") == "demo/stale" for item in payload["signals"]))
+        self.assertEqual(rank_status["state"], "healthy")
+        self.assertEqual(rank_status["itemCount"], 0)
+
     def test_rejects_non_http_links_from_external_aggregator(self) -> None:
         client = StubClient()
         client.responses[AI_RADAR_URL] = json.dumps(

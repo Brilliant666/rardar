@@ -235,7 +235,13 @@ def _radar_signals(client: HttpClient, now: datetime, window_hours: int) -> tupl
             published = _parse_datetime(item.get("latest_at") or item.get("earliest_at"))
             link = _safe_http_url(item.get("primary_url") or item.get("url"))
             title = _clean_title(item.get("title"))
-            if not published or not link or not title or published < now - timedelta(hours=window_hours):
+            if (
+                not published
+                or not link
+                or not title
+                or published < now - timedelta(hours=window_hours)
+                or published > now + timedelta(hours=2)
+            ):
                 continue
             source_names = [str(value) for value in item.get("source_names") or [item.get("source")] if value]
             importance = float(item.get("importance_score") or item.get("importance") or item.get("score") or 0.5)
@@ -268,7 +274,7 @@ def _radar_signals(client: HttpClient, now: datetime, window_hours: int) -> tupl
         return [], {"id": "ai_news_radar", "name": "AI News Radar", "url": AI_RADAR_URL, "state": "failed", "itemCount": 0, "latestItemAt": None, "error": str(error)}
 
 
-def _daily_rank_signals(client: HttpClient, now: datetime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _daily_rank_signals(client: HttpClient, now: datetime, window_hours: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         content = client.get(DAILY_RANK_URL, "text/plain").decode("utf-8", errors="replace")
         # The repository mixes Markdown and generated HTML, but its first
@@ -277,7 +283,12 @@ def _daily_rank_signals(client: HttpClient, now: datetime) -> tuple[list[dict[st
         published = datetime.strptime(date_match.group(1), "%Y.%m.%d").replace(tzinfo=timezone(timedelta(hours=8))).astimezone(timezone.utc) if date_match else now
         row_pattern = re.compile(r"\|\s*(\d+)\s*\|\s*\[([^\]]+)\]\((https://github\.com/[^)]+)\)\|\s*([^|]+)\|\s*([^|]+)\|")
         signals: list[dict[str, Any]] = []
-        for rank_text, repository, link, total_stars, daily_growth in row_pattern.findall(content)[:10]:
+        rows = (
+            row_pattern.findall(content)[:10]
+            if now - timedelta(hours=window_hours) <= published <= now + timedelta(hours=2)
+            else []
+        )
+        for rank_text, repository, link, total_stars, daily_growth in rows:
             rank = int(rank_text)
             growth_text = re.sub(r"[^0-9]", "", daily_growth)
             growth = int(growth_text) if growth_text else 0
@@ -311,14 +322,14 @@ def _daily_rank_signals(client: HttpClient, now: datetime) -> tuple[list[dict[st
         return [], {"id": "open_githubs_daily_rank", "name": "OpenGithubs Daily Rank", "url": DAILY_RANK_URL, "state": "failed", "itemCount": 0, "latestItemAt": None, "error": str(error)}
 
 
-def _hellogithub_signal(client: HttpClient, now: datetime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _hellogithub_signal(client: HttpClient, now: datetime, window_hours: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         release = json.loads(client.get(HELLOGITHUB_RELEASE_URL, "application/vnd.github+json").decode("utf-8"))
         published = _parse_datetime(release.get("published_at"))
         link = _safe_http_url(release.get("html_url"))
         if not published or not link:
             raise ValueError("latest release has no timestamp or URL")
-        recent = published >= now - timedelta(days=45)
+        recent = now - timedelta(hours=window_hours) <= published <= now + timedelta(hours=2)
         signals = []
         if recent:
             tag = str(release.get("tag_name") or release.get("name") or "最新一期")
@@ -376,8 +387,8 @@ def collect_signals(client: HttpClient, now: datetime, window_hours: int = 48, l
     now = now.astimezone(timezone.utc)
     official, statuses = _official_signals(client, now, window_hours)
     radar, radar_status = _radar_signals(client, now, window_hours)
-    ranking, ranking_status = _daily_rank_signals(client, now)
-    curated, curated_status = _hellogithub_signal(client, now)
+    ranking, ranking_status = _daily_rank_signals(client, now, window_hours)
+    curated, curated_status = _hellogithub_signal(client, now, window_hours)
     statuses.extend([radar_status, ranking_status, curated_status])
     merged = _merge_signals([*official, *radar, *ranking, *curated])[: max(5, min(limit, 100))]
     return {
