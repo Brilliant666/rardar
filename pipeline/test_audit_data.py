@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from pipeline.audit_data import audit_data
+from pipeline.codex_queue import build_codex_queue
 
 
 def write_json(path: Path, payload: dict[str, object]) -> None:
@@ -146,34 +148,24 @@ class AuditDataTests(unittest.TestCase):
                 "projects": [project],
             }
             write_json(root / "catalog/latest.json", catalog_payload)
-            write_json(
-                root / "signals/latest.json",
-                {
-                    "capturedAt": captured,
-                    "windowHours": 48,
-                    "signalCount": 1,
-                    "healthySourceCount": 1,
-                    "failedSourceCount": 0,
-                    "sourceStatus": [source],
-                    "signals": [signal],
-                },
+            signals_payload = {
+                "capturedAt": captured,
+                "windowHours": 48,
+                "signalCount": 1,
+                "healthySourceCount": 1,
+                "failedSourceCount": 0,
+                "sourceStatus": [source],
+                "signals": [signal],
+            }
+            write_json(root / "signals/latest.json", signals_payload)
+            queue_payload = build_codex_queue(
+                catalog_payload,
+                signals_payload,
+                root / "enrichment",
+                root / "signals/enrichment.json",
+                datetime.fromisoformat(captured),
             )
-            write_json(
-                root / "queues/codex.json",
-                {
-                    "generatedAt": captured,
-                    "scope": {"projectLimit": 5, "signalLimit": 10},
-                    "pendingCount": 2,
-                    "projectPendingCount": 1,
-                    "signalPendingCount": 1,
-                    "completedProjectCount": 0,
-                    "completedSignalCount": 0,
-                    "items": [
-                        {"id": "project:demo--tool", "kind": "project"},
-                        {"id": "signal:signal-1", "kind": "signal"},
-                    ],
-                },
-            )
+            write_json(root / "queues/codex.json", queue_payload)
 
             result = audit_data(root)
             failed_query = "topic:productivity stars:>=50 archived:false fork:false"

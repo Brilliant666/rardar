@@ -241,15 +241,25 @@ class BuildCatalogTests(unittest.TestCase):
             "limitation": "尚未运行验证。",
             "sourceUrl": "https://github.com/demo/new-tool",
         }
+        analysis = {
+            "repository": "demo/new-tool",
+            "analyzed_at": "2026-07-10T10:00:00Z",
+            "indicators": {},
+            "counts": {},
+        }
 
-        catalog = build_catalog(snapshot, enrichments={"demo/new-tool": enrichment})
+        catalog = build_catalog(
+            snapshot,
+            analyses={"demo/new-tool": analysis},
+            enrichments={"demo/new-tool": enrichment},
+        )
         project = catalog["projects"][0]
 
         self.assertEqual(project["title"], "自动化工作流工具")
         self.assertEqual(project["analysisState"], "深度分析")
         self.assertIn("脚本生成", project["taskTerms"])
         self.assertEqual(project["reusePlan"], "优先复用流程定义层。")
-        self.assertEqual(len(project["evidence"]), 3)
+        self.assertEqual(len(project["evidence"]), 4)
         self.assertEqual(catalog["deepAnalysisCount"], 1)
         self.assertEqual(catalog["pendingDeepAnalysis"], [])
 
@@ -265,9 +275,16 @@ class BuildCatalogTests(unittest.TestCase):
             "reusePlan": "重新核对后再复用。",
             "limitation": "尚未复核。",
         }
+        analysis = {
+            "repository": "demo/new-tool",
+            "analyzed_at": "2026-07-10T10:00:00Z",
+            "indicators": {},
+            "counts": {},
+        }
 
         catalog = build_catalog(
             {"captured_at": "2026-07-10T12:00:00Z", "count": 1, "repositories": [item]},
+            analyses={"demo/new-tool": analysis},
             enrichments={"demo/new-tool": enrichment},
         )
         project = catalog["projects"][0]
@@ -276,6 +293,33 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertIn("最近推送晚于当前中文画像", project["risk"])
         self.assertEqual(catalog["deepAnalysisCount"], 0)
         self.assertEqual(catalog["pendingDeepAnalysis"], ["demo/new-tool"])
+
+    def test_enrichment_without_static_evidence_is_not_applied(self) -> None:
+        item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
+        enrichment = {
+            "repository": "demo/new-tool",
+            "analyzedAt": "2026-07-10T10:00:00Z",
+            "titleZh": "不应采用的画像标题",
+            "summaryZh": "缺少静态证据。",
+            "capabilities": ["未验证能力"],
+            "taskTerms": ["未验证任务"],
+            "bestFor": "未验证场景",
+            "reusePlan": "未验证方案",
+            "limitation": "缺少静态证据",
+            "evidenceSummary": "只有画像文件",
+            "sourceUrl": "https://github.com/demo/new-tool",
+        }
+
+        project = build_catalog(
+            {"captured_at": "2026-07-10T12:00:00Z", "count": 1, "repositories": [item]},
+            enrichments={"demo/new-tool": enrichment},
+        )["projects"][0]
+
+        self.assertEqual(project["title"], "new-tool")
+        self.assertEqual(project["analysisState"], "画像待复核")
+        self.assertIn("缺少与仓库最新推送对应的只读静态证据", project["risk"])
+        self.assertNotIn("未验证能力", project["capabilities"])
+        self.assertEqual(len(project["evidence"]), 2)
 
     def test_first_snapshot_labels_velocity_as_proxy(self) -> None:
         snapshot = {

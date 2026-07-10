@@ -4,8 +4,11 @@
   "sourceCount": 166,
   "queryFailureCount": 0,
   "projectCount": 30,
-  "deepAnalysisCount": 5,
+  "deepAnalysisCount": 0,
   "pendingDeepAnalysis": [
+    "synthetic-sciences/openscience",
+    "DietrichGebert/ponytail",
+    "oomol-lab/open-connector",
     "n8n-io/n8n",
     "OpenHands/OpenHands"
   ],
@@ -25,9 +28,9 @@
     {
       "slug": "synthetic-sciences--openscience",
       "repo": "synthetic-sciences/openscience",
-      "title": "把文献、假设、代码实验和报告串成研究工作台",
-      "description": "OpenScience 是本地浏览器研究工作台，Agent 可以围绕目标检索文献、形成假设、编写并运行代码、执行实验、连接科学数据库并生成研究结果，支持多家模型和自带 API Key。",
-      "category": "AI 研究工作台",
+      "title": "openscience",
+      "description": "The open-source AI workbench for scientific research",
+      "category": "AI 与 Agent",
       "language": "TypeScript",
       "license": "Apache-2.0",
       "stars": 2028,
@@ -44,22 +47,21 @@
       "heatObservationCount": 1,
       "heatObservationWindow": 1,
       "trend": "约 294/日 · 代理值",
-      "analysisState": "深度分析",
+      "analysisState": "画像待复核",
       "sourcePushedAt": "2026-07-10T12:20:50Z",
       "analysisAnalyzedAt": null,
       "enrichmentAnalyzedAt": "2026-07-10T13:00:00Z",
       "whyNow": "仓库创建于 2026-07-03，当前有 2,028 Star；因尚无第二次快照，当前只把“创建以来约 294 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
       "recommendation": "收藏",
-      "fit": "适合需要把资料检索、证据整理、代码实验和报告输出放进同一条可追溯流程的研究型任务。",
-      "reusePlan": "重点参考其研究循环、会话与产物溯源、工具层和模型路由；若用于普通内容分析，可只抽取工作流思想而非整套科学数据库能力。",
-      "risk": "项目明确说明 Agent 本身没有沙箱隔离；运行陌生代码或处理敏感凭据时应使用容器或虚拟机，并核对模型与云计算成本。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
+      "fit": "当前被归入“AI 与 Agent”，命中 5 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "现有中文画像缺少与仓库最新推送对应的只读静态证据，本轮不采用其能力与复用结论。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
       "capabilities": [
-        "文献检索",
-        "假设与实验规划",
-        "代码与实验执行",
-        "科学数据库连接",
-        "研究报告生成",
-        "模型路由"
+        "AI 与 Agent",
+        "agent",
+        "ai",
+        "ai agent",
+        "bun"
       ],
       "taskTerms": [
         "AI 与 Agent",
@@ -77,17 +79,7 @@
         "open source",
         "research tools",
         "science",
-        "scientific computing",
-        "文献综述",
-        "证据丰富",
-        "研究工作台",
-        "实验",
-        "论文",
-        "代码执行",
-        "报告生成",
-        "多模型",
-        "科学数据库",
-        "研究 agent"
+        "scientific computing"
       ],
       "evidence": [
         {
@@ -99,11 +91,6 @@
           "label": "候选召回依据",
           "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
           "href": "https://github.com/synthetic-sciences/openscience"
-        },
-        {
-          "label": "Codex 中文能力画像",
-          "detail": "README 明确覆盖文献、假设、代码、实验、分析和报告完整研究循环，列出科学数据库、浏览器工作区、模型兼容性与未提供沙箱的安全边界。",
-          "href": "https://github.com/synthetic-sciences/openscience#readme"
         }
       ],
       "capturedAt": "2026-07-10 20:35 CST"
@@ -111,9 +98,9 @@
     {
       "slug": "dietrichgebert--ponytail",
       "repo": "DietrichGebert/ponytail",
-      "title": "让编程 Agent 优先复用现有能力而不是过度开发",
-      "description": "Ponytail 是面向多种编程 Agent 的最小实现规则集：先判断功能是否需要、代码库是否已有实现、标准库或原生平台能否完成，再考虑新增依赖和代码，同时保留验证、安全、错误处理和可访问性要求。",
-      "category": "开发效率",
+      "title": "ponytail",
+      "description": "Makes your AI agent think like the laziest senior dev in the room. The best code is the code you never wrote.",
+      "category": "AI 与 Agent",
       "language": "JavaScript",
       "license": "MIT",
       "stars": 79784,
@@ -130,22 +117,21 @@
       "heatObservationCount": 1,
       "heatObservationWindow": 1,
       "trend": "约 2801/日 · 代理值",
-      "analysisState": "深度分析",
+      "analysisState": "画像待复核",
       "sourcePushedAt": "2026-07-10T02:44:32Z",
       "analysisAnalyzedAt": null,
       "enrichmentAnalyzedAt": "2026-07-10T13:00:00Z",
       "whyNow": "仓库创建于 2026-06-12，当前有 79,784 Star；因尚无第二次快照，当前只把“创建以来约 2801 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
       "recommendation": "收藏",
-      "fit": "适合经常遇到 Agent 过度封装、随意引入依赖或重复实现已有功能的代码项目。",
-      "reusePlan": "可以先把它作为代码审查和实现前决策规则使用，再根据真实项目对比是否减少代码量、依赖和返工。",
-      "risk": "README 的主要 Agent 基准覆盖 12 个功能任务和特定模型，不能直接外推到所有技术栈；它优化的是必要性和简洁度，不是盲目追求最少行数。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
+      "fit": "当前被归入“AI 与 Agent”，命中 5 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "现有中文画像缺少与仓库最新推送对应的只读静态证据，本轮不采用其能力与复用结论。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
       "capabilities": [
-        "YAGNI 决策阶梯",
-        "现有代码复用",
-        "依赖控制",
-        "代码精简",
-        "代码审查",
-        "多 Agent 插件"
+        "AI 与 Agent",
+        "agent skills",
+        "ai agents",
+        "claude",
+        "claude code"
       ],
       "taskTerms": [
         "AI 与 Agent",
@@ -162,15 +148,7 @@
         "cursor rules",
         "developer tools",
         "prompt engineering",
-        "yagni",
-        "减少代码",
-        "避免过度开发",
-        "复用现有代码",
-        "减少依赖",
-        "代码审查",
-        "技术债",
-        "codex 插件",
-        "开发效率"
+        "yagni"
       ],
       "evidence": [
         {
@@ -182,11 +160,6 @@
           "label": "候选召回依据",
           "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
           "href": "https://github.com/DietrichGebert/ponytail"
-        },
-        {
-          "label": "Codex 中文能力画像",
-          "detail": "README 给出七级复用决策阶梯、跨 Codex/Claude 等安装方式，并公开基准方法、修正后的平均结果和适用限制。",
-          "href": "https://github.com/DietrichGebert/ponytail#readme"
         }
       ],
       "capturedAt": "2026-07-10 20:35 CST"
@@ -194,9 +167,9 @@
     {
       "slug": "oomol-lab--open-connector",
       "repo": "oomol-lab/open-connector",
-      "title": "为 Agent 统一管理第三方账号、OAuth 和工具调用",
-      "description": "OpenConnector 把第三方应用连接、凭据、权限范围、动作定义和运行日志收拢到可检查的网关中，并通过 SDK、CLI、MCP、HTTP 与 OpenAPI 暴露给 Agent 或业务应用。",
-      "category": "Agent 集成",
+      "title": "open-connector",
+      "description": "Open-source auth gateway connecting 1000+ SaaS providers to AI agents through SDK, CLI, MCP, HTTP, and OpenAPI.",
+      "category": "AI 与 Agent",
       "language": "TypeScript",
       "license": "Apache-2.0",
       "stars": 1206,
@@ -213,22 +186,21 @@
       "heatObservationCount": 1,
       "heatObservationWindow": 1,
       "trend": "约 109/日 · 代理值",
-      "analysisState": "深度分析",
+      "analysisState": "画像待复核",
       "sourcePushedAt": "2026-07-10T06:25:26Z",
       "analysisAnalyzedAt": null,
       "enrichmentAnalyzedAt": "2026-07-10T13:00:00Z",
       "whyNow": "仓库创建于 2026-06-29，当前有 1,206 Star；因尚无第二次快照，当前只把“创建以来约 109 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
       "recommendation": "了解",
-      "fit": "适合需要让 Agent 安全调用 GitHub、Gmail、Notion、Slack、数据平台等外部服务，同时避免把用户凭据直接交给 Agent 进程的产品。",
-      "reusePlan": "优先评估其凭据边界、Action 合约和 MCP/OpenAPI 接口；若只需少数服务，可复用网关思想而不必引入完整连接器目录。",
-      "risk": "真正接入 OAuth 服务仍涉及供应商审核、密钥管理和运行安全；README 声明的连接器数量需要按具体服务逐一验证可用性。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
+      "fit": "当前被归入“AI 与 Agent”，命中 7 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "现有中文画像缺少与仓库最新推送对应的只读静态证据，本轮不采用其能力与复用结论。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
       "capabilities": [
-        "OAuth 与凭据边界",
-        "第三方应用连接器",
-        "MCP 工具网关",
-        "SDK 与 OpenAPI",
-        "动作权限策略",
-        "自托管控制台"
+        "AI 与 Agent",
+        "agent tools",
+        "ai agents",
+        "api gateway",
+        "automation"
       ],
       "taskTerms": [
         "AI 与 Agent",
@@ -246,16 +218,7 @@
         "connectors",
         "integration platform",
         "model context protocol",
-        "oauth",
-        "第三方登录",
-        "api key",
-        "gmail",
-        "notion",
-        "slack",
-        "github 集成",
-        "saas 连接器",
-        "agent 工具调用",
-        "凭据管理"
+        "oauth"
       ],
       "evidence": [
         {
@@ -267,11 +230,6 @@
           "label": "候选召回依据",
           "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
           "href": "https://github.com/oomol-lab/open-connector"
-        },
-        {
-          "label": "Codex 中文能力画像",
-          "detail": "README 描述统一凭据与权限边界、连接器目录、SDK/CLI/MCP/HTTP 接口、本地与 Cloudflare 部署方式以及运行日志和策略控制。",
-          "href": "https://github.com/oomol-lab/open-connector#readme"
         }
       ],
       "capturedAt": "2026-07-10 20:35 CST"
@@ -415,9 +373,9 @@
     {
       "slug": "affaan-m--ecc",
       "repo": "affaan-m/ECC",
-      "title": "把多个编程 Agent 变成可维护的工程系统",
-      "description": "ECC 为 Codex、Claude Code、Cursor、OpenCode 等工具提供可复用的技能、规则、Hook、会话记忆、安全扫描和多 Agent 编排能力，重点解决 Agent 工作流难以统一、验证和持续改进的问题。",
-      "category": "Agent 工程化",
+      "title": "ECC",
+      "description": "The agent harness performance optimization system. Skills, instincts, memory, security, and research-first development for Claude Code, Codex, Opencode, Cursor and beyond.",
+      "category": "AI 与 Agent",
       "language": "JavaScript",
       "license": "MIT",
       "stars": 228137,
@@ -434,22 +392,21 @@
       "heatObservationCount": 1,
       "heatObservationWindow": 1,
       "trend": "约 1315/日 · 代理值",
-      "analysisState": "深度分析",
+      "analysisState": "画像待复核",
       "sourcePushedAt": "2026-07-09T07:53:52Z",
       "analysisAnalyzedAt": null,
       "enrichmentAnalyzedAt": "2026-07-10T13:00:00Z",
       "whyNow": "仓库创建于 2026-01-18，当前有 228,137 Star；因尚无第二次快照，当前只把“创建以来约 1315 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
       "recommendation": "收藏",
-      "fit": "适合已经频繁使用 Codex 或 Claude Code，希望统一技能、规则、记忆、验证和多 Agent 协作方式的开发者。",
-      "reusePlan": "优先复用它的技能目录规范、验证循环和跨工具安装边界，不要一开始安装全部组件；先选择与现有项目最相关的最小配置。",
-      "risk": "仓库覆盖范围很大，并包含会话 Hook、安装器和外部运行时；叠加多种安装方式可能产生重复规则或行为，应先预览安装计划。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
+      "fit": "当前被归入“AI 与 Agent”，命中 8 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "现有中文画像缺少与仓库最新推送对应的只读静态证据，本轮不采用其能力与复用结论。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
       "capabilities": [
-        "跨 Agent 工具链",
-        "技能与规则管理",
-        "会话记忆",
-        "验证与安全扫描",
-        "多 Agent 编排",
-        "持续学习"
+        "AI 与 Agent",
+        "ai agents",
+        "anthropic",
+        "claude",
+        "claude code"
       ],
       "taskTerms": [
         "AI 与 Agent",
@@ -465,17 +422,7 @@
         "anthropic",
         "claude",
         "claude code",
-        "developer tools",
-        "codex",
-        "cursor",
-        "agent 技能",
-        "hook",
-        "规则",
-        "会话记忆",
-        "多智能体",
-        "代码审查",
-        "安全扫描",
-        "工作流优化"
+        "developer tools"
       ],
       "evidence": [
         {
@@ -487,11 +434,6 @@
           "label": "候选召回依据",
           "detail": "仓库由 3 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
           "href": "https://github.com/affaan-m/ECC"
-        },
-        {
-          "label": "Codex 中文能力画像",
-          "detail": "README 明确列出跨 Codex/Claude/Cursor 支持、技能与规则、记忆、验证循环、安全扫描和多 Agent 编排，并给出最小化安装与避免重复安装的边界。",
-          "href": "https://github.com/affaan-m/ECC#readme"
         }
       ],
       "capturedAt": "2026-07-10 20:35 CST"
@@ -499,9 +441,9 @@
     {
       "slug": "withmarbleapp--os-taxonomy",
       "repo": "withmarbleapp/os-taxonomy",
-      "title": "用先修关系图组织 1590 个学习微主题",
-      "description": "Marble Skill Taxonomy 是一份纯 JSON 教育知识图谱，把小学阶段知识拆成细粒度主题、掌握证据和先修依赖，并关联多个课程标准；它是数据集而不是可运行应用。",
-      "category": "知识图谱数据",
+      "title": "os-taxonomy",
+      "description": "仓库尚未提供公开描述，需进入静态分析阶段后再判断具体能力。",
+      "category": "开源工具",
       "language": "JavaScript",
       "license": "ODbL-1.0",
       "stars": 1844,
@@ -518,34 +460,21 @@
       "heatObservationCount": 1,
       "heatObservationWindow": 1,
       "trend": "约 866/日 · 代理值",
-      "analysisState": "深度分析",
+      "analysisState": "画像待复核",
       "sourcePushedAt": "2026-07-08T14:18:23Z",
       "analysisAnalyzedAt": null,
       "enrichmentAnalyzedAt": "2026-07-10T13:00:00Z",
       "whyNow": "仓库创建于 2026-07-08，当前有 1,844 Star；因尚无第二次快照，当前只把“创建以来约 866 Star/日（首次观察代理）”作为起飞线索，不冒充 24 小时增量。",
       "recommendation": "了解",
-      "fit": "适合研究如何把知识、能力、证据和依赖关系组织成可计算图谱，也可作为 Rardar 未来“任务—能力—项目”图模型的参考。",
-      "reusePlan": "优先参考节点、依赖边、证据标准和来源追踪的数据结构；若使用其实际文本或扩展数据库，必须按不同数据层分别处理许可证。",
-      "risk": "仓库没有运行时，不能直接作为知识库应用；数据库为 ODbL、原创文本为 CC BY-SA，第三方课程标准还有各自上游许可证。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
+      "fit": "当前被归入“开源工具”，命中 0 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "现有中文画像缺少与仓库最新推送对应的只读静态证据，本轮不采用其能力与复用结论。 已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。",
       "capabilities": [
-        "微主题知识图谱",
-        "先修依赖关系",
-        "掌握证据",
-        "课程标准映射",
-        "JSON Schema",
-        "数据完整性校验"
+        "开源工具",
+        "JavaScript 项目"
       ],
       "taskTerms": [
-        "开源工具",
-        "知识图谱",
-        "能力图谱",
-        "学习路径",
-        "先修关系",
-        "课程",
-        "教育",
-        "json 数据集",
-        "证据标准",
-        "依赖图"
+        "开源工具"
       ],
       "evidence": [
         {
@@ -557,11 +486,6 @@
           "label": "候选召回依据",
           "detail": "仓库由 1 条 GitHub 搜索规则召回；当前增长字段类型为 velocity_proxy。",
           "href": "https://github.com/withmarbleapp/os-taxonomy"
-        },
-        {
-          "label": "Codex 中文能力画像",
-          "detail": "README 给出 1590 个微主题、3221 条先修边、JSON 文件与 Schema，并区分数据库、原创文本和第三方课程标准的许可证边界。",
-          "href": "https://github.com/withmarbleapp/os-taxonomy#readme"
         }
       ],
       "capturedAt": "2026-07-10 20:35 CST"
@@ -2082,5 +2006,5 @@
   "analysisFailures": [],
   "signalCount": 30,
   "healthySignalSourceCount": 6,
-  "codexPendingCount": 2
+  "codexPendingCount": 5
 }

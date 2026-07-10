@@ -14,7 +14,9 @@ class CodexQueueTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             enrichment_dir = root / "enrichment"
+            analysis_dir = root / "analysis"
             enrichment_dir.mkdir()
+            analysis_dir.mkdir()
             complete_project = {
                 "repository": "owner/complete",
                 "analyzedAt": "2026-07-10T12:00:00Z",
@@ -29,6 +31,15 @@ class CodexQueueTests(unittest.TestCase):
                 "sourceUrl": "https://github.com/owner/complete#readme",
             }
             (enrichment_dir / "owner--complete.json").write_text(json.dumps(complete_project), encoding="utf-8")
+            (analysis_dir / "owner--complete.json").write_text(
+                json.dumps(
+                    {
+                        "repository": "owner/complete",
+                        "analyzed_at": "2026-07-10T12:00:00Z",
+                    }
+                ),
+                encoding="utf-8",
+            )
             signal_path = root / "signals.json"
             signal_path.write_text(
                 json.dumps(
@@ -73,12 +84,17 @@ class CodexQueueTests(unittest.TestCase):
         self.assertEqual(queue["signalPendingCount"], 1)
         self.assertEqual({item["id"] for item in queue["items"]}, {"project:owner--pending", "signal:pending"})
         self.assertIn("safety", queue["items"][0])
+        project_item = next(item for item in queue["items"] if item["kind"] == "project")
+        self.assertEqual(project_item["evidenceState"], "static_analysis_required")
+        self.assertNotIn("data/analysis/owner--pending.json", project_item["inputPaths"])
 
     def test_updated_signal_url_reenters_queue(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             enrichment_dir = root / "enrichment"
+            analysis_dir = root / "analysis"
             enrichment_dir.mkdir()
+            analysis_dir.mkdir()
             signal_path = root / "signals.json"
             signal_path.write_text(
                 json.dumps(
@@ -123,7 +139,9 @@ class CodexQueueTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             enrichment_dir = root / "enrichment"
+            analysis_dir = root / "analysis"
             enrichment_dir.mkdir()
+            analysis_dir.mkdir()
             enrichment = {
                 "repository": "owner/project",
                 "analyzedAt": "2026-07-10T08:00:00Z",
@@ -138,6 +156,15 @@ class CodexQueueTests(unittest.TestCase):
                 "sourceUrl": "https://github.com/owner/project#readme",
             }
             (enrichment_dir / "owner--project.json").write_text(json.dumps(enrichment), encoding="utf-8")
+            (analysis_dir / "owner--project.json").write_text(
+                json.dumps(
+                    {
+                        "repository": "owner/project",
+                        "analyzed_at": "2026-07-10T10:00:00Z",
+                    }
+                ),
+                encoding="utf-8",
+            )
             signal_path = root / "signals.json"
             signal_path.write_text('{"items": {}}', encoding="utf-8")
 
@@ -152,6 +179,43 @@ class CodexQueueTests(unittest.TestCase):
         self.assertEqual(queue["projectPendingCount"], 1)
         self.assertIn("新推送", queue["items"][0]["reason"])
         self.assertEqual(queue["items"][0]["previousAnalyzedAt"], "2026-07-10T08:00:00Z")
+
+    def test_current_static_analysis_marks_project_evidence_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            enrichment_dir = root / "enrichment"
+            analysis_dir = root / "analysis"
+            enrichment_dir.mkdir()
+            analysis_dir.mkdir()
+            catalog = {
+                "projects": [
+                    {
+                        "repo": "owner/project",
+                        "title": "Project",
+                        "sourcePushedAt": "2026-07-10T09:00:00Z",
+                    }
+                ]
+            }
+            analysis = {
+                "repository": "owner/project",
+                "analyzed_at": "2026-07-10T10:00:00Z",
+            }
+            (analysis_dir / "owner--project.json").write_text(
+                json.dumps(analysis),
+                encoding="utf-8",
+            )
+
+            queue = build_codex_queue(
+                catalog,
+                {"signals": []},
+                enrichment_dir,
+                root / "signal-enrichment.json",
+                datetime(2026, 7, 10, 12, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(queue["projectPendingCount"], 1)
+        self.assertEqual(queue["items"][0]["evidenceState"], "ready")
+        self.assertIn("data/analysis/owner--project.json", queue["items"][0]["inputPaths"])
 
 
 if __name__ == "__main__":

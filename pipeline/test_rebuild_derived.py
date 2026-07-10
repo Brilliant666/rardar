@@ -66,6 +66,17 @@ class RebuildDerivedTests(unittest.TestCase):
             signals_path = data_dir / "signals" / "latest.json"
             signals_path.parent.mkdir(parents=True, exist_ok=True)
             signals_path.write_text(json.dumps(signals), encoding="utf-8")
+            analysis = {
+                "repository": "demo/agent-tool",
+                "analyzed_at": "2026-07-10T12:20:00+00:00",
+                "scanned_files": 120,
+                "confidence": 85,
+                "indicators": {"readme": True, "license": True, "tests": True},
+                "counts": {"test_files": 8},
+            }
+            analysis_path = data_dir / "analysis" / "demo--agent-tool.json"
+            analysis_path.parent.mkdir(parents=True, exist_ok=True)
+            analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
             enrichment = {
                 "repository": "demo/agent-tool",
                 "analyzedAt": "2026-07-10T12:30:00+00:00",
@@ -101,6 +112,13 @@ class RebuildDerivedTests(unittest.TestCase):
             self.assertEqual(project["heatObservationWindow"], 2)
             self.assertEqual(queue["projectPendingCount"], 0)
             self.assertEqual(audit_data(data_dir)["status"], "healthy")
+            analysis_path.unlink()
+            corrupted = audit_data(data_dir)
+
+        self.assertIn(
+            "deep_analysis_without_current_evidence",
+            {item["code"] for item in corrupted["issues"]},
+        )
 
 
 if __name__ == "__main__":

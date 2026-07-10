@@ -423,6 +423,39 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     _check_count(issues, queue.get("signalPendingCount"), signal_pending, "signal_queue_count_mismatch", "signalPendingCount is inconsistent")
     _add_if(issues, len(queue_ids) != len(set(queue_ids)) or "" in queue_ids, "duplicate_queue_id", "queue IDs must be non-empty and unique")
     _add_if(issues, project_pending + signal_pending != len(queue_items), "invalid_queue_kind", "queue kind must be project or signal")
+    analysis_metadata_present = any(
+        key in catalog for key in ("deepAnalysisCount", "pendingDeepAnalysis", "codexPendingCount")
+    )
+    if analysis_metadata_present:
+        actual_deep_count = sum(
+            isinstance(item, dict) and item.get("analysisState") == "深度分析"
+            for item in projects
+        )
+        expected_pending_deep_analysis = [
+            str(item.get("repo"))
+            for item in projects[:5]
+            if isinstance(item, dict) and item.get("analysisState") != "深度分析"
+        ]
+        _check_count(
+            issues,
+            catalog.get("deepAnalysisCount"),
+            actual_deep_count,
+            "deep_analysis_count_mismatch",
+            "deepAnalysisCount differs from catalog project states",
+        )
+        _add_if(
+            issues,
+            catalog.get("pendingDeepAnalysis") != expected_pending_deep_analysis,
+            "pending_deep_analysis_mismatch",
+            "pendingDeepAnalysis differs from the current Daily Five",
+        )
+        _check_count(
+            issues,
+            catalog.get("codexPendingCount"),
+            len(queue_items),
+            "catalog_queue_count_mismatch",
+            "catalog codexPendingCount differs from the Codex queue",
+        )
     if isinstance(queue.get("scope"), dict) and queue_at:
         project_limit_value = _integer(queue["scope"].get("projectLimit"))
         signal_limit_value = _integer(queue["scope"].get("signalLimit"))
@@ -437,12 +470,11 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             project_limit,
             signal_limit,
         )
-        expected_ids = [str(item.get("id") or "") for item in expected_queue["items"]]
         _add_if(
             issues,
-            queue_ids != expected_ids,
+            queue_items != expected_queue["items"],
             "stale_queue_items",
-            "Codex queue items differ from a read-only rebuild of current inputs",
+            "Codex queue items or evidence states differ from a read-only rebuild of current inputs",
         )
         _check_count(
             issues,
@@ -457,6 +489,34 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             int(expected_queue["completedSignalCount"]),
             "completed_signal_count_mismatch",
             "completedSignalCount differs from current signal enrichments",
+        )
+        expected_pending_repositories = {
+            str(item.get("repository"))
+            for item in expected_queue["items"]
+            if item.get("kind") == "project" and item.get("repository")
+        }
+        daily_projects = [item for item in projects[:project_limit] if isinstance(item, dict)]
+        deep_without_current_evidence = sum(
+            item.get("analysisState") == "深度分析"
+            and str(item.get("repo") or "") in expected_pending_repositories
+            for item in daily_projects
+        )
+        current_evidence_not_applied = sum(
+            item.get("analysisState") != "深度分析"
+            and str(item.get("repo") or "") not in expected_pending_repositories
+            for item in daily_projects
+        )
+        _add_if(
+            issues,
+            deep_without_current_evidence > 0,
+            "deep_analysis_without_current_evidence",
+            f"{deep_without_current_evidence} deep-analysis projects lack current static evidence or enrichment",
+        )
+        _add_if(
+            issues,
+            current_evidence_not_applied > 0,
+            "current_enrichment_not_applied",
+            f"{current_evidence_not_applied} projects have current evidence and enrichment but are not marked deep-analysis",
         )
 
     previous_at = _parse_time(catalog.get("previousCapturedAt"))
@@ -535,6 +595,10 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         "previousSnapshotCapturedAt": catalog.get("previousCapturedAt"),
         "repositoryCount": len(repositories),
         "projectCount": len(projects),
+        "deepAnalysisCount": sum(
+            isinstance(item, dict) and item.get("analysisState") == "深度分析"
+            for item in projects
+        ),
         "growthMode": catalog.get("growthMode"),
         "observedProjectCount": observed_count,
         "positiveGrowthProjectCount": sum(value > 0 for value in observed_values),

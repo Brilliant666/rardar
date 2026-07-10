@@ -1,27 +1,114 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-10T19:19:51.891369+00:00",
+  "generatedAt": "2026-07-10T19:28:57.856037+00:00",
   "scope": {
     "projectLimit": 5,
     "signalLimit": 10
   },
-  "pendingCount": 2,
-  "projectPendingCount": 2,
+  "pendingCount": 5,
+  "projectPendingCount": 5,
   "signalPendingCount": 0,
-  "completedProjectCount": 3,
+  "completedProjectCount": 0,
   "completedSignalCount": 10,
   "items": [
+    {
+      "id": "project:synthetic-sciences--openscience",
+      "kind": "project",
+      "priority": 100,
+      "repository": "synthetic-sciences/openscience",
+      "title": "openscience",
+      "reason": "缺少与仓库最新推送对应的只读静态分析证据，必须先完成浅克隆扫描",
+      "evidenceState": "static_analysis_required",
+      "sourcePushedAt": "2026-07-10T12:20:50Z",
+      "previousAnalyzedAt": "2026-07-10T13:00:00Z",
+      "inputPaths": [
+        "data/catalog/latest.json"
+      ],
+      "outputPath": "data/enrichment/synthetic-sciences--openscience.json",
+      "requiredFields": [
+        "analyzedAt",
+        "bestFor",
+        "capabilities",
+        "evidenceSummary",
+        "limitation",
+        "repository",
+        "reusePlan",
+        "sourceUrl",
+        "summaryZh",
+        "taskTerms",
+        "titleZh"
+      ],
+      "safety": "先执行只读浅克隆静态扫描；扫描失败则保持待分析，不得仅凭仓库元数据生成画像"
+    },
+    {
+      "id": "project:dietrichgebert--ponytail",
+      "kind": "project",
+      "priority": 96,
+      "repository": "DietrichGebert/ponytail",
+      "title": "ponytail",
+      "reason": "缺少与仓库最新推送对应的只读静态分析证据，必须先完成浅克隆扫描",
+      "evidenceState": "static_analysis_required",
+      "sourcePushedAt": "2026-07-10T02:44:32Z",
+      "previousAnalyzedAt": "2026-07-10T13:00:00Z",
+      "inputPaths": [
+        "data/catalog/latest.json"
+      ],
+      "outputPath": "data/enrichment/dietrichgebert--ponytail.json",
+      "requiredFields": [
+        "analyzedAt",
+        "bestFor",
+        "capabilities",
+        "evidenceSummary",
+        "limitation",
+        "repository",
+        "reusePlan",
+        "sourceUrl",
+        "summaryZh",
+        "taskTerms",
+        "titleZh"
+      ],
+      "safety": "先执行只读浅克隆静态扫描；扫描失败则保持待分析，不得仅凭仓库元数据生成画像"
+    },
+    {
+      "id": "project:oomol-lab--open-connector",
+      "kind": "project",
+      "priority": 92,
+      "repository": "oomol-lab/open-connector",
+      "title": "open-connector",
+      "reason": "缺少与仓库最新推送对应的只读静态分析证据，必须先完成浅克隆扫描",
+      "evidenceState": "static_analysis_required",
+      "sourcePushedAt": "2026-07-10T06:25:26Z",
+      "previousAnalyzedAt": "2026-07-10T13:00:00Z",
+      "inputPaths": [
+        "data/catalog/latest.json"
+      ],
+      "outputPath": "data/enrichment/oomol-lab--open-connector.json",
+      "requiredFields": [
+        "analyzedAt",
+        "bestFor",
+        "capabilities",
+        "evidenceSummary",
+        "limitation",
+        "repository",
+        "reusePlan",
+        "sourceUrl",
+        "summaryZh",
+        "taskTerms",
+        "titleZh"
+      ],
+      "safety": "先执行只读浅克隆静态扫描；扫描失败则保持待分析，不得仅凭仓库元数据生成画像"
+    },
     {
       "id": "project:n8n-io--n8n",
       "kind": "project",
       "priority": 88,
       "repository": "n8n-io/n8n",
       "title": "n8n",
-      "reason": "进入高优先级项目区，但缺少完整中文能力画像",
+      "reason": "缺少与仓库最新推送对应的只读静态分析证据，必须先完成浅克隆扫描",
+      "evidenceState": "static_analysis_required",
       "sourcePushedAt": "2026-07-10T12:29:03Z",
       "previousAnalyzedAt": null,
       "inputPaths": [
-        "data/analysis/n8n-io--n8n.json",
         "data/catalog/latest.json"
       ],
       "outputPath": "data/enrichment/n8n-io--n8n.json",
@@ -38,7 +125,7 @@
         "taskTerms",
         "titleZh"
       ],
-      "safety": "只阅读 README 与静态分析证据，不执行仓库代码"
+      "safety": "先执行只读浅克隆静态扫描；扫描失败则保持待分析，不得仅凭仓库元数据生成画像"
     },
     {
       "id": "project:openhands--openhands",
@@ -46,11 +133,11 @@
       "priority": 84,
       "repository": "OpenHands/OpenHands",
       "title": "OpenHands",
-      "reason": "进入高优先级项目区，但缺少完整中文能力画像",
+      "reason": "缺少与仓库最新推送对应的只读静态分析证据，必须先完成浅克隆扫描",
+      "evidenceState": "static_analysis_required",
       "sourcePushedAt": "2026-07-10T12:15:14Z",
       "previousAnalyzedAt": null,
       "inputPaths": [
-        "data/analysis/openhands--openhands.json",
         "data/catalog/latest.json"
       ],
       "outputPath": "data/enrichment/openhands--openhands.json",
@@ -67,7 +154,7 @@
         "taskTerms",
         "titleZh"
       ],
-      "safety": "只阅读 README 与静态分析证据，不执行仓库代码"
+      "safety": "先执行只读浅克隆静态扫描；扫描失败则保持待分析，不得仅凭仓库元数据生成画像"
     }
   ]
 }

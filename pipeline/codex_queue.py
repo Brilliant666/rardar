@@ -64,6 +64,14 @@ def _project_enrichment_is_current(payload: dict[str, Any] | None, project: dict
     return bool(analyzed_at and (not pushed_at or analyzed_at >= pushed_at))
 
 
+def _project_analysis_is_current(payload: dict[str, Any] | None, project: dict[str, Any]) -> bool:
+    if not payload or payload.get("repository") != project.get("repo"):
+        return False
+    analyzed_at = _parse_time(payload.get("analyzed_at"))
+    pushed_at = _parse_time(project.get("sourcePushedAt"))
+    return bool(analyzed_at and (not pushed_at or analyzed_at >= pushed_at))
+
+
 def _signal_enrichment_is_current(
     payload: dict[str, Any] | None,
     signal: dict[str, Any],
@@ -98,8 +106,10 @@ def build_codex_queue(
             continue
         safe_name = _safe_name(repository)
         enrichment_path = project_enrichment_dir / f"{safe_name}.json"
+        analysis_path = project_enrichment_dir.parent / "analysis" / f"{safe_name}.json"
         enrichment = _read_json(enrichment_path)
-        if _project_enrichment_is_current(enrichment, project):
+        analysis_ready = _project_analysis_is_current(_read_json(analysis_path), project)
+        if analysis_ready and _project_enrichment_is_current(enrichment, project):
             completed_projects += 1
             continue
         complete_but_stale = _is_complete(enrichment, PROJECT_REQUIRED_FIELDS)
@@ -111,19 +121,27 @@ def build_codex_queue(
                 "repository": repository,
                 "title": project.get("title") or repository,
                 "reason": (
+                    "缺少与仓库最新推送对应的只读静态分析证据，必须先完成浅克隆扫描"
+                    if not analysis_ready
+                    else
                     "仓库在上次中文画像之后有新推送，需要基于最新 README 与静态证据复核"
                     if complete_but_stale
                     else "进入高优先级项目区，但缺少完整中文能力画像"
                 ),
+                "evidenceState": "ready" if analysis_ready else "static_analysis_required",
                 "sourcePushedAt": project.get("sourcePushedAt"),
                 "previousAnalyzedAt": enrichment.get("analyzedAt") if enrichment else None,
                 "inputPaths": [
-                    f"data/analysis/{safe_name}.json",
+                    *([f"data/analysis/{safe_name}.json"] if analysis_ready else []),
                     "data/catalog/latest.json",
                 ],
                 "outputPath": f"data/enrichment/{safe_name}.json",
                 "requiredFields": sorted(PROJECT_REQUIRED_FIELDS),
-                "safety": "只阅读 README 与静态分析证据，不执行仓库代码",
+                "safety": (
+                    "只阅读 README 与静态分析证据，不执行仓库代码"
+                    if analysis_ready
+                    else "先执行只读浅克隆静态扫描；扫描失败则保持待分析，不得仅凭仓库元数据生成画像"
+                ),
             }
         )
 
