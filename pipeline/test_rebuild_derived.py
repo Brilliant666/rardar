@@ -55,29 +55,48 @@ class RebuildDerivedTests(unittest.TestCase):
                 collect_external_signals=False,
             )
             signals = {
+                "schemaVersion": 1,
                 "capturedAt": "2026-07-10T12:00:00+00:00",
                 "windowHours": 48,
                 "signalCount": 0,
                 "healthySourceCount": 0,
                 "failedSourceCount": 0,
                 "sourceStatus": [],
+                "topSignals": [],
                 "signals": [],
             }
             signals_path = data_dir / "signals" / "latest.json"
             signals_path.parent.mkdir(parents=True, exist_ok=True)
             signals_path.write_text(json.dumps(signals), encoding="utf-8")
             analysis = {
+                "schemaVersion": 1,
                 "repository": "demo/agent-tool",
+                "source": "https://github.com/demo/agent-tool",
                 "analyzed_at": "2026-07-10T12:20:00+00:00",
                 "scanned_files": 120,
+                "language_files": {".py": 120},
                 "confidence": 85,
-                "indicators": {"readme": True, "license": True, "tests": True},
-                "counts": {"test_files": 8},
+                "indicators": {
+                    "readme": True,
+                    "license": True,
+                    "tests": True,
+                    "ci": True,
+                    "docker": False,
+                    "dependency_lock": True,
+                    "package_manifest": True,
+                    "examples": False,
+                    "docs": True,
+                    "environment_example": False,
+                },
+                "counts": {"test_files": 8, "todo_markers": 0},
+                "license_hint": "MIT",
+                "warnings": ["static inspection only; code was not executed"],
             }
             analysis_path = data_dir / "analysis" / "demo--agent-tool.json"
             analysis_path.parent.mkdir(parents=True, exist_ok=True)
             analysis_path.write_text(json.dumps(analysis), encoding="utf-8")
             enrichment = {
+                "schemaVersion": 1,
                 "repository": "demo/agent-tool",
                 "analyzedAt": "2026-07-10T12:30:00+00:00",
                 "titleZh": "开发工作流工具",

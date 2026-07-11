@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from pipeline.refresh import _write_json_batch, refresh
 from pipeline.scheduler import committed_refresh_at
+from pipeline.schema_validation import ArtifactValidationError
 
 
 class StubClient:
@@ -155,6 +156,43 @@ class RefreshTests(unittest.TestCase):
 
             self.assertEqual({path: path.read_bytes() for path in tracked_paths}, before)
             self.assertEqual(list((data_dir / "snapshots" / "history").glob("*.json")), [])
+
+    def test_invalid_collector_snapshot_is_rejected_before_static_analysis(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "data"
+            invalid_snapshot = {
+                "schema_version": 1,
+                "captured_at": "2026-07-10T12:00:00Z",
+                "queries": ["stars:>=1"],
+                "query_status": [
+                    {
+                        "query": "stars:>=1",
+                        "state": "healthy",
+                        "item_count": 1,
+                        "error": None,
+                    }
+                ],
+                "successful_query_count": 1,
+                "failed_query_count": 0,
+                "count": 1,
+                "repositories": [{"repo": "demo/tool", "owner": None}],
+            }
+
+            with (
+                patch("pipeline.refresh.collect", return_value=invalid_snapshot),
+                patch("pipeline.refresh.analyze_remote") as analyze_remote,
+            ):
+                with self.assertRaises(ArtifactValidationError):
+                    refresh(
+                        data_dir,
+                        datetime(2026, 7, 10, 12, tzinfo=timezone.utc),
+                        analyze_top=1,
+                        client=StubClient(100),
+                        collect_external_signals=False,
+                    )
+
+            analyze_remote.assert_not_called()
+            self.assertFalse((data_dir / "analysis").exists())
 
 
 if __name__ == "__main__":

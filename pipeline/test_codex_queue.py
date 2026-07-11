@@ -9,6 +9,45 @@ from pathlib import Path
 from pipeline.codex_queue import build_codex_queue
 
 
+def static_evidence(repository: str, analyzed_at: str) -> dict[str, object]:
+    return {
+        "schemaVersion": 1,
+        "repository": repository,
+        "source": f"https://github.com/{repository}",
+        "analyzed_at": analyzed_at,
+        "scanned_files": 10,
+        "language_files": {".py": 10},
+        "indicators": {
+            "readme": True,
+            "license": True,
+            "tests": True,
+            "ci": False,
+            "docker": False,
+            "dependency_lock": False,
+            "package_manifest": True,
+            "examples": False,
+            "docs": False,
+            "environment_example": False,
+        },
+        "counts": {"test_files": 1, "todo_markers": 0},
+        "license_hint": "MIT",
+        "confidence": 70,
+        "warnings": ["static inspection only; code was not executed"],
+    }
+
+
+def signal_enrichment(
+    items: dict[str, dict[str, str]],
+    generated_at: str = "2026-07-10T12:00:00Z",
+) -> dict[str, object]:
+    return {
+        "schemaVersion": 1,
+        "generatedAt": generated_at,
+        "model": "test-codex",
+        "items": items,
+    }
+
+
 class CodexQueueTests(unittest.TestCase):
     def test_only_incomplete_items_enter_queue(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -18,10 +57,12 @@ class CodexQueueTests(unittest.TestCase):
             enrichment_dir.mkdir()
             analysis_dir.mkdir()
             complete_project = {
+                "schemaVersion": 1,
                 "repository": "owner/complete",
                 "analyzedAt": "2026-07-10T12:00:00Z",
                 "titleZh": "完整项目",
                 "summaryZh": "摘要",
+                "category": "开发工具",
                 "capabilities": ["能力"],
                 "taskTerms": ["任务"],
                 "bestFor": "适用任务",
@@ -32,20 +73,14 @@ class CodexQueueTests(unittest.TestCase):
             }
             (enrichment_dir / "owner--complete.json").write_text(json.dumps(complete_project), encoding="utf-8")
             (analysis_dir / "owner--complete.json").write_text(
-                json.dumps(
-                    {
-                        "repository": "owner/complete",
-                        "analyzed_at": "2026-07-10T12:00:00Z",
-                    }
-                ),
+                json.dumps(static_evidence("owner/complete", "2026-07-10T12:00:00Z")),
                 encoding="utf-8",
             )
             signal_path = root / "signals.json"
             signal_path.write_text(
                 json.dumps(
-                    {
-                        "generatedAt": "2026-07-10T12:00:00Z",
-                        "items": {
+                    signal_enrichment(
+                        {
                             "https://complete.example": {
                                 "titleZh": "标题",
                                 "takeawayZh": "要点",
@@ -53,7 +88,7 @@ class CodexQueueTests(unittest.TestCase):
                                 "categoryZh": "分类",
                             }
                         }
-                    }
+                    )
                 ),
                 encoding="utf-8",
             )
@@ -98,17 +133,16 @@ class CodexQueueTests(unittest.TestCase):
             signal_path = root / "signals.json"
             signal_path.write_text(
                 json.dumps(
-                    {
-                        "generatedAt": "2026-07-10T12:00:00Z",
-                        "items": {
+                    signal_enrichment(
+                        {
                             "https://same.example": {
                                 "titleZh": "旧标题",
                                 "takeawayZh": "旧要点",
                                 "whyItMattersZh": "旧影响",
                                 "categoryZh": "旧分类",
                             }
-                        },
-                    }
+                        }
+                    )
                 ),
                 encoding="utf-8",
             )
@@ -143,10 +177,12 @@ class CodexQueueTests(unittest.TestCase):
             enrichment_dir.mkdir()
             analysis_dir.mkdir()
             enrichment = {
+                "schemaVersion": 1,
                 "repository": "owner/project",
                 "analyzedAt": "2026-07-10T08:00:00Z",
                 "titleZh": "项目",
                 "summaryZh": "摘要",
+                "category": "开发工具",
                 "capabilities": ["能力"],
                 "taskTerms": ["任务"],
                 "bestFor": "适用任务",
@@ -157,16 +193,11 @@ class CodexQueueTests(unittest.TestCase):
             }
             (enrichment_dir / "owner--project.json").write_text(json.dumps(enrichment), encoding="utf-8")
             (analysis_dir / "owner--project.json").write_text(
-                json.dumps(
-                    {
-                        "repository": "owner/project",
-                        "analyzed_at": "2026-07-10T10:00:00Z",
-                    }
-                ),
+                json.dumps(static_evidence("owner/project", "2026-07-10T10:00:00Z")),
                 encoding="utf-8",
             )
             signal_path = root / "signals.json"
-            signal_path.write_text('{"items": {}}', encoding="utf-8")
+            signal_path.write_text(json.dumps(signal_enrichment({})), encoding="utf-8")
 
             queue = build_codex_queue(
                 {"projects": [{"repo": "owner/project", "sourcePushedAt": "2026-07-10T09:00:00Z"}]},
@@ -196,10 +227,7 @@ class CodexQueueTests(unittest.TestCase):
                     }
                 ]
             }
-            analysis = {
-                "repository": "owner/project",
-                "analyzed_at": "2026-07-10T10:00:00Z",
-            }
+            analysis = static_evidence("owner/project", "2026-07-10T10:00:00Z")
             (analysis_dir / "owner--project.json").write_text(
                 json.dumps(analysis),
                 encoding="utf-8",

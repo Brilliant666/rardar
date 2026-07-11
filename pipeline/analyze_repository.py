@@ -8,7 +8,6 @@ structured evidence that can be reviewed by an AI analyzer later.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import shutil
@@ -21,6 +20,14 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+
+from pipeline.schema_validation import (
+    ArtifactKind,
+    artifact_write_lock,
+    atomic_write_validated_json,
+    require_valid,
+    strict_json_dumps,
+)
 
 
 MAX_TEXT_BYTES = 512_000
@@ -97,6 +104,7 @@ class StaticEvidence:
     counts: dict[str, int]
     license_hint: str | None
     confidence: int
+    schemaVersion: int = 1
     warnings: list[str] = field(default_factory=list)
 
 
@@ -347,12 +355,24 @@ def main() -> None:
     arguments = parser.parse_args()
 
     evidence = analyze_remote(arguments.repo) if arguments.repo else analyze_path(arguments.path)
-    payload = json.dumps(asdict(evidence), ensure_ascii=False, indent=2)
+    payload = asdict(evidence)
+    expected_repository = _validate_repo(arguments.repo) if arguments.repo else None
+    validated = require_valid(
+        ArtifactKind.STATIC_EVIDENCE,
+        payload,
+        source_path=arguments.out,
+        expected_repository=expected_repository,
+    )
     if arguments.out:
-        arguments.out.parent.mkdir(parents=True, exist_ok=True)
-        arguments.out.write_text(payload + "\n", encoding="utf-8")
+        with artifact_write_lock(arguments.out):
+            atomic_write_validated_json(
+                arguments.out,
+                ArtifactKind.STATIC_EVIDENCE,
+                validated,
+                expected_repository=expected_repository,
+            )
     else:
-        print(payload)
+        print(strict_json_dumps(validated))
 
 
 if __name__ == "__main__":

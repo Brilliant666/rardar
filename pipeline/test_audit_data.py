@@ -15,6 +15,182 @@ def write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def snapshot_repository(
+    repository: str,
+    captured_at: str,
+    stars: int,
+    query: str,
+) -> dict[str, object]:
+    owner = repository.split("/", 1)[0]
+    return {
+        "repo": repository,
+        "url": f"https://github.com/{repository}",
+        "description": "Test repository",
+        "owner": owner,
+        "language": "Python",
+        "license": "MIT",
+        "topics": ["developer-tools"],
+        "stars": stars,
+        "forks": 10,
+        "open_issues": 1,
+        "created_at": "2025-01-01T00:00:00Z",
+        "updated_at": captured_at,
+        "pushed_at": captured_at,
+        "default_branch": "main",
+        "captured_at": captured_at,
+        "candidate_query": query,
+        "analysis_state": "pending",
+    }
+
+
+def signal_item(
+    identifier: str,
+    url: str,
+    published_at: str,
+    score: float = 0.8,
+) -> dict[str, object]:
+    return {
+        "id": identifier,
+        "kind": "official",
+        "title": "Test signal",
+        "summaryZh": "测试技术动态。",
+        "url": url,
+        "source": "Official News",
+        "sourceUrl": "https://example.com/feed.xml",
+        "publishedAt": published_at,
+        "score": score,
+        "evidence": ["official_feed"],
+        "sources": ["Official News"],
+    }
+
+
+def source_status(identifier: str, url: str) -> dict[str, object]:
+    return {
+        "id": identifier,
+        "name": "Official News",
+        "url": url,
+        "state": "healthy",
+        "itemCount": 1,
+        "latestItemAt": "2026-07-10T11:00:00+00:00",
+        "error": None,
+    }
+
+
+def empty_queue(generated_at: str) -> dict[str, object]:
+    return {
+        "schemaVersion": 1,
+        "generatedAt": generated_at,
+        "scope": {"projectLimit": 5, "signalLimit": 10},
+        "pendingCount": 0,
+        "projectPendingCount": 0,
+        "signalPendingCount": 0,
+        "completedProjectCount": 0,
+        "completedSignalCount": 0,
+        "items": [],
+    }
+
+
+def catalog_project(
+    repository: str,
+    captured_at: str,
+    stars: int,
+    growth_kind: str,
+    growth_value: int,
+    **overrides: object,
+) -> dict[str, object]:
+    project: dict[str, object] = {
+        "slug": repository.lower().replace("/", "--"),
+        "repo": repository,
+        "title": "Test project",
+        "description": "Test catalog project",
+        "category": "开发工具",
+        "language": "Python",
+        "license": "MIT",
+        "stars": stars,
+        "growthValue": growth_value,
+        "growthLabel": f"Test growth {growth_value:+d}",
+        "growthKind": growth_kind,
+        "globalScore": 80,
+        "reuseScore": 70,
+        "momentumScore": 75,
+        "enduranceScore": 50,
+        "heatTrack": "recent_momentum",
+        "heatLabel": "近期动量 · 测试",
+        "longTermEvidenceKind": None,
+        "heatObservationCount": 1,
+        "heatObservationWindow": 1,
+        "trend": f"{growth_value:+d}",
+        "analysisState": "事实初筛",
+        "sourcePushedAt": captured_at,
+        "analysisAnalyzedAt": None,
+        "enrichmentAnalyzedAt": None,
+        "whyNow": "Test project is included in the current snapshot.",
+        "recommendation": "了解",
+        "fit": "Schema and audit tests.",
+        "reusePlan": "Review the evidence before reuse.",
+        "risk": "Synthetic test fixture; do not treat it as production evidence.",
+        "capabilities": ["契约验证"],
+        "taskTerms": ["schema", "audit"],
+        "evidence": [
+            {
+                "label": "GitHub",
+                "detail": "Test evidence",
+                "href": f"https://github.com/{repository}",
+            }
+        ],
+        "capturedAt": f"{captured_at[:10]} 20:00 CST",
+    }
+    project.update(overrides)
+    return project
+
+
+def catalog_snapshot(
+    captured_at: str,
+    projects: list[dict[str, object]],
+    *,
+    previous_captured_at: str | None,
+    observation_window: int,
+    growth_mode: str,
+    codex_pending_count: int = 0,
+) -> dict[str, object]:
+    daily = projects[:5]
+    return {
+        "schemaVersion": 1,
+        "capturedAt": captured_at,
+        "sourceCount": len(projects),
+        "queryFailureCount": 0,
+        "projectCount": len(projects),
+        "deepAnalysisCount": sum(
+            project["analysisState"] == "深度分析" for project in projects
+        ),
+        "pendingDeepAnalysis": [
+            project["repo"]
+            for project in daily
+            if project["analysisState"] != "深度分析"
+        ],
+        "dailyTrackCounts": {
+            "recentMomentum": sum(
+                project["heatTrack"] == "recent_momentum" for project in daily
+            ),
+            "longTerm": sum(project["heatTrack"] == "long_term" for project in daily),
+        },
+        "heatHistory": {
+            "snapshotCount": observation_window,
+            "maximumSnapshotCount": 30,
+            "minimumPersistenceSnapshots": 7,
+            "verifiedLongTermCount": sum(
+                project["longTermEvidenceKind"] == "multi_snapshot"
+                for project in projects
+            ),
+        },
+        "growthMode": growth_mode,
+        "notice": "Synthetic catalog fixture for audit tests.",
+        "projects": projects,
+        "previousCapturedAt": previous_captured_at,
+        "codexPendingCount": codex_pending_count,
+    }
+
+
 class AuditDataTests(unittest.TestCase):
     def test_verifies_exact_observed_growth_and_heat_tracks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -22,69 +198,69 @@ class AuditDataTests(unittest.TestCase):
             previous_at = "2026-07-09T12:00:00+00:00"
             captured = "2026-07-10T12:00:00+00:00"
             previous = {
+                "schema_version": 1,
                 "captured_at": previous_at,
+                "queries": ["stars:>=1"],
                 "count": 1,
-                "repositories": [{"repo": "demo/tool", "stars": 100}],
+                "repositories": [
+                    snapshot_repository("demo/tool", previous_at, 100, "stars:>=1")
+                ],
             }
             current = {
+                "schema_version": 1,
                 "captured_at": captured,
+                "queries": ["stars:>=1"],
+                "query_status": [
+                    {
+                        "query": "stars:>=1",
+                        "state": "healthy",
+                        "item_count": 1,
+                        "error": None,
+                    }
+                ],
+                "successful_query_count": 1,
+                "failed_query_count": 0,
                 "count": 1,
-                "repositories": [{"repo": "demo/tool", "stars": 120}],
+                "repositories": [
+                    snapshot_repository("demo/tool", captured, 120, "stars:>=1")
+                ],
             }
-            project = {
-                "repo": "demo/tool",
-                "slug": "demo--tool",
-                "stars": 120,
-                "growthKind": "observed",
-                "growthValue": 20,
-                "momentumScore": 80,
-                "enduranceScore": 90,
-                "heatTrack": "long_term",
-                "heatLabel": "长期高热 · 结构代理",
-                "longTermEvidenceKind": "structural_proxy",
-                "heatObservationCount": 2,
-                "heatObservationWindow": 2,
-                "evidence": [{"href": "https://github.com/demo/tool"}],
-            }
-            catalog = {
-                "capturedAt": captured,
-                "sourceCount": 1,
-                "projectCount": 1,
-                "previousCapturedAt": previous_at,
-                "dailyTrackCounts": {"recentMomentum": 0, "longTerm": 1},
-                "heatHistory": {
-                    "snapshotCount": 2,
-                    "maximumSnapshotCount": 30,
-                    "minimumPersistenceSnapshots": 7,
-                    "verifiedLongTermCount": 0,
-                },
-                "projects": [project],
-            }
+            project = catalog_project(
+                "demo/tool",
+                captured,
+                120,
+                "observed",
+                20,
+                momentumScore=80,
+                enduranceScore=90,
+                heatTrack="long_term",
+                heatLabel="长期高热 · 结构代理",
+                longTermEvidenceKind="structural_proxy",
+                heatObservationCount=2,
+                heatObservationWindow=2,
+            )
+            catalog = catalog_snapshot(
+                captured,
+                [project],
+                previous_captured_at=previous_at,
+                observation_window=2,
+                growth_mode="observed",
+            )
             signals = {
+                "schemaVersion": 1,
                 "capturedAt": captured,
                 "windowHours": 48,
                 "signalCount": 1,
                 "healthySourceCount": 1,
                 "failedSourceCount": 0,
                 "sourceStatus": [
-                    {"id": "official", "url": "https://example.com/feed", "state": "healthy"}
+                    source_status("official", "https://example.com/feed")
                 ],
-                "signals": [
-                    {
-                        "id": "signal-1",
-                        "url": "https://example.com/news",
-                        "publishedAt": captured,
-                        "score": 0.8,
-                    }
-                ],
+                "topSignals": [signal_item("signal-1", "https://example.com/news", captured)],
+                "signals": [signal_item("signal-1", "https://example.com/news", captured)],
             }
-            queue = {
-                "generatedAt": captured,
-                "pendingCount": 0,
-                "projectPendingCount": 0,
-                "signalPendingCount": 0,
-                "items": [],
-            }
+            queue = empty_queue(captured)
+            queue["scope"] = {"projectLimit": 0, "signalLimit": 0}
             write_json(root / "snapshots/history/previous.json", previous)
             write_json(root / "snapshots/latest.json", current)
             write_json(root / "catalog/latest.json", catalog)
@@ -110,26 +286,22 @@ class AuditDataTests(unittest.TestCase):
             root = Path(directory)
             captured = "2026-07-10T12:00:00+00:00"
             query = "pushed:>=2026-07-01 stars:>=500 archived:false fork:false"
-            repository = {"repo": "demo/tool", "stars": 100, "candidate_query": query}
-            project = {
-                "repo": "demo/tool",
-                "slug": "demo--tool",
-                "growthKind": "velocity_proxy",
-                "stars": 100,
-                "evidence": [{"href": "https://github.com/demo/tool"}],
-            }
-            signal = {
-                "id": "signal-1",
-                "url": "https://example.com/news",
-                "publishedAt": "2026-07-10T11:00:00+00:00",
-                "score": 0.8,
-            }
-            source = {
-                "id": "official-news",
-                "url": "https://example.com/feed.xml",
-                "state": "healthy",
-            }
+            repository = snapshot_repository("demo/tool", captured, 100, query)
+            project = catalog_project(
+                "demo/tool",
+                captured,
+                100,
+                "velocity_proxy",
+                100,
+            )
+            signal = signal_item(
+                "signal-1",
+                "https://example.com/news",
+                "2026-07-10T11:00:00+00:00",
+            )
+            source = source_status("official-news", "https://example.com/feed.xml")
             snapshot = {
+                "schema_version": 1,
                 "captured_at": captured,
                 "queries": [query],
                 "query_status": [
@@ -141,22 +313,22 @@ class AuditDataTests(unittest.TestCase):
                 "repositories": [repository],
             }
             write_json(root / "snapshots/latest.json", snapshot)
-            catalog_payload = {
-                "capturedAt": captured,
-                "sourceCount": 1,
-                "projectCount": 1,
-                "previousCapturedAt": None,
-                "queryFailureCount": 0,
-                "projects": [project],
-            }
-            write_json(root / "catalog/latest.json", catalog_payload)
+            catalog_payload = catalog_snapshot(
+                captured,
+                [project],
+                previous_captured_at=None,
+                observation_window=1,
+                growth_mode="first_observation_proxy",
+            )
             signals_payload = {
+                "schemaVersion": 1,
                 "capturedAt": captured,
                 "windowHours": 48,
                 "signalCount": 1,
                 "healthySourceCount": 1,
                 "failedSourceCount": 0,
                 "sourceStatus": [source],
+                "topSignals": [signal],
                 "signals": [signal],
             }
             write_json(root / "signals/latest.json", signals_payload)
@@ -167,6 +339,8 @@ class AuditDataTests(unittest.TestCase):
                 root / "signals/enrichment.json",
                 datetime.fromisoformat(captured),
             )
+            catalog_payload["codexPendingCount"] = queue_payload["pendingCount"]
+            write_json(root / "catalog/latest.json", catalog_payload)
             write_json(root / "queues/codex.json", queue_payload)
 
             result = audit_data(root)
@@ -174,6 +348,9 @@ class AuditDataTests(unittest.TestCase):
                 {"repository": "demo/tool", "error": "clone timed out"}
             ]
             source["state"] = "failed"
+            source["itemCount"] = 0
+            source["latestItemAt"] = None
+            source["error"] = "rate limited"
             signals_payload["healthySourceCount"] = 0
             signals_payload["failedSourceCount"] = 1
             write_json(root / "catalog/latest.json", catalog_payload)
@@ -210,7 +387,7 @@ class AuditDataTests(unittest.TestCase):
             write_json(root / "snapshots/latest.json", snapshot)
             corrupted_queries = audit_data(root)
 
-        self.assertEqual(result["status"], "healthy")
+        self.assertEqual(result["status"], "healthy", result["issues"])
         self.assertEqual(result["errorCount"], 0)
         self.assertEqual(result["successfulQueryCount"], 1)
         self.assertEqual(result["failedQueryCount"], 0)
@@ -229,25 +406,62 @@ class AuditDataTests(unittest.TestCase):
         self.assertIn("catalog_query_failure_count_mismatch", corrupted_query_codes)
         self.assertIn("unknown_candidate_query", corrupted_query_codes)
 
-    def test_reports_count_time_url_and_window_corruption(self) -> None:
+    def test_reports_schema_valid_count_time_and_window_corruption(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             snapshot_at = "2026-07-10T12:00:00+00:00"
-            write_json(root / "snapshots/latest.json", {"captured_at": snapshot_at, "count": "two", "repositories": [{"repo": "demo/tool"}]})
-            write_json(root / "catalog/latest.json", {"capturedAt": "2026-07-10T11:00:00+00:00", "sourceCount": 1, "projectCount": 1, "projects": [{"repo": "demo/tool", "slug": "demo--tool", "evidence": [{"href": "javascript:alert(1)"}]}]})
-            write_json(
-                root / "signals/latest.json",
-                {
-                    "capturedAt": snapshot_at,
-                    "windowHours": "broken",
-                    "signalCount": 2,
-                    "healthySourceCount": 1,
-                    "failedSourceCount": 0,
-                    "sourceStatus": [{"id": "bad", "url": "//missing-scheme", "state": "unknown"}],
-                    "signals": [{"id": "one", "url": "data:text/plain,bad", "publishedAt": "2026-07-01T00:00:00+00:00"}],
-                },
+            query = "stars:>=1"
+            repository = snapshot_repository("demo/tool", snapshot_at, 100, query)
+            snapshot = {
+                "schema_version": 1,
+                "captured_at": snapshot_at,
+                "queries": [query],
+                "query_status": [
+                    {"query": query, "state": "healthy", "item_count": 1, "error": None}
+                ],
+                "successful_query_count": 1,
+                "failed_query_count": 0,
+                "count": 2,
+                "repositories": [repository],
+            }
+            project = catalog_project(
+                "demo/tool",
+                snapshot_at,
+                100,
+                "velocity_proxy",
+                100,
             )
-            write_json(root / "queues/codex.json", {"generatedAt": snapshot_at, "pendingCount": 1, "projectPendingCount": 0, "signalPendingCount": 0, "items": []})
+            catalog = catalog_snapshot(
+                "2026-07-10T11:00:00+00:00",
+                [project],
+                previous_captured_at=None,
+                observation_window=1,
+                growth_mode="first_observation_proxy",
+            )
+            signal = signal_item(
+                "signal-1",
+                "https://example.com/news",
+                "2026-07-01T00:00:00+00:00",
+            )
+            signals = {
+                "schemaVersion": 1,
+                "capturedAt": snapshot_at,
+                "windowHours": 1,
+                "signalCount": 2,
+                "healthySourceCount": 0,
+                "failedSourceCount": 0,
+                "sourceStatus": [source_status("official", "https://example.com/feed")],
+                "topSignals": [signal],
+                "signals": [signal],
+            }
+            queue = empty_queue(snapshot_at)
+            queue["scope"] = {"projectLimit": 0, "signalLimit": 0}
+            queue["pendingCount"] = 1
+
+            write_json(root / "snapshots/latest.json", snapshot)
+            write_json(root / "catalog/latest.json", catalog)
+            write_json(root / "signals/latest.json", signals)
+            write_json(root / "queues/codex.json", queue)
 
             result = audit_data(root)
 
@@ -257,19 +471,14 @@ class AuditDataTests(unittest.TestCase):
             {
                 "snapshot_count_mismatch",
                 "catalog_snapshot_mismatch",
-                "unsafe_evidence_url",
                 "signal_count_mismatch",
-                "unsafe_signal_url",
-                "invalid_signal_window",
                 "signal_outside_window",
                 "healthy_source_count_mismatch",
-                "unsafe_source_url",
-                "invalid_source_state",
                 "queue_count_mismatch",
             }.issubset(codes)
         )
 
-    def test_rejects_non_finite_and_out_of_range_signal_scores(self) -> None:
+    def test_rejects_non_finite_signal_payloads_before_semantic_audit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             captured = "2026-07-10T12:00:00+00:00"
@@ -332,10 +541,10 @@ class AuditDataTests(unittest.TestCase):
 
             result = audit_data(root)
 
-        matching = [item for item in result["issues"] if item["code"] == "invalid_signal_score"]
+        matching = [item for item in result["issues"] if item["code"] == "invalid_artifact"]
         self.assertEqual(result["status"], "failed")
         self.assertEqual(len(matching), 1)
-        self.assertIn("3 signal scores", matching[0]["detail"])
+        self.assertIn("non-finite JSON number", matching[0]["detail"])
 
 
 if __name__ == "__main__":

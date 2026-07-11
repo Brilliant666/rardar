@@ -16,6 +16,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from pipeline.schema_validation import (
+    ArtifactKind,
+    artifact_write_lock,
+    atomic_write_validated_json,
+    require_valid,
+)
+
 
 class GitHubClient:
     def __init__(self, token: str | None = None) -> None:
@@ -154,8 +161,9 @@ def main() -> None:
         datetime.now(timezone.utc),
         since_days=max(1, min(arguments.since_days, 90)),
     )
-    arguments.out.parent.mkdir(parents=True, exist_ok=True)
-    arguments.out.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    require_valid(ArtifactKind.GITHUB_SNAPSHOT, snapshot, source_path=arguments.out)
+    with artifact_write_lock(arguments.out):
+        atomic_write_validated_json(arguments.out, ArtifactKind.GITHUB_SNAPSHOT, snapshot)
     print(f"saved {snapshot['count']} candidates to {arguments.out}")
 
 

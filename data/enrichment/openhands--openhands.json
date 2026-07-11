@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "repository": "OpenHands/OpenHands",
   "analyzedAt": "2026-07-11T00:12:00Z",
   "titleZh": "OpenHands：面向编码 Agent 的自托管控制中心",

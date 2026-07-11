@@ -9,7 +9,6 @@ No repository code is executed by this module.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import re
 import urllib.parse
@@ -17,6 +16,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+from pipeline.schema_validation import (
+    ArtifactKind,
+    artifact_write_lock,
+    atomic_write_validated_json,
+    load_validated_json,
+)
 
 
 DISPLAY_ZONE = ZoneInfo("Asia/Shanghai")
@@ -87,7 +93,7 @@ def _parse_time(value: str | None) -> datetime | None:
 
 
 def _enrichment_is_current(enrichment: dict[str, Any] | None, pushed_at: str | None) -> bool:
-    if not enrichment:
+    if not enrichment or enrichment.get("schemaVersion") != 1:
         return False
     analyzed_at = _parse_time(str(enrichment.get("analyzedAt") or ""))
     source_pushed_at = _parse_time(pushed_at)
@@ -95,7 +101,7 @@ def _enrichment_is_current(enrichment: dict[str, Any] | None, pushed_at: str | N
 
 
 def _analysis_is_current(analysis: dict[str, Any] | None, pushed_at: str | None) -> bool:
-    if not analysis:
+    if not analysis or analysis.get("schemaVersion") != 1:
         return False
     analyzed_at = _parse_time(str(analysis.get("analyzed_at") or ""))
     source_pushed_at = _parse_time(pushed_at)
@@ -110,8 +116,23 @@ def _safe_http_url(value: object, fallback: str) -> str:
     if isinstance(value, str):
         cleaned = value.strip()
         if cleaned and len(cleaned) <= 2_048 and not any(ord(character) < 32 for character in cleaned):
-            parsed = urllib.parse.urlsplit(cleaned)
-            if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+            parsed = None
+            try:
+                parsed = urllib.parse.urlsplit(cleaned)
+                hostname = parsed.hostname
+                _ = parsed.port
+            except ValueError:
+                hostname = None
+            if (
+                parsed is not None
+                and parsed.scheme.lower() in {"http", "https"}
+                and hostname
+                and hostname.strip(".")
+                and parsed.username is None
+                and parsed.password is None
+                and "\\" not in cleaned
+                and not any(character.isspace() for character in cleaned)
+            ):
                 return cleaned
     return fallback
 
@@ -751,27 +772,27 @@ def main() -> None:
     parser.add_argument("--enrichment-dir", type=Path)
     arguments = parser.parse_args()
 
-    snapshot = json.loads(arguments.snapshot.read_text(encoding="utf-8"))
-    previous = (
-        json.loads(arguments.previous.read_text(encoding="utf-8"))
-        if arguments.previous and arguments.previous.exists()
-        else None
-    )
-    analyses: dict[str, dict[str, Any]] = {}
-    if arguments.analysis_dir and arguments.analysis_dir.exists():
-        for path in arguments.analysis_dir.glob("*.json"):
-            analysis = json.loads(path.read_text(encoding="utf-8"))
-            if analysis.get("repository"):
-                analyses[analysis["repository"]] = analysis
-    enrichments: dict[str, dict[str, Any]] = {}
-    if arguments.enrichment_dir and arguments.enrichment_dir.exists():
-        for path in arguments.enrichment_dir.glob("*.json"):
-            enrichment = json.loads(path.read_text(encoding="utf-8"))
-            if enrichment.get("repository"):
-                enrichments[enrichment["repository"]] = enrichment
-    catalog = build_catalog(snapshot, previous, arguments.limit, analyses, enrichments)
-    arguments.out.parent.mkdir(parents=True, exist_ok=True)
-    arguments.out.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with artifact_write_lock(arguments.out):
+        snapshot = load_validated_json(arguments.snapshot, ArtifactKind.GITHUB_SNAPSHOT)
+        previous = (
+            load_validated_json(arguments.previous, ArtifactKind.GITHUB_SNAPSHOT)
+            if arguments.previous and arguments.previous.exists()
+            else None
+        )
+        analyses: dict[str, dict[str, Any]] = {}
+        if arguments.analysis_dir and arguments.analysis_dir.exists():
+            for path in arguments.analysis_dir.glob("*.json"):
+                analysis = load_validated_json(path, ArtifactKind.STATIC_EVIDENCE)
+                if analysis.get("repository"):
+                    analyses[analysis["repository"]] = analysis
+        enrichments: dict[str, dict[str, Any]] = {}
+        if arguments.enrichment_dir and arguments.enrichment_dir.exists():
+            for path in arguments.enrichment_dir.glob("*.json"):
+                enrichment = load_validated_json(path, ArtifactKind.PROJECT_ENRICHMENT)
+                if enrichment.get("repository"):
+                    enrichments[enrichment["repository"]] = enrichment
+        catalog = build_catalog(snapshot, previous, arguments.limit, analyses, enrichments)
+        atomic_write_validated_json(arguments.out, ArtifactKind.CATALOG, catalog)
     print(f"saved {catalog['projectCount']} ranked projects to {arguments.out}")
 
 

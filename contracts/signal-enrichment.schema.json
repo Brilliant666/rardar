@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/signal-enrichment.schema.json",
+  "title": "Rardar signal enrichment v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "model", "items"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "model": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "items": {
+      "type": "object",
+      "maxProperties": 500,
+      "propertyNames": {
+        "type": "string",
+        "maxLength": 2048,
+        "format": "http-url",
+        "pattern": "^https?://[^\\s]+$"
+      },
+      "additionalProperties": { "$ref": "#/$defs/enrichment" }
+    }
+  },
+  "$defs": {
+    "enrichment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["titleZh", "takeawayZh", "whyItMattersZh", "categoryZh"],
+      "dependentRequired": {
+        "analyzedAt": ["sourcePublishedAt"],
+        "sourcePublishedAt": ["analyzedAt"]
+      },
+      "properties": {
+        "titleZh": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "takeawayZh": { "type": "string", "minLength": 1, "maxLength": 5000 },
+        "whyItMattersZh": { "type": "string", "minLength": 1, "maxLength": 5000 },
+        "categoryZh": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "analyzedAt": { "type": "string", "format": "date-time" },
+        "sourcePublishedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

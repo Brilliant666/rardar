@@ -99,6 +99,7 @@ class BuildCatalogTests(unittest.TestCase):
         item = repository("demo/license-hint", 900, "2026-07-07T12:00:00Z")
         item["license"] = None
         analysis = {
+            "schemaVersion": 1,
             "repository": "demo/license-hint",
             "analyzed_at": "2026-07-10T10:00:00Z",
             "scanned_files": 100,
@@ -150,7 +151,7 @@ class BuildCatalogTests(unittest.TestCase):
 
     def test_evidence_urls_fall_back_to_https(self) -> None:
         item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
-        item["url"] = "javascript:alert(1)"
+        item["url"] = "http://["
         enrichment = {
             "repository": "demo/new-tool",
             "titleZh": "工具",
@@ -176,6 +177,7 @@ class BuildCatalogTests(unittest.TestCase):
             "repositories": [repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")],
         }
         analysis = {
+            "schemaVersion": 1,
             "repository": "demo/new-tool",
             "analyzed_at": "2026-07-10T10:00:00Z",
             "scanned_files": 240,
@@ -204,6 +206,7 @@ class BuildCatalogTests(unittest.TestCase):
     def test_stale_static_analysis_cannot_raise_reuse_confidence(self) -> None:
         item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
         stale_analysis = {
+            "schemaVersion": 1,
             "repository": "demo/new-tool",
             "analyzed_at": "2026-07-09T08:00:00Z",
             "scanned_files": 240,
@@ -222,6 +225,28 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertIn("早于仓库最近推送", project["risk"])
         self.assertEqual(len(project["evidence"]), 2)
 
+    def test_legacy_static_analysis_never_counts_as_current(self) -> None:
+        item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
+        legacy_analysis = {
+            "schemaVersion": 0,
+            "repository": "demo/new-tool",
+            # A malformed legacy payload cannot become current merely by
+            # carrying a recent-looking timestamp.
+            "analyzed_at": "2026-07-11T10:00:00Z",
+            "scanned_files": 240,
+            "confidence": 95,
+            "indicators": {"readme": True, "license": True, "tests": True},
+            "counts": {"test_files": 18},
+        }
+
+        project = build_catalog(
+            {"captured_at": "2026-07-10T12:00:00Z", "count": 1, "repositories": [item]},
+            analyses={"demo/new-tool": legacy_analysis},
+        )["projects"][0]
+
+        self.assertEqual(project["analysisState"], "事实初筛")
+        self.assertLessEqual(project["reuseScore"], 72)
+
     def test_codex_enrichment_replaces_copy_and_adds_task_terms(self) -> None:
         snapshot = {
             "captured_at": "2026-07-10T12:00:00Z",
@@ -229,6 +254,7 @@ class BuildCatalogTests(unittest.TestCase):
             "repositories": [repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")],
         }
         enrichment = {
+            "schemaVersion": 1,
             "repository": "demo/new-tool",
             "analyzedAt": "2026-07-10T10:00:00Z",
             "titleZh": "自动化工作流工具",
@@ -242,6 +268,7 @@ class BuildCatalogTests(unittest.TestCase):
             "sourceUrl": "https://github.com/demo/new-tool",
         }
         analysis = {
+            "schemaVersion": 1,
             "repository": "demo/new-tool",
             "analyzed_at": "2026-07-10T10:00:00Z",
             "indicators": {},
@@ -266,6 +293,7 @@ class BuildCatalogTests(unittest.TestCase):
     def test_enrichment_older_than_latest_push_is_marked_for_review(self) -> None:
         item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
         enrichment = {
+            "schemaVersion": 1,
             "repository": "demo/new-tool",
             "analyzedAt": "2026-07-09T08:00:00Z",
             "titleZh": "旧画像",
@@ -276,6 +304,7 @@ class BuildCatalogTests(unittest.TestCase):
             "limitation": "尚未复核。",
         }
         analysis = {
+            "schemaVersion": 1,
             "repository": "demo/new-tool",
             "analyzed_at": "2026-07-10T10:00:00Z",
             "indicators": {},
@@ -297,6 +326,7 @@ class BuildCatalogTests(unittest.TestCase):
     def test_enrichment_without_static_evidence_is_not_applied(self) -> None:
         item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
         enrichment = {
+            "schemaVersion": 1,
             "repository": "demo/new-tool",
             "analyzedAt": "2026-07-10T10:00:00Z",
             "titleZh": "不应采用的画像标题",

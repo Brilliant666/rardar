@@ -22,15 +22,14 @@ from pipeline.refresh import (
     _load_snapshot_history,
     _write_json_batch,
 )
+from pipeline.schema_validation import load_validated_json
 
 
 def _required_json(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError) as error:
+        payload = load_validated_json(path)
+    except (FileNotFoundError, OSError, ValueError) as error:
         raise RuntimeError(f"required local artifact is unavailable: {path}: {error}") from None
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"required local artifact must be a JSON object: {path}")
     return payload
 
 

@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/technical-signals.schema.json",
+  "title": "Rardar technical signals v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "capturedAt",
+    "windowHours",
+    "signalCount",
+    "healthySourceCount",
+    "failedSourceCount",
+    "sourceStatus",
+    "topSignals",
+    "signals"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "windowHours": { "type": "integer", "minimum": 1, "maximum": 720 },
+    "signalCount": { "type": "integer", "minimum": 0 },
+    "healthySourceCount": { "type": "integer", "minimum": 0 },
+    "failedSourceCount": { "type": "integer", "minimum": 0 },
+    "sourceStatus": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/sourceStatus" }
+    },
+    "topSignals": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/signal" }
+    },
+    "signals": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/signal" }
+    }
+  },
+  "$defs": {
+    "httpUrl": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 2048,
+      "format": "http-url",
+      "pattern": "^https?://[^\\s]+$"
+    },
+    "sourceStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "url", "state", "itemCount", "latestItemAt", "error"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "url": { "$ref": "#/$defs/httpUrl" },
+        "state": { "enum": ["healthy", "failed"] },
+        "itemCount": { "type": "integer", "minimum": 0 },
+        "latestItemAt": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "format": "date-time" }
+          ]
+        },
+        "error": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 1000 }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "healthy" } } },
+          "then": { "properties": { "error": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "state": { "const": "failed" } } },
+          "then": {
+            "properties": {
+              "error": { "type": "string", "minLength": 1, "maxLength": 1000 }
+            }
+          }
+        }
+      ]
+    },
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "summaryZh",
+        "url",
+        "source",
+        "sourceUrl",
+        "publishedAt",
+        "score",
+        "evidence",
+        "sources"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "kind": { "enum": ["official", "aggregated", "ranking", "curated"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "summaryZh": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "url": { "$ref": "#/$defs/httpUrl" },
+        "source": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "sourceUrl": { "$ref": "#/$defs/httpUrl" },
+        "publishedAt": { "type": "string", "format": "date-time" },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200,
+          "format": "repository",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "reportedDailyGrowth": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

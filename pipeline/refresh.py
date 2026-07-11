@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import uuid
@@ -18,21 +17,32 @@ from pipeline.collect_github import GitHubClient, collect
 from pipeline.collect_signals import HttpClient, collect_signals
 from pipeline.codex_queue import build_codex_queue
 from pipeline.data_lock import locked_data_dir
+from pipeline.schema_validation import (
+    infer_artifact_kind,
+    load_validated_json,
+    require_valid_for_path,
+    strict_json_dumps,
+    strict_json_loads,
+)
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    kind = infer_artifact_kind(path)
+    if kind is not None:
+        return load_validated_json(path, kind)
+    payload = strict_json_loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"JSON artifact must be an object: {path}")
+    return payload
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    require_valid_for_path(path, payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+    temporary.write_text(strict_json_dumps(payload) + "\n", encoding="utf-8")
     temporary.replace(path)
 
 
@@ -42,17 +52,19 @@ def _write_json_batch(entries: list[tuple[Path, dict[str, Any]]]) -> None:
     staged: dict[Path, Path] = {}
     backups: dict[Path, Path | None] = {}
     changed: list[Path] = []
+    serialized: dict[Path, str] = {}
+
+    for path, payload in entries:
+        if path in serialized:
+            raise ValueError(f"duplicate JSON batch target: {path}")
+        require_valid_for_path(path, payload)
+        serialized[path] = strict_json_dumps(payload) + "\n"
 
     try:
-        for path, payload in entries:
-            if path in staged:
-                raise ValueError(f"duplicate JSON batch target: {path}")
+        for path, _ in entries:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary = path.with_name(f".{path.name}.{transaction_id}.tmp")
-            temporary.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-                encoding="utf-8",
-            )
+            temporary.write_text(serialized[path], encoding="utf-8")
             staged[path] = temporary
 
         for path, _ in entries:
@@ -160,6 +172,9 @@ def refresh(
     previous = _read_json(latest_snapshot_path)
     history = _load_snapshot_history(history_dir, previous)
     current = collect(client or GitHubClient(os.environ.get("GITHUB_TOKEN")), now, since_days)
+    # Validate collector output before it drives analysis or any filesystem
+    # mutation.  The final batch validates again at the publication boundary.
+    require_valid_for_path(latest_snapshot_path, current)
 
     preliminary = build_catalog(current, previous, limit, history=history)
     failures: list[dict[str, str]] = []
@@ -189,6 +204,7 @@ def refresh(
             window_hours=48,
             limit=30,
         )
+        require_valid_for_path(data_dir / "signals" / "latest.json", signals)
         catalog["signalCount"] = signals["signalCount"]
         catalog["healthySignalSourceCount"] = signals["healthySourceCount"]
     queue = build_codex_queue(
