@@ -5,3 +5,14 @@
 - Do not publish, deploy, redeploy, or provide a hosted Sites URL unless the user explicitly asks for an online deployment in the current request.
 - Keep the local development server running when the user is actively reviewing the site.
 - The existing hosted project is legacy state and must not be used as the default preview target.
+
+## Governance
+
+Before planning or implementing repository evolution work, read and follow these documents:
+
+- `CODEX_MASTER_INSTRUCTION.md` — operating instructions, scope, and delivery constraints.
+- `docs/RARDAR_AUDIT_BASELINE.md` — historical audit baseline and original findings.
+- `docs/RARDAR_NORTH_STAR.md` — mission, North Star metric, and non-negotiable principles.
+- `docs/RARDAR_EVOLUTION_PROTOCOL.md` — one-goal iteration, testing, documentation, and PR protocol.
+
+Use `CODEX_MASTER_INSTRUCTION.md` as the source of truth for the current next engineering goal. Determine completion status from the latest `main` together with the records in `docs/iterations/`; do not treat completed findings in the historical audit baseline as current work.
