@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -45,10 +46,31 @@ def ingest_enrichment(
 ) -> Path:
     """Publish one validated draft without exposing a partial official file."""
     draft_path = draft_path.expanduser().resolve()
+    if draft_path == data_dir or data_dir in draft_path.parents:
+        raise ValueError(
+            "the input must be a draft outside the official data directory; "
+            "drafts inside data cannot preserve the publication boundary"
+        )
+
     payload = _read_draft(draft_path)
 
     if kind == "project":
         require_valid(ArtifactKind.PROJECT_ENRICHMENT, payload)
+        if payload.get("schemaVersion") != 1:
+            raise ValueError(
+                "only project enrichment v1 drafts may be published; "
+                "legacy v0 is read-only compatibility data"
+            )
+        analyzed_at = datetime.fromisoformat(
+            str(payload["analyzedAt"]).replace("Z", "+00:00")
+        )
+        source_analysis_at = datetime.fromisoformat(
+            str(payload["sourceAnalysisAt"]).replace("Z", "+00:00")
+        )
+        if analyzed_at < source_analysis_at:
+            raise ValueError(
+                "project enrichment analyzedAt cannot precede sourceAnalysisAt"
+            )
         repository = payload.get("repository")
         if not isinstance(repository, str):  # Kept explicit for type checkers.
             raise ValueError("project enrichment repository must be a string")
@@ -64,11 +86,6 @@ def ingest_enrichment(
         raise ValueError(f"unsupported enrichment kind: {kind}")
 
     target = target.resolve()
-    if draft_path == target:
-        raise ValueError(
-            "the input must be a draft outside the official data path; "
-            "direct in-place validation cannot preserve the previous artifact"
-        )
 
     atomic_write_validated_json(
         target,

@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import unittest
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 
 from pipeline.audit_data import audit_data
@@ -28,6 +29,8 @@ def valid_project_enrichment() -> dict[str, object]:
     return {
         "schemaVersion": 1,
         "repository": "demo/tool",
+        "sourcePushedAt": "2026-07-10T23:00:00Z",
+        "sourceAnalysisAt": "2026-07-10T23:30:00+00:00",
         "analyzedAt": "2026-07-11T00:00:00Z",
         "titleZh": "演示工具",
         "summaryZh": "用于验证 Rardar 数据契约。",
@@ -137,6 +140,52 @@ class SchemaValidationTests(unittest.TestCase):
                     any(issue.instance_path.startswith(f"/{field}") for issue in result.issues),
                     result.issues,
                 )
+
+    def test_project_enrichment_v1_requires_evidence_source_times(self) -> None:
+        for field in ("sourcePushedAt", "sourceAnalysisAt"):
+            with self.subTest(field=field, case="missing"):
+                payload = valid_project_enrichment()
+                payload.pop(field)
+                result = validate_payload(ArtifactKind.PROJECT_ENRICHMENT, payload)
+                self.assertFalse(result.valid)
+                self.assertTrue(
+                    any(field in issue.message for issue in result.issues),
+                    result.issues,
+                )
+            with self.subTest(field=field, case="wrong type"):
+                payload = valid_project_enrichment()
+                payload[field] = 7
+                result = validate_payload(ArtifactKind.PROJECT_ENRICHMENT, payload)
+                self.assertFalse(result.valid)
+                self.assertIn(
+                    f"/{field}",
+                    {issue.instance_path for issue in result.issues},
+                )
+            with self.subTest(field=field, case="timezone missing"):
+                payload = valid_project_enrichment()
+                payload[field] = "2026-07-11T00:00:00"
+                result = validate_payload(ArtifactKind.PROJECT_ENRICHMENT, payload)
+                self.assertFalse(result.valid)
+                self.assertIn(
+                    f"/{field}",
+                    {issue.instance_path for issue in result.issues},
+                )
+
+        payload = valid_project_enrichment()
+        payload["analyzedAt"] = "2026-07-11T00:00:00"
+        result = validate_payload(ArtifactKind.PROJECT_ENRICHMENT, payload)
+        self.assertFalse(result.valid)
+        self.assertIn("/analyzedAt", {issue.instance_path for issue in result.issues})
+
+    def test_legacy_project_enrichment_remains_explicitly_non_current_shape(self) -> None:
+        payload = valid_project_enrichment()
+        payload["schemaVersion"] = 0
+        payload.pop("sourcePushedAt")
+        payload.pop("sourceAnalysisAt")
+
+        self.assertTrue(
+            validate_payload(ArtifactKind.PROJECT_ENRICHMENT, payload).valid
+        )
 
     def test_rejects_repository_identity_mismatch(self) -> None:
         result = validate_payload(
@@ -339,6 +388,63 @@ class SchemaValidationTests(unittest.TestCase):
         for path in paths:
             with self.subTest(path=path):
                 self.assertIsInstance(load_validated_json(path), dict)
+
+    def test_committed_project_enrichments_bind_real_catalog_and_analysis_versions(self) -> None:
+        catalog = load_validated_json(
+            REPOSITORY_ROOT / "data/catalog/latest.json",
+            ArtifactKind.CATALOG,
+        )
+        projects = {
+            project["repo"]: project
+            for project in catalog["projects"]
+            if isinstance(project, dict) and isinstance(project.get("repo"), str)
+        }
+        bound_count = 0
+        legacy_count = 0
+        for path in sorted((REPOSITORY_ROOT / "data/enrichment").glob("*.json")):
+            with self.subTest(path=path):
+                enrichment = load_validated_json(
+                    path,
+                    ArtifactKind.PROJECT_ENRICHMENT,
+                )
+                repository = enrichment["repository"]
+                analysis = load_validated_json(
+                    REPOSITORY_ROOT / "data/analysis" / path.name,
+                    ArtifactKind.STATIC_EVIDENCE,
+                    expected_repository=repository,
+                )
+                if enrichment["schemaVersion"] == 1:
+                    bound_count += 1
+                    self.assertEqual(
+                        enrichment["sourcePushedAt"],
+                        projects[repository]["sourcePushedAt"],
+                    )
+                    self.assertEqual(
+                        enrichment["sourceAnalysisAt"],
+                        analysis["analyzed_at"],
+                    )
+                    enrichment_time = datetime.fromisoformat(
+                        enrichment["analyzedAt"].replace("Z", "+00:00")
+                    )
+                    source_analysis_time = datetime.fromisoformat(
+                        enrichment["sourceAnalysisAt"].replace("Z", "+00:00")
+                    )
+                    self.assertGreaterEqual(enrichment_time, source_analysis_time)
+                else:
+                    legacy_count += 1
+                    if analysis["schemaVersion"] == 0:
+                        self.assertNotIn("analyzed_at", analysis)
+                    else:
+                        enrichment_time = datetime.fromisoformat(
+                            enrichment["analyzedAt"].replace("Z", "+00:00")
+                        )
+                        source_analysis_time = datetime.fromisoformat(
+                            analysis["analyzed_at"].replace("Z", "+00:00")
+                        )
+                        self.assertLess(enrichment_time, source_analysis_time)
+
+        self.assertEqual(bound_count, 4)
+        self.assertEqual(legacy_count, 3)
 
     def test_audit_reports_schema_failure_with_json_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

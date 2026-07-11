@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "OpenHands/OpenHands",
+  "sourcePushedAt": "2026-07-10T23:37:20Z",
+  "sourceAnalysisAt": "2026-07-11T00:03:11.577692+00:00",
   "analyzedAt": "2026-07-11T00:12:00Z",
   "titleZh": "OpenHands：面向编码 Agent 的自托管控制中心",
   "summaryZh": "OpenHands Agent Canvas 用统一界面连接本地、Docker、虚拟机或云端的编码 Agent，并通过定时任务与 Webhook 自动执行报告生成、Issue 拆解等工程流程；它支持 OpenHands、Codex、Claude Code、Gemini 及 ACP 兼容 Agent。",

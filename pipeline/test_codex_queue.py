@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from pipeline.codex_queue import build_codex_queue
+from pipeline.schema_validation import ArtifactKind, validate_payload
 
 
 def static_evidence(repository: str, analyzed_at: str) -> dict[str, object]:
@@ -59,6 +60,8 @@ class CodexQueueTests(unittest.TestCase):
             complete_project = {
                 "schemaVersion": 1,
                 "repository": "owner/complete",
+                "sourcePushedAt": "2026-07-10T10:00:00Z",
+                "sourceAnalysisAt": "2026-07-10T12:00:00Z",
                 "analyzedAt": "2026-07-10T12:00:00Z",
                 "titleZh": "完整项目",
                 "summaryZh": "摘要",
@@ -93,7 +96,18 @@ class CodexQueueTests(unittest.TestCase):
                 encoding="utf-8",
             )
             queue = build_codex_queue(
-                {"projects": [{"repo": "owner/complete"}, {"repo": "owner/pending"}]},
+                {
+                    "projects": [
+                        {
+                            "repo": "owner/complete",
+                            "sourcePushedAt": "2026-07-10T10:00:00Z",
+                        },
+                        {
+                            "repo": "owner/pending",
+                            "sourcePushedAt": "2026-07-10T10:00:00Z",
+                        },
+                    ]
+                },
                 {
                     "signals": [
                         {
@@ -121,7 +135,10 @@ class CodexQueueTests(unittest.TestCase):
         self.assertIn("safety", queue["items"][0])
         project_item = next(item for item in queue["items"] if item["kind"] == "project")
         self.assertEqual(project_item["evidenceState"], "static_analysis_required")
+        self.assertEqual(project_item["sourcePushedAt"], "2026-07-10T10:00:00Z")
+        self.assertIsNone(project_item["sourceAnalysisAt"])
         self.assertNotIn("data/analysis/owner--pending.json", project_item["inputPaths"])
+        self.assertTrue(validate_payload(ArtifactKind.CODEX_QUEUE, queue).valid)
 
     def test_updated_signal_url_reenters_queue(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -179,7 +196,9 @@ class CodexQueueTests(unittest.TestCase):
             enrichment = {
                 "schemaVersion": 1,
                 "repository": "owner/project",
-                "analyzedAt": "2026-07-10T08:00:00Z",
+                "sourcePushedAt": "2026-07-10T08:00:00Z",
+                "sourceAnalysisAt": "2026-07-10T10:00:00Z",
+                "analyzedAt": "2026-07-10T12:00:00Z",
                 "titleZh": "项目",
                 "summaryZh": "摘要",
                 "category": "开发工具",
@@ -209,7 +228,7 @@ class CodexQueueTests(unittest.TestCase):
 
         self.assertEqual(queue["projectPendingCount"], 1)
         self.assertIn("新推送", queue["items"][0]["reason"])
-        self.assertEqual(queue["items"][0]["previousAnalyzedAt"], "2026-07-10T08:00:00Z")
+        self.assertEqual(queue["items"][0]["previousAnalyzedAt"], "2026-07-10T12:00:00Z")
 
     def test_current_static_analysis_marks_project_evidence_ready(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -243,7 +262,45 @@ class CodexQueueTests(unittest.TestCase):
 
         self.assertEqual(queue["projectPendingCount"], 1)
         self.assertEqual(queue["items"][0]["evidenceState"], "ready")
+        self.assertEqual(queue["items"][0]["sourcePushedAt"], "2026-07-10T09:00:00Z")
+        self.assertEqual(queue["items"][0]["sourceAnalysisAt"], "2026-07-10T10:00:00Z")
+        self.assertIn("sourcePushedAt", queue["items"][0]["requiredFields"])
+        self.assertIn("sourceAnalysisAt", queue["items"][0]["requiredFields"])
+        self.assertIn("原样复制", queue["items"][0]["safety"])
+        self.assertIn("不能自行生成、推算或改写", queue["items"][0]["safety"])
         self.assertIn("data/analysis/owner--project.json", queue["items"][0]["inputPaths"])
+        self.assertTrue(validate_payload(ArtifactKind.CODEX_QUEUE, queue).valid)
+
+    def test_stale_static_analysis_time_remains_explicit_for_review(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            enrichment_dir = root / "enrichment"
+            analysis_dir = root / "analysis"
+            enrichment_dir.mkdir()
+            analysis_dir.mkdir()
+            (analysis_dir / "owner--project.json").write_text(
+                json.dumps(static_evidence("owner/project", "2026-07-10T08:00:00Z")),
+                encoding="utf-8",
+            )
+
+            queue = build_codex_queue(
+                {
+                    "projects": [
+                        {
+                            "repo": "owner/project",
+                            "sourcePushedAt": "2026-07-10T09:00:00Z",
+                        }
+                    ]
+                },
+                {"signals": []},
+                enrichment_dir,
+                root / "signal-enrichment.json",
+                datetime(2026, 7, 10, 12, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(queue["items"][0]["evidenceState"], "static_analysis_required")
+        self.assertEqual(queue["items"][0]["sourceAnalysisAt"], "2026-07-10T08:00:00Z")
+        self.assertTrue(validate_payload(ArtifactKind.CODEX_QUEUE, queue).valid)
 
 
 if __name__ == "__main__":

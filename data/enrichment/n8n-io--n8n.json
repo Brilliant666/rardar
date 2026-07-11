@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "n8n-io/n8n",
+  "sourcePushedAt": "2026-07-10T23:35:12Z",
+  "sourceAnalysisAt": "2026-07-11T00:02:46.409131+00:00",
   "analyzedAt": "2026-07-11T00:12:00Z",
   "titleZh": "n8n：可自托管的 AI 与工作流自动化平台",
   "summaryZh": "n8n 用可视化画布、代码节点和大量集成把 API、数据、消息与 AI Agent 编排成可运行的工作流，可自托管或使用云服务，适合把分散的开发与运营步骤连接成自动化流水线。",

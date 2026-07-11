@@ -23,6 +23,8 @@ from pipeline.schema_validation import (
 PROJECT_REQUIRED_FIELDS = {
     "schemaVersion",
     "repository",
+    "sourcePushedAt",
+    "sourceAnalysisAt",
     "analyzedAt",
     "titleZh",
     "summaryZh",
@@ -79,20 +81,39 @@ def _parse_time(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
     return parsed.astimezone(timezone.utc)
 
 
-def _project_enrichment_is_current(payload: dict[str, Any] | None, project: dict[str, Any]) -> bool:
+def _project_enrichment_is_current(
+    payload: dict[str, Any] | None,
+    project: dict[str, Any],
+    analysis: dict[str, Any] | None,
+) -> bool:
     if (
         not _is_complete(payload, PROJECT_REQUIRED_FIELDS)
         or payload.get("repository") != project.get("repo")
+        or not analysis
+        or analysis.get("schemaVersion") != 1
+        or analysis.get("repository") != project.get("repo")
     ):
         return False
-    pushed_at = _parse_time(project.get("sourcePushedAt"))
-    analyzed_at = _parse_time(payload.get("analyzedAt") if payload else None)
-    return bool(analyzed_at and (not pushed_at or analyzed_at >= pushed_at))
+    pushed_at = project.get("sourcePushedAt")
+    analysis_at = analysis.get("analyzed_at")
+    source_pushed_time = _parse_time(payload.get("sourcePushedAt"))
+    source_analysis_time = _parse_time(payload.get("sourceAnalysisAt"))
+    enrichment_time = _parse_time(payload.get("analyzedAt"))
+    return bool(
+        isinstance(pushed_at, str)
+        and isinstance(analysis_at, str)
+        and payload.get("sourcePushedAt") == pushed_at
+        and payload.get("sourceAnalysisAt") == analysis_at
+        and source_pushed_time
+        and source_analysis_time
+        and enrichment_time
+        and enrichment_time >= source_analysis_time
+    )
 
 
 def _project_analysis_is_current(payload: dict[str, Any] | None, project: dict[str, Any]) -> bool:
@@ -104,7 +125,7 @@ def _project_analysis_is_current(payload: dict[str, Any] | None, project: dict[s
         return False
     analyzed_at = _parse_time(payload.get("analyzed_at"))
     pushed_at = _parse_time(project.get("sourcePushedAt"))
-    return bool(analyzed_at and (not pushed_at or analyzed_at >= pushed_at))
+    return bool(analyzed_at and pushed_at and analyzed_at >= pushed_at)
 
 
 def _signal_enrichment_is_current(
@@ -147,15 +168,13 @@ def build_codex_queue(
             ArtifactKind.PROJECT_ENRICHMENT,
             expected_repository=repository,
         )
-        analysis_ready = _project_analysis_is_current(
-            _read_json(
-                analysis_path,
-                ArtifactKind.STATIC_EVIDENCE,
-                expected_repository=repository,
-            ),
-            project,
+        analysis = _read_json(
+            analysis_path,
+            ArtifactKind.STATIC_EVIDENCE,
+            expected_repository=repository,
         )
-        if analysis_ready and _project_enrichment_is_current(enrichment, project):
+        analysis_ready = _project_analysis_is_current(analysis, project)
+        if analysis_ready and _project_enrichment_is_current(enrichment, project, analysis):
             completed_projects += 1
             continue
         complete_but_stale = _is_complete(enrichment, PROJECT_REQUIRED_FIELDS)
@@ -176,6 +195,7 @@ def build_codex_queue(
                 ),
                 "evidenceState": "ready" if analysis_ready else "static_analysis_required",
                 "sourcePushedAt": project.get("sourcePushedAt"),
+                "sourceAnalysisAt": analysis.get("analyzed_at") if analysis else None,
                 "previousAnalyzedAt": enrichment.get("analyzedAt") if enrichment else None,
                 "inputPaths": [
                     *([f"data/analysis/{safe_name}.json"] if analysis_ready else []),
@@ -184,9 +204,12 @@ def build_codex_queue(
                 "outputPath": f"data/enrichment/{safe_name}.json",
                 "requiredFields": sorted(PROJECT_REQUIRED_FIELDS),
                 "safety": (
-                    "只阅读 README 与静态分析证据，不执行仓库代码；"
+                    "只阅读 README 与静态分析证据，不执行仓库代码；必须将本项队列中的 "
+                    "sourcePushedAt 与 sourceAnalysisAt 原样复制到草稿，不能自行生成、推算或改写；"
                     if analysis_ready
                     else "先执行只读浅克隆静态扫描；扫描失败则保持待分析，不得仅凭仓库元数据生成画像；"
+                    "重新扫描并重建队列、证据状态达到 ready 后，必须将新队列中的 sourcePushedAt 与 "
+                    "sourceAnalysisAt 原样复制到草稿，不能自行生成、推算或改写；"
                 )
                 + "先写 data/ 外草稿，再经 pipeline.ingest_enrichment 发布；"
                 + "outputPath 只是最终归属，不能直接覆盖。",

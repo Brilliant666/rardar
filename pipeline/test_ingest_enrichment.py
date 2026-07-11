@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from pipeline.ingest_enrichment import ingest_enrichment
 from pipeline.schema_validation import ArtifactValidationError, load_validated_json
@@ -13,6 +14,8 @@ def project_enrichment(repository: str = "demo/tool") -> dict[str, object]:
     return {
         "schemaVersion": 1,
         "repository": repository,
+        "sourcePushedAt": "2026-07-10T23:00:00Z",
+        "sourceAnalysisAt": "2026-07-10T23:30:00Z",
         "analyzedAt": "2026-07-11T00:00:00Z",
         "titleZh": "演示工具",
         "summaryZh": "用于验证正式画像写入边界。",
@@ -97,6 +100,129 @@ class EnrichmentIngestTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "must be a draft"):
                 ingest_enrichment(data_dir, "project", official)
+
+    def test_draft_in_data_tmp_is_rejected_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            draft = data_dir / "tmp/draft.json"
+            draft.parent.mkdir(parents=True)
+            draft.write_text(json.dumps(project_enrichment()), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "outside the official data directory"):
+                ingest_enrichment(data_dir, "project", draft)
+
+            self.assertFalse((data_dir / "enrichment/demo--tool.json").exists())
+
+    def test_other_enrichment_file_inside_data_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            draft = data_dir / "enrichment/other.json"
+            draft.parent.mkdir(parents=True)
+            draft.write_text(json.dumps(project_enrichment()), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "outside the official data directory"):
+                ingest_enrichment(data_dir, "project", draft)
+
+            self.assertFalse((data_dir / "enrichment/demo--tool.json").exists())
+
+    def test_resolved_parent_traversal_into_data_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            actual_draft = data_dir / "tmp/draft.json"
+            actual_draft.parent.mkdir(parents=True)
+            actual_draft.write_text(json.dumps(project_enrichment()), encoding="utf-8")
+            traversing_path = data_dir / ".." / "data" / "tmp/draft.json"
+
+            with self.assertRaisesRegex(ValueError, "outside the official data directory"):
+                ingest_enrichment(data_dir, "project", traversing_path)
+
+    def test_symlink_resolving_into_data_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            actual_draft = data_dir / "tmp/draft.json"
+            actual_draft.parent.mkdir(parents=True)
+            actual_draft.write_text(json.dumps(project_enrichment()), encoding="utf-8")
+            linked_draft = root / "linked-draft.json"
+            try:
+                linked_draft.symlink_to(actual_draft)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"file symlinks are unavailable: {error}")
+
+            with self.assertRaisesRegex(ValueError, "outside the official data directory"):
+                ingest_enrichment(data_dir, "project", linked_draft)
+
+    def test_resolved_symlink_target_inside_data_is_rejected_portably(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            target = data_dir / "tmp/draft.json"
+            target.parent.mkdir(parents=True)
+            linked_draft = root / "linked-draft.json"
+            resolved_target = target.resolve()
+            original_resolve = Path.resolve
+
+            def resolve_path(path: Path, strict: bool = False) -> Path:
+                if path == linked_draft:
+                    return resolved_target
+                return original_resolve(path, strict=strict)
+
+            with (
+                patch.object(Path, "resolve", new=resolve_path),
+                patch("pipeline.ingest_enrichment._read_draft") as read_draft,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "outside the official data directory",
+                ):
+                    ingest_enrichment(data_dir, "project", linked_draft)
+
+            read_draft.assert_not_called()
+
+    def test_data_directory_itself_cannot_be_used_as_a_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "data"
+            data_dir.mkdir()
+
+            with self.assertRaisesRegex(ValueError, "outside the official data directory"):
+                ingest_enrichment(data_dir, "project", data_dir)
+
+    def test_legacy_project_draft_cannot_be_published(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            draft = root / "legacy-project.json"
+            payload = project_enrichment()
+            payload["schemaVersion"] = 0
+            payload.pop("sourcePushedAt")
+            payload.pop("sourceAnalysisAt")
+            draft.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "legacy v0 is read-only"):
+                ingest_enrichment(data_dir, "project", draft)
+
+            self.assertFalse((data_dir / "enrichment/demo--tool.json").exists())
+
+    def test_project_draft_cannot_bind_future_static_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_dir = root / "data"
+            draft = root / "future-evidence.json"
+            payload = project_enrichment()
+            payload["sourceAnalysisAt"] = "2026-07-11T00:00:01Z"
+            payload["analyzedAt"] = "2026-07-11T00:00:00Z"
+            draft.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "analyzedAt cannot precede sourceAnalysisAt",
+            ):
+                ingest_enrichment(data_dir, "project", draft)
+
+            self.assertFalse((data_dir / "enrichment/demo--tool.json").exists())
 
 
 if __name__ == "__main__":

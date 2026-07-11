@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rardar.local/contracts/project-enrichment.schema.json",
-  "title": "Rardar project enrichment v1",
+  "title": "Rardar project enrichment",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -20,7 +20,7 @@
     "sourceUrl"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "enum": [0, 1] },
     "repository": {
       "type": "string",
       "minLength": 3,
@@ -28,6 +28,8 @@
       "format": "repository",
       "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
     },
+    "sourcePushedAt": { "type": "string", "format": "date-time" },
+    "sourceAnalysisAt": { "type": "string", "format": "date-time" },
     "analyzedAt": { "type": "string", "format": "date-time" },
     "model": { "type": "string", "minLength": 1, "maxLength": 200 },
     "titleZh": { "type": "string", "minLength": 1, "maxLength": 500 },
@@ -58,5 +60,28 @@
       "format": "http-url",
       "pattern": "^https?://[^\\s]+$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "schemaVersion": { "const": 1 } },
+        "required": ["schemaVersion"]
+      },
+      "then": { "required": ["sourcePushedAt", "sourceAnalysisAt"] }
+    },
+    {
+      "if": {
+        "properties": { "schemaVersion": { "const": 0 } },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            { "required": ["sourcePushedAt"] },
+            { "required": ["sourceAnalysisAt"] }
+          ]
+        }
+      }
+    }
+  ]
 }

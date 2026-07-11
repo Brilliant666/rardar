@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -44,6 +45,8 @@ LOCAL_URL = "http://127.0.0.1:3000/"
 STATUS_HOST = "127.0.0.1"
 STATUS_PORT = 3002
 MINIMUM_NODE = (22, 13, 0)
+REQUIRED_PYTHON_MODULES = ("jsonschema",)
+PYTHON_DEPENDENCY_INSTALL_COMMAND = "python -m pip install -r requirements.txt"
 MAX_LOG_BYTES = 5 * 1024 * 1024
 LOG_BACKUP_COUNT = 2
 SCHEDULER_HEARTBEAT_MAX_AGE = 125
@@ -222,6 +225,30 @@ def find_node() -> Path:
         required = ".".join(str(value) for value in MINIMUM_NODE)
         raise RuntimeError(f"Rardar requires Node.js {required} or newer")
     return max(valid, key=lambda item: item[0])[1]
+
+
+def missing_python_dependencies(
+    required_modules: tuple[str, ...] = REQUIRED_PYTHON_MODULES,
+) -> tuple[str, ...]:
+    """Return Python modules required by managed services but unavailable here."""
+    missing: list[str] = []
+    for module_name in required_modules:
+        try:
+            available = importlib.util.find_spec(module_name) is not None
+        except (ImportError, AttributeError, ValueError):
+            available = False
+        if not available:
+            missing.append(module_name)
+    return tuple(missing)
+
+
+def python_dependencies_are_ready() -> bool:
+    missing = missing_python_dependencies()
+    if not missing:
+        return True
+    print(f"Rardar is missing required Python dependencies: {', '.join(missing)}")
+    print(f"Install them before starting local services: {PYTHON_DEPENDENCY_INSTALL_COMMAND}")
+    return False
 
 
 def process_is_alive(pid: int | None) -> bool:
@@ -594,6 +621,9 @@ def start_manager(open_browser: bool = False) -> int:
         if open_browser:
             webbrowser.open(LOCAL_URL)
         return 0
+
+    if not python_dependencies_are_ready():
+        return 1
 
     _stop_recorded_processes(existing_status)
     CONTROL_PATH.unlink(missing_ok=True)

@@ -83,21 +83,49 @@ RISK_TERMS = {
 }
 
 
-def _parse_time(value: str | None) -> datetime | None:
-    if not value:
+def _parse_time(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
 
 
-def _enrichment_is_current(enrichment: dict[str, Any] | None, pushed_at: str | None) -> bool:
-    if not enrichment or enrichment.get("schemaVersion") != 1:
+def _enrichment_is_current(
+    enrichment: dict[str, Any] | None,
+    repository: str,
+    pushed_at: object,
+    analysis: dict[str, Any] | None,
+) -> bool:
+    if (
+        not enrichment
+        or enrichment.get("schemaVersion") != 1
+        or enrichment.get("repository") != repository
+        or not analysis
+        or analysis.get("schemaVersion") != 1
+        or analysis.get("repository") != repository
+    ):
         return False
-    analyzed_at = _parse_time(str(enrichment.get("analyzedAt") or ""))
-    source_pushed_at = _parse_time(pushed_at)
-    return bool(analyzed_at and (not source_pushed_at or analyzed_at >= source_pushed_at))
+    source_pushed_at = enrichment.get("sourcePushedAt")
+    source_analysis_at = enrichment.get("sourceAnalysisAt")
+    analysis_at = analysis.get("analyzed_at")
+    source_pushed_time = _parse_time(source_pushed_at)
+    source_analysis_time = _parse_time(source_analysis_at)
+    enrichment_time = _parse_time(enrichment.get("analyzedAt"))
+    return bool(
+        isinstance(pushed_at, str)
+        and isinstance(analysis_at, str)
+        and source_pushed_at == pushed_at
+        and source_analysis_at == analysis_at
+        and source_pushed_time
+        and source_analysis_time
+        and enrichment_time
+        and enrichment_time >= source_analysis_time
+    )
 
 
 def _analysis_is_current(analysis: dict[str, Any] | None, pushed_at: str | None) -> bool:
@@ -433,8 +461,13 @@ def _project(
     query_count = len(str(repository.get("candidate_query") or "").split(" | "))
     repository_url = _safe_http_url(repository.get("url"), f"https://github.com/{repo}")
     enrichment_payload = enrichment
-    enrichment_current = _enrichment_is_current(enrichment_payload, repository.get("pushed_at"))
-    enrichment = enrichment_payload if enrichment_current and analysis_current else None
+    enrichment_current = _enrichment_is_current(
+        enrichment_payload,
+        repo,
+        repository.get("pushed_at"),
+        analysis,
+    )
+    enrichment = enrichment_payload if enrichment_current else None
     api_license = repository.get("license")
     detected_license = str((analysis or {}).get("license_hint") or "").strip()
 
@@ -532,7 +565,7 @@ def _project(
         risk = (
             "现有中文画像缺少与仓库最新推送对应的只读静态证据，本轮不采用其能力与复用结论。 "
             if not analysis_current
-            else "仓库最近推送晚于当前中文画像，能力与复用判断需要重新核对。 "
+            else "现有中文画像绑定的仓库推送或静态分析版本与当前证据不一致，能力与复用判断需要重新核对。 "
         ) + risk
 
     return {

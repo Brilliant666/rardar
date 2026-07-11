@@ -10,13 +10,15 @@
 - 新增严格 JSON 解析、格式检查、身份检查和完整数据树验证；
 - 将验证接入采集、静态分析、catalog、queue、refresh、derive 与 audit；
 - 新增受共享锁保护的 Codex enrichment 草稿 ingest，验证后才原子替换正式文件；
+- 审查修正要求 project enrichment v1 精确绑定仓库推送与静态证据版本，来源变化即判过期；
+- 审查修正将草稿边界扩展到整个解析后的 `data/` 树，并为 `local:start` 增加 Python 依赖预检；
 - 为既有静态证据和项目画像增加显式版本，不伪造缺失时间；
 - 增加合法、类型错误、数组成员、URL、时间、repository、版本、长度、嵌套字段、审计报告和写入前拒绝测试。
 
 ## 验证结果
 
 - `npm run lint`：通过；
-- Python：97 项测试通过；
+- Python：114 项测试通过；1 项真实 Windows 文件符号链接测试因当前权限不可用跳过，等价的解析目标边界测试已通过；
 - `npm run data:validate`：20 份正式产物通过，0 错误；
 - `npm run data:audit`：`healthy`，0 错误、0 警告；
 - Node.js 22.13.1 下 `npm run build`：通过；
@@ -27,6 +29,7 @@
 
 - Snapshot v1 的 history 与 latest 具有兼容的基础/扩展形状；
 - 两份旧静态证据没有可信 `analyzed_at`，已显式保留为 legacy v0；
+- 两份历史项目画像缺少可信静态时间，另有一份早于当前静态证据；三者保留为不可作为当前结论的 legacy v0，其余四份只机械复制真实且时间顺序成立的来源时间；
 - Signal enrichment v1 同时存在顶层时间回退和逐条时间绑定。
 
 ## 遗留风险

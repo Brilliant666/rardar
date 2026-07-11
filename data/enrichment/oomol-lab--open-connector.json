@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "oomol-lab/open-connector",
+  "sourcePushedAt": "2026-07-10T13:59:46Z",
+  "sourceAnalysisAt": "2026-07-11T00:01:24.676888+00:00",
   "analyzedAt": "2026-07-11T00:12:00Z",
   "model": "local-codex",
   "titleZh": "为 Agent 统一管理第三方账号、OAuth 和工具调用",

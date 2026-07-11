@@ -98,6 +98,8 @@ class RebuildDerivedTests(unittest.TestCase):
             enrichment = {
                 "schemaVersion": 1,
                 "repository": "demo/agent-tool",
+                "sourcePushedAt": "2026-07-10T00:00:00Z",
+                "sourceAnalysisAt": "2026-07-10T12:20:00+00:00",
                 "analyzedAt": "2026-07-10T12:30:00+00:00",
                 "titleZh": "开发工作流工具",
                 "summaryZh": "用于自动化开发工作流。",

@@ -113,6 +113,7 @@
         "reason",
         "evidenceState",
         "sourcePushedAt",
+        "sourceAnalysisAt",
         "previousAnalyzedAt",
         "inputPaths",
         "outputPath",
@@ -127,13 +128,28 @@
         "title": { "$ref": "#/$defs/commonItemProperties/properties/title" },
         "reason": { "$ref": "#/$defs/commonItemProperties/properties/reason" },
         "evidenceState": { "enum": ["ready", "static_analysis_required"] },
-        "sourcePushedAt": { "type": ["string", "null"], "format": "date-time" },
+        "sourcePushedAt": { "type": "string", "format": "date-time" },
+        "sourceAnalysisAt": { "$ref": "#/$defs/nullableDateTime" },
         "previousAnalyzedAt": { "$ref": "#/$defs/nullableDateTime" },
         "inputPaths": { "$ref": "#/$defs/commonItemProperties/properties/inputPaths" },
         "outputPath": { "$ref": "#/$defs/commonItemProperties/properties/outputPath" },
         "requiredFields": { "$ref": "#/$defs/commonItemProperties/properties/requiredFields" },
         "safety": { "$ref": "#/$defs/commonItemProperties/properties/safety" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "evidenceState": { "const": "ready" } },
+            "required": ["evidenceState"]
+          },
+          "then": {
+            "properties": {
+              "sourcePushedAt": { "type": "string", "format": "date-time" },
+              "sourceAnalysisAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      ]
     },
     "signalItem": {
       "type": "object",

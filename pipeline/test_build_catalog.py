@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from pipeline.build_catalog import build_catalog
+from pipeline.build_catalog import _enrichment_is_current, build_catalog
 
 
 def repository(repo: str, stars: int, created_at: str, description: str = "AI developer tool"):
@@ -22,6 +22,80 @@ def repository(repo: str, stars: int, created_at: str, description: str = "AI de
 
 
 class BuildCatalogTests(unittest.TestCase):
+    def test_enrichment_current_requires_exact_evidence_identity_and_valid_time(self) -> None:
+        project_repo = "demo/new-tool"
+        pushed_at = "2026-07-10T09:00:00Z"
+        analysis = {
+            "schemaVersion": 1,
+            "repository": project_repo,
+            "analyzed_at": "2026-07-10T10:00:00Z",
+        }
+        enrichment = {
+            "schemaVersion": 1,
+            "repository": project_repo,
+            "sourcePushedAt": pushed_at,
+            "sourceAnalysisAt": analysis["analyzed_at"],
+            "analyzedAt": "2026-07-10T12:00:00Z",
+        }
+
+        self.assertTrue(
+            _enrichment_is_current(enrichment, project_repo, pushed_at, analysis)
+        )
+        self.assertFalse(
+            _enrichment_is_current(
+                {**enrichment, "sourcePushedAt": "2026-07-10T08:00:00Z"},
+                project_repo,
+                pushed_at,
+                analysis,
+            )
+        )
+        self.assertFalse(
+            _enrichment_is_current(
+                {
+                    **enrichment,
+                    "sourcePushedAt": "2026-07-10T17:00:00+08:00",
+                    "sourceAnalysisAt": "2026-07-10T18:00:00+08:00",
+                },
+                project_repo,
+                pushed_at,
+                analysis,
+            ),
+            "equivalent instants must not replace exact source strings",
+        )
+        self.assertFalse(
+            _enrichment_is_current(
+                enrichment,
+                project_repo,
+                pushed_at,
+                {**analysis, "analyzed_at": "2026-07-10T11:00:00Z"},
+            )
+        )
+        self.assertFalse(
+            _enrichment_is_current(
+                {**enrichment, "repository": "other/tool"},
+                project_repo,
+                pushed_at,
+                analysis,
+            )
+        )
+        self.assertFalse(
+            _enrichment_is_current(
+                {**enrichment, "analyzedAt": "2026-07-10T12:00:00"},
+                project_repo,
+                pushed_at,
+                analysis,
+            )
+        )
+        self.assertFalse(
+            _enrichment_is_current(
+                {**enrichment, "analyzedAt": "2026-07-10T09:59:59Z"},
+                project_repo,
+                pushed_at,
+                analysis,
+            ),
+            "an enrichment cannot cite evidence produced after the enrichment",
+        )
+
     def test_daily_five_balances_recent_momentum_and_long_term_heat(self) -> None:
         fast = [
             repository(f"demo/fast-{index}", 2_000 + index, "2026-07-01T00:00:00Z")
@@ -256,6 +330,8 @@ class BuildCatalogTests(unittest.TestCase):
         enrichment = {
             "schemaVersion": 1,
             "repository": "demo/new-tool",
+            "sourcePushedAt": "2026-07-10T09:00:00Z",
+            "sourceAnalysisAt": "2026-07-10T10:00:00Z",
             "analyzedAt": "2026-07-10T10:00:00Z",
             "titleZh": "自动化工作流工具",
             "summaryZh": "把重复开发步骤组织成可复用流程。",
@@ -290,18 +366,55 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertEqual(catalog["deepAnalysisCount"], 1)
         self.assertEqual(catalog["pendingDeepAnalysis"], [])
 
-    def test_enrichment_older_than_latest_push_is_marked_for_review(self) -> None:
+    def test_repository_push_after_static_analysis_invalidates_later_enrichment(self) -> None:
         item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
         enrichment = {
             "schemaVersion": 1,
             "repository": "demo/new-tool",
-            "analyzedAt": "2026-07-09T08:00:00Z",
+            "sourcePushedAt": "2026-07-10T08:00:00Z",
+            "sourceAnalysisAt": "2026-07-10T08:30:00Z",
+            "analyzedAt": "2026-07-10T12:00:00Z",
             "titleZh": "旧画像",
             "summaryZh": "这份画像生成后仓库又更新了。",
             "capabilities": ["旧能力"],
             "taskTerms": ["旧任务"],
             "reusePlan": "重新核对后再复用。",
             "limitation": "尚未复核。",
+        }
+        analysis = {
+            "schemaVersion": 1,
+            "repository": "demo/new-tool",
+            "analyzed_at": "2026-07-10T08:30:00Z",
+            "indicators": {},
+            "counts": {},
+        }
+
+        catalog = build_catalog(
+            {"captured_at": "2026-07-10T12:00:00Z", "count": 1, "repositories": [item]},
+            analyses={"demo/new-tool": analysis},
+            enrichments={"demo/new-tool": enrichment},
+        )
+        project = catalog["projects"][0]
+
+        self.assertEqual(project["analysisState"], "画像待复核")
+        self.assertIn("缺少与仓库最新推送对应的只读静态证据", project["risk"])
+        self.assertEqual(catalog["deepAnalysisCount"], 0)
+        self.assertEqual(catalog["pendingDeepAnalysis"], ["demo/new-tool"])
+
+    def test_new_static_analysis_invalidates_enrichment_bound_to_old_evidence(self) -> None:
+        item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
+        enrichment = {
+            "schemaVersion": 1,
+            "repository": "demo/new-tool",
+            "sourcePushedAt": "2026-07-10T09:00:00Z",
+            "sourceAnalysisAt": "2026-07-10T09:30:00Z",
+            "analyzedAt": "2026-07-10T12:00:00Z",
+            "titleZh": "绑定旧证据的画像",
+            "summaryZh": "静态证据随后已更新。",
+            "capabilities": ["旧能力"],
+            "taskTerms": ["旧任务"],
+            "reusePlan": "重新核对后再复用。",
+            "limitation": "证据版本已更新。",
         }
         analysis = {
             "schemaVersion": 1,
@@ -319,15 +432,16 @@ class BuildCatalogTests(unittest.TestCase):
         project = catalog["projects"][0]
 
         self.assertEqual(project["analysisState"], "画像待复核")
-        self.assertIn("最近推送晚于当前中文画像", project["risk"])
+        self.assertIn("静态分析版本与当前证据不一致", project["risk"])
         self.assertEqual(catalog["deepAnalysisCount"], 0)
-        self.assertEqual(catalog["pendingDeepAnalysis"], ["demo/new-tool"])
 
     def test_enrichment_without_static_evidence_is_not_applied(self) -> None:
         item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
         enrichment = {
             "schemaVersion": 1,
             "repository": "demo/new-tool",
+            "sourcePushedAt": "2026-07-10T09:00:00Z",
+            "sourceAnalysisAt": "2026-07-10T10:00:00Z",
             "analyzedAt": "2026-07-10T10:00:00Z",
             "titleZh": "不应采用的画像标题",
             "summaryZh": "缺少静态证据。",
