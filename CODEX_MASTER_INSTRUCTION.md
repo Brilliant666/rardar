@@ -80,6 +80,7 @@ git log -5 --oneline
 ```bash
 npm run lint
 python -m unittest discover -s pipeline -p "test_*.py"
+npm run data:validate
 npm run data:audit
 npm run build
 npm test
@@ -93,7 +94,7 @@ npm run security:audit:prod
 建议：
 
 ```text
-feat/data-contracts
+feat/data-generations
 ```
 
 ### 4. 实现
@@ -114,15 +115,14 @@ feat/data-contracts
 
 至少覆盖：
 
-- 合法 enrichment；
-- capabilities 为字符串而不是数组；
-- taskTerms 含非字符串；
-- 非法 URL；
-- 无效时间；
-- repository 不匹配；
-- 未知 schemaVersion；
-- catalog 嵌套字段错误；
-- audit 对 Schema 错误的报告。
+- 成功生成、审计和发布；
+- Schema 失败不切换 current；
+- 跨文件审计失败不切换 current；
+- 临时写入或指针更新中断；
+- 两个并发发布者竞争；
+- 旧 generation 或过期发布冲突；
+- 上一代健康数据和增长基线保持不变；
+- current 指针与页面数据源、增长基线一致。
 
 ### 6. 完整验证
 
@@ -143,7 +143,7 @@ PR 描述包含：
 背景
 问题
 修改
-Schema 设计
+generation、manifest 与原子发布协议
 兼容性
 测试
 安全边界

@@ -11,6 +11,8 @@
 Before planning or implementing repository evolution work, read and follow these documents:
 
 - `CODEX_MASTER_INSTRUCTION.md` — operating instructions, scope, and delivery constraints.
-- `docs/RARDAR_AUDIT_BASELINE.md` — current audit findings and priority baseline.
+- `docs/RARDAR_AUDIT_BASELINE.md` — historical audit baseline and original findings.
 - `docs/RARDAR_NORTH_STAR.md` — mission, North Star metric, and non-negotiable principles.
 - `docs/RARDAR_EVOLUTION_PROTOCOL.md` — one-goal iteration, testing, documentation, and PR protocol.
+
+Use `CODEX_MASTER_INSTRUCTION.md` as the source of truth for the current next engineering goal. Determine completion status from the latest `main` together with the records in `docs/iterations/`; do not treat completed findings in the historical audit baseline as current work.

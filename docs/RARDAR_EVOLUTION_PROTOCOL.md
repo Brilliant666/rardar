@@ -70,10 +70,10 @@ git remote -v
 
 ## 3. 默认长期优先级
 
-没有用户指定其他目标时，按顺序选择：
+没有用户指定其他目标时，选择列表中第一个尚未完成的目标：
 
-1. 数据 Schema 和统一契约；
-2. 审计通过后发布 generation；
+1. 数据 Schema 和统一契约——已由 PR #2（提交 `048a2d9`）完成；
+2. 审计通过后发布 generation——当前第一个未完成项；
 3. 追加式行动事件模型；
 4. 评分语义修正；
 5. 统一 verify 和 GitHub Actions；
@@ -122,6 +122,7 @@ test/<scope>
 ```bash
 npm run lint
 python -m unittest discover -s pipeline -p "test_*.py"
+npm run data:validate
 npm run data:audit
 npm run build
 npm test
@@ -334,6 +335,8 @@ docs/iterations/<YYYY-MM-DD>-<topic>.md
 是否影响 North Star
 建议的下一项最高优先级
 ```
+
+每次 PR 合并后，必须更新治理文档中的完成状态或补充对应迭代记录，并在下一轮结合最新 `main` 重新判断第一个未完成项，避免重复实施已经完成的目标。
 
 但是：
 
