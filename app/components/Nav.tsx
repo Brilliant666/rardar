@@ -1,7 +1,12 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { catalog } from "../data";
 
 const links = [
   ["/", "今日"],
+  ["/signals", "动态"],
   ["/discover", "发现"],
   ["/search", "找项目"],
   ["/candidates", "候选池"],
@@ -9,6 +14,8 @@ const links = [
 ];
 
 export function Nav() {
+  const pathname = usePathname();
+
   return (
     <header className="site-header">
       <Link className="brand" href="/" aria-label="Rardar 首页">
@@ -17,13 +24,13 @@ export function Nav() {
       </Link>
       <nav className="main-nav" aria-label="主导航">
         {links.map(([href, label]) => (
-          <Link key={href} href={href}>
+          <Link className={pathname === href ? "active" : ""} key={href} href={href} aria-current={pathname === href ? "page" : undefined}>
             {label}
           </Link>
         ))}
       </nav>
       <div className="header-status">
-        <span className="live-dot" /> 演示快照
+        <span className="live-dot" /> {catalog.growthMode === "first_observation_proxy" ? "真实首轮快照" : "真实区间增长"}
       </div>
     </header>
   );

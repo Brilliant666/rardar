@@ -1,0 +1,41 @@
+{
+  "repository": "synthetic-sciences/openscience",
+  "source": "https://github.com/synthetic-sciences/openscience",
+  "analyzed_at": "2026-07-11T00:01:14.158658+00:00",
+  "scanned_files": 3828,
+  "language_files": {
+    ".md": 1239,
+    ".svg": 1176,
+    ".ts": 604,
+    ".py": 280,
+    ".tsx": 150,
+    ".json": 61,
+    ".txt": 56,
+    ".css": 53,
+    ".aac": 45,
+    ".tex": 35,
+    "[none]": 24,
+    ".sty": 17
+  },
+  "indicators": {
+    "readme": true,
+    "license": true,
+    "tests": true,
+    "ci": true,
+    "docker": true,
+    "dependency_lock": false,
+    "package_manifest": true,
+    "examples": false,
+    "docs": true,
+    "environment_example": true
+  },
+  "counts": {
+    "test_files": 145,
+    "todo_markers": 252
+  },
+  "license_hint": "Apache-2.0",
+  "confidence": 95,
+  "warnings": [
+    "static inspection only; code was not executed"
+  ]
+}

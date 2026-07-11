@@ -1,65 +1,68 @@
-import { and, eq, sql } from "drizzle-orm";
-import { env } from "cloudflare:workers";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
+import { ensureDecisionSchema } from "../../../db/ensure";
 import { feedback } from "../../../db/schema";
+import { projects } from "../../data";
+import { readJsonObject, trimmedString } from "../validation";
 
 const allowedValues = new Set(["有用", "无用", "复用", "待确定"]);
-
-async function ensureSchema() {
-  await env.DB.batch([
-    env.DB.prepare(`
-      CREATE TABLE IF NOT EXISTS feedback (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        device_id TEXT NOT NULL,
-        project_slug TEXT NOT NULL,
-        value TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    env.DB.prepare(`
-      CREATE UNIQUE INDEX IF NOT EXISTS feedback_device_project_idx
-      ON feedback (device_id, project_slug)
-    `),
-  ]);
-}
+const projectSlugs = new Set(projects.map((project) => project.slug));
+const noStoreHeaders = { "cache-control": "no-store" };
 
 export async function GET(request: Request) {
-  await ensureSchema();
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("deviceId")?.trim();
   const projectSlug = url.searchParams.get("projectSlug")?.trim();
-  if (!deviceId) return Response.json({ error: "deviceId is required" }, { status: 400 });
+  if (!deviceId || deviceId.length > 200) {
+    return Response.json({ error: "deviceId is required" }, { status: 400 });
+  }
+  if (projectSlug && !projectSlugs.has(projectSlug)) {
+    return Response.json({ error: "unknown project" }, { status: 404 });
+  }
 
+  await ensureDecisionSchema();
   const db = getDb();
   if (projectSlug) {
     const [row] = await db.select().from(feedback).where(and(eq(feedback.deviceId, deviceId), eq(feedback.projectSlug, projectSlug))).limit(1);
-    return Response.json({ feedback: row ?? null });
+    return Response.json({ feedback: row ?? null }, { headers: noStoreHeaders });
   }
 
   const rows = await db.select().from(feedback).where(eq(feedback.deviceId, deviceId));
-  return Response.json({ feedback: rows });
+  return Response.json({ feedback: rows }, { headers: noStoreHeaders });
 }
 
 export async function POST(request: Request) {
-  await ensureSchema();
-  const payload = (await request.json()) as { deviceId?: string; projectSlug?: string; value?: string };
-  const deviceId = payload.deviceId?.trim();
-  const projectSlug = payload.projectSlug?.trim();
-  const value = payload.value?.trim();
+  const payload = await readJsonObject(request);
+  if (!payload) {
+    return Response.json({ error: "invalid feedback" }, { status: 400 });
+  }
+  const deviceId = trimmedString(payload, "deviceId");
+  const projectSlug = trimmedString(payload, "projectSlug");
+  const value = trimmedString(payload, "value");
 
-  if (!deviceId || !projectSlug || !value || !allowedValues.has(value)) {
+  if (
+    !deviceId ||
+    deviceId.length > 200 ||
+    !projectSlug ||
+    !projectSlugs.has(projectSlug) ||
+    !value ||
+    !allowedValues.has(value)
+  ) {
     return Response.json({ error: "invalid feedback" }, { status: 400 });
   }
 
+  await ensureDecisionSchema();
   const db = getDb();
-  await db
+  const changedRows = await db
     .insert(feedback)
     .values({ deviceId, projectSlug, value })
     .onConflictDoUpdate({
       target: [feedback.deviceId, feedback.projectSlug],
       set: { value, updatedAt: sql`CURRENT_TIMESTAMP` },
-    });
+      setWhere: ne(feedback.value, value),
+    })
+    .returning({ id: feedback.id });
 
-  return Response.json({ ok: true, value });
+  const changed = changedRows.length === 1;
+  return Response.json({ ok: true, value, changed });
 }

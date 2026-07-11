@@ -21,8 +21,8 @@ export default function CandidatesPage() {
           {projects.map((project) => (
             <Link href={`/projects/${project.slug}`} key={project.slug} className="candidate-row">
               <div><strong>{project.repo}</strong><small>★ {formatNumber(project.stars)} · {project.language}</small></div>
-              <span>{project.category}</span>
-              <span className="trend-up">{project.trend}</span>
+              <span>{project.category}<small>{project.heatLabel ?? "近期动量"}</small></span>
+              <span className={project.growthValue < 0 ? "trend-down" : "trend-up"}>{project.trend}</span>
               <b>{project.globalScore}</b>
               <b>{project.reuseScore}</b>
               <span>{project.recommendation}</span>

@@ -1,0 +1,41 @@
+{
+  "repository": "oomol-lab/open-connector",
+  "source": "https://github.com/oomol-lab/open-connector",
+  "analyzed_at": "2026-07-11T00:01:24.676888+00:00",
+  "scanned_files": 3991,
+  "language_files": {
+    ".ts": 3908,
+    ".tsx": 27,
+    ".md": 26,
+    ".json": 17,
+    "[none]": 4,
+    ".yml": 2,
+    ".sql": 2,
+    ".txt": 1,
+    ".toml": 1,
+    ".jsonc": 1,
+    ".html": 1,
+    ".css": 1
+  },
+  "indicators": {
+    "readme": true,
+    "license": true,
+    "tests": true,
+    "ci": true,
+    "docker": true,
+    "dependency_lock": true,
+    "package_manifest": true,
+    "examples": true,
+    "docs": true,
+    "environment_example": false
+  },
+  "counts": {
+    "test_files": 51,
+    "todo_markers": 7
+  },
+  "license_hint": "Apache-2.0",
+  "confidence": 95,
+  "warnings": [
+    "static inspection only; code was not executed"
+  ]
+}

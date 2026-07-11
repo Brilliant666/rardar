@@ -11,7 +11,7 @@ export default function DiscoverPage() {
       <main className="page-main">
         <header className="page-hero">
           <span className="eyebrow">Discover</span>
-          <h1>发现正在起飞，<br />也值得复用的项目</h1>
+          <h1>发现正在起飞，<br />也长期高热的项目</h1>
           <p>{snapshotNotice}</p>
         </header>
         <div className="category-row" aria-label="项目分类">

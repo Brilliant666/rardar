@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-11T00:12:18.063998+00:00",
+  "scope": {
+    "projectLimit": 5,
+    "signalLimit": 10
+  },
+  "pendingCount": 0,
+  "projectPendingCount": 0,
+  "signalPendingCount": 0,
+  "completedProjectCount": 5,
+  "completedSignalCount": 10,
+  "items": []
+}

@@ -6,11 +6,23 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vinext dev",
+    "dev": "vinext dev --hostname 127.0.0.1",
+    "data:collect": "python -m pipeline.collect_github --out data/snapshots/latest.json",
+    "data:build": "python -m pipeline.rebuild_derived --data-dir data",
+    "data:derive": "python -m pipeline.rebuild_derived --data-dir data",
+    "data:refresh": "python -m pipeline.refresh --data-dir data --limit 30 --analyze-top 5",
+    "data:signals": "python -m pipeline.collect_signals --out data/signals/latest.json --window-hours 48 --limit 30",
+    "data:queue": "python -m pipeline.codex_queue",
+    "data:audit": "python -m pipeline.audit_data --data-dir data",
+    "data:schedule": "python -m pipeline.scheduler --data-dir data --at 08:00 --timezone Asia/Shanghai --analyze-top 5 --status-path %LOCALAPPDATA%/Rardar/runtime/scheduler-status.json --skip-initial",
+    "local:start": "python -m pipeline.runtime start",
+    "local:stop": "python -m pipeline.runtime stop",
+    "local:status": "python -m pipeline.runtime status",
     "build": "vinext build",
     "start": "vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "security:audit:prod": "npm audit --omit=dev --registry=https://registry.npmjs.org",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
@@ -19,8 +31,16 @@
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "miniflare": "4.20260617.0",
+    "postcss": "8.5.14",
+    "undici": "7.28.0",
+    "wrangler": "4.102.0",
+    "ws": "8.21.0"
+  },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/vite-plugin": "1.41.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
@@ -34,8 +54,8 @@
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "vinext": "0.0.50",
-    "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "vite": "8.1.4",
+    "wrangler": "4.102.0"
   },
   "type": "module"
 }

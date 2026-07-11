@@ -1,0 +1,35 @@
+{
+  "repository": "withmarbleapp/os-taxonomy",
+  "source": "https://github.com/withmarbleapp/os-taxonomy",
+  "scanned_files": 20,
+  "language_files": {
+    ".json": 10,
+    "[none]": 3,
+    ".md": 3,
+    ".cff": 1,
+    ".gif": 1,
+    ".mp4": 1,
+    ".mjs": 1
+  },
+  "indicators": {
+    "readme": true,
+    "license": true,
+    "tests": false,
+    "ci": false,
+    "docker": false,
+    "dependency_lock": false,
+    "package_manifest": true,
+    "examples": false,
+    "docs": false,
+    "environment_example": false
+  },
+  "counts": {
+    "test_files": 0,
+    "todo_markers": 0
+  },
+  "license_hint": "存在许可证文件",
+  "confidence": 53,
+  "warnings": [
+    "static inspection only; code was not executed"
+  ]
+}

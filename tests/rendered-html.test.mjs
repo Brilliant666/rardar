@@ -5,9 +5,51 @@ import test from "node:test";
 const templateRoot = new URL("../", import.meta.url);
 
 test("contains the complete Rardar home experience", async () => {
-  const [page, data, build] = await Promise.all([
+  const [
+    page,
+    data,
+    signals,
+    signalsPage,
+    searchPage,
+    searchWorkbench,
+    nav,
+    globalCss,
+    runtimeStatus,
+    feedbackRoute,
+    metricsRoute,
+    actionsRoute,
+    validation,
+    recommendationsRoute,
+    dailyList,
+    projectActions,
+    watchlist,
+    personalization,
+    queue,
+    schema,
+    ensure,
+    build,
+  ] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/signals.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/signals/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/search/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/SearchWorkbench.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/Nav.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/RuntimeStatus.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/feedback/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/metrics/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/actions/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/validation.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/recommendations/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/PersonalizedDailyList.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/ProjectActions.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/WatchlistClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/personalization.ts", import.meta.url), "utf8"),
+    readFile(new URL("../data/queues/codex.json", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/ensure.ts", import.meta.url), "utf8"),
     access(new URL("../dist/server/index.js", import.meta.url)),
   ]);
 
@@ -15,7 +57,75 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(page, /今天真正值得看的/);
   assert.match(page, /任务侦察/);
   assert.match(page, /Daily Five/);
+  assert.match(page, /长期高热/);
+  assert.match(page, /DecisionMetrics/);
+  assert.match(page, /SignalDigest/);
+  assert.match(page, /PersonalizedDailyList/);
+  assert.match(data, /catalogJson/);
+  assert.match(data, /taskTerms/);
+  assert.match(data, /enduranceScore/);
+  assert.match(data, /dailyTrackCounts/);
   assert.match(data, /dailyProjects = projects\.slice\(0, 5\)/);
+  assert.doesNotMatch(data, /starsToday/);
+  assert.match(metricsRoute, /effective_decisions/);
+  assert.match(metricsRoute, /cache-control.*no-store/s);
+  assert.match(feedbackRoute, /projectSlugs/);
+  assert.match(feedbackRoute, /noStoreHeaders/);
+  assert.match(feedbackRoute, /setWhere: ne\(feedback\.value, value\)/);
+  assert.match(feedbackRoute, /changedRows\.length === 1/);
+  assert.doesNotMatch(feedbackRoute, /insert\(decisionEvents\)/);
+  assert.match(metricsRoute, /project_actions/);
+  assert.match(actionsRoute, /allowedActions/);
+  assert.match(actionsRoute, /unknown project/);
+  assert.match(actionsRoute, /onConflictDoNothing\(\).*returning/s);
+  assert.match(actionsRoute, /recorded: inserted\.length === 1/);
+  assert.match(validation, /request\.json\(\)/);
+  assert.match(validation, /typeof value === "string"/);
+  assert.match(projectActions, /确认复用/);
+  assert.match(projectActions, /successfulMutationVersion/);
+  assert.match(projectActions, /mutationVersionAtStart/);
+  assert.match(projectActions, /successfulMutationVersion\.current \+= 1/);
+  assert.match(watchlist, /item\.action !== "saved"/);
+  assert.match(watchlist, /已收藏/);
+  assert.match(recommendationsRoute, /rankProjects/);
+  assert.match(dailyList, /rardar:feedback|feedbackEventName/);
+  assert.match(dailyList, /currentRequestVersion = \+\+requestVersion\.current/);
+  assert.match(dailyList, /currentRequestVersion !== requestVersion\.current/);
+  assert.match(personalization, /降低重复曝光/);
+  assert.match(personalization, /globalScore \* 0\.58/);
+  assert.match(personalization, /balanceHeatTracks/);
+  assert.match(schema, /decisionEvents/);
+  assert.match(ensure, /schemaReady/);
+  assert.match(ensure, /CREATE TRIGGER IF NOT EXISTS feedback_insert_decision_event/);
+  assert.match(ensure, /CREATE TRIGGER IF NOT EXISTS feedback_update_decision_event/);
+  assert.match(ensure, /WHEN OLD\.value <> NEW\.value/);
+  assert.match(signals, /signalJson/);
+  assert.match(signals, /isCurrentEnrichment/);
+  assert.match(signals, /sourcePublishedAt/);
+  assert.doesNotMatch(signals, /schedulerJson/);
+  assert.match(signalsPage, /sourceStatus/);
+  assert.match(signalsPage, /RuntimeStatus/);
+  assert.match(searchPage, /search-page/);
+  assert.match(searchPage, /radar-field/);
+  assert.doesNotMatch(searchPage, /dark-page/);
+  assert.match(searchWorkbench, /search-presets/);
+  assert.match(searchWorkbench, /search-overview/);
+  assert.match(searchWorkbench, /match-row-rich/);
+  assert.match(nav, /usePathname/);
+  assert.match(nav, /aria-current/);
+  assert.match(globalCss, /Rardar fusion visual system/);
+  assert.match(globalCss, /--cobalt: #315cff/);
+  assert.match(globalCss, /--cyan: #39bdf2/);
+  assert.doesNotMatch(globalCss, /--acid: #caff59/);
+  assert.match(runtimeStatus, /127\.0\.0\.1:3002\/status/);
+  assert.match(runtimeStatus, /heartbeatLimit/);
+  assert.match(runtimeStatus, /dataAuditStatus/);
+  assert.match(runtimeStatus, /observedNetStarChange/);
+  assert.match(runtimeStatus, /净 Star/);
+  assert.match(runtimeStatus, /数据需复核/);
+  assert.match(runtimeStatus, /等待重试/);
+  assert.match(runtimeStatus, /刷新失败/);
+  assert.match(queue, /pendingCount/);
   assert.doesNotMatch(page, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
   assert.equal(build, undefined);
 });
@@ -31,6 +141,9 @@ test("removes starter-only assets and metadata", async () => {
   assert.match(layout, /开源情报与项目复用雷达/);
   assert.match(layout, /og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
+  assert.match(packageJson, /local:start/);
+  assert.match(packageJson, /data:audit/);
+  assert.match(packageJson, /security:audit:prod/);
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
   await access(new URL("../public/og.png", import.meta.url));
   await access(new URL("../drizzle/0000_organic_the_professor.sql", import.meta.url));

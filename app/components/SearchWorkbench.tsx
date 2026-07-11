@@ -2,94 +2,248 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { projects, type Project } from "../data";
+import { formatNumber, projects, type Project } from "../data";
 
-const capabilityRules = [
-  { words: ["视频", "抖音", "短视频"], capabilities: ["视频采集", "内容拆解", "账号分析"] },
-  { words: ["新闻", "热点", "研究", "信息"], capabilities: ["多源检索", "热点研究", "证据汇总"] },
-  { words: ["agent", "智能体", "代理"], capabilities: ["Agent 工具", "编程 Agent", "Agent Memory"] },
-  { words: ["文档", "office", "表格", "ppt"], capabilities: ["Office 自动化", "文档读写", "CLI"] },
-  { words: ["github", "开源", "仓库", "项目"], capabilities: ["GitHub 分析", "Trending 抓取", "项目对比"] },
-  { words: ["自动", "流程", "工作流"], capabilities: ["流程自动化", "工程工作流", "自动化"] },
+type IntentRule = {
+  label: string;
+  words: string[];
+  capabilities: string[];
+  projectTerms: string[];
+};
+
+const intentRules: IntentRule[] = [
+  {
+    label: "视频与账号分析",
+    words: ["视频", "抖音", "短视频", "账号", "脚本", "流量", "字幕"],
+    capabilities: ["视频采集", "内容拆解", "账号分析", "脚本生成", "流量预测"],
+    projectTerms: ["video", "视频", "transcript", "douyin", "youtube", "creator", "content", "analytics"],
+  },
+  {
+    label: "研究与证据",
+    words: ["新闻", "热点", "研究", "信息", "证据", "文献", "报告"],
+    capabilities: ["多源检索", "证据汇总", "研究工作流", "报告生成"],
+    projectTerms: ["research", "science", "evidence", "news", "paper", "literature", "report", "研究"],
+  },
+  {
+    label: "Agent 工程化",
+    words: ["agent", "智能体", "代理", "codex", "claude", "mcp", "技能"],
+    capabilities: ["Agent 工具", "技能编排", "模型协作", "会话记忆"],
+    projectTerms: ["agent", "codex", "claude", "mcp", "skill", "memory", "hook", "智能体"],
+  },
+  {
+    label: "文档自动化",
+    words: ["文档", "office", "表格", "excel", "ppt", "word", "公众号"],
+    capabilities: ["文档读写", "格式转换", "内容生成", "自动排版"],
+    projectTerms: ["document", "office", "excel", "spreadsheet", "ppt", "word", "markdown", "公众号"],
+  },
+  {
+    label: "GitHub 项目情报",
+    words: ["github", "开源仓库", "代码仓库", "star", "趋势排行"],
+    capabilities: ["GitHub 分析", "趋势跟踪", "项目对比", "代码检查"],
+    projectTerms: ["github", "repository", "developer", "code", "open source", "trend", "analysis"],
+  },
+  {
+    label: "流程自动化",
+    words: ["自动", "流程", "工作流", "批量", "任务", "定时"],
+    capabilities: ["流程编排", "批量执行", "任务自动化", "运行监控"],
+    projectTerms: ["automation", "workflow", "pipeline", "scheduler", "task", "自动化", "工作流"],
+  },
+  {
+    label: "第三方服务集成",
+    words: ["oauth", "登录", "gmail", "notion", "slack", "api", "第三方", "连接器"],
+    capabilities: ["OAuth", "凭据管理", "API 集成", "连接器网关"],
+    projectTerms: ["oauth", "connector", "api gateway", "credential", "integration", "saas", "openapi"],
+  },
+  {
+    label: "知识与能力图谱",
+    words: ["知识库", "知识图谱", "能力图谱", "学习路径", "依赖关系", "课程"],
+    capabilities: ["知识图谱", "能力拆解", "依赖关系", "证据标准"],
+    projectTerms: ["taxonomy", "knowledge graph", "prerequisite", "curriculum", "graph", "知识图谱"],
+  },
 ];
 
-function scoreProject(project: Project, query: string, capabilities: string[]) {
-  const haystack = [
+function normalize(value: string) {
+  return value.toLowerCase().replace(/[-_/]+/g, " ");
+}
+
+function queryTokens(query: string) {
+  const latin = query.toLowerCase().match(/[a-z0-9+#.]{2,}/g) ?? [];
+  const chunks = query
+    .toLowerCase()
+    .split(/[\s，。,.、/：:；;（）()]+/)
+    .filter((token) => token.length > 1);
+  return [...new Set([...latin, ...chunks])];
+}
+
+function analyzeIntent(query: string) {
+  const normalized = normalize(query);
+  const rules = intentRules.filter((rule) => rule.words.some((word) => normalized.includes(word)));
+  const capabilities = [...new Set(rules.flatMap((rule) => rule.capabilities))];
+  return {
+    rules,
+    capabilities: (capabilities.length ? capabilities : ["需求理解", "相似项目", "可复用模块"]).slice(0, 6),
+    tokens: queryTokens(query),
+  };
+}
+
+function matchProject(project: Project, query: string, rules: IntentRule[], tokens: string[]) {
+  const haystack = normalize([
     project.repo,
     project.title,
     project.description,
+    project.category,
+    project.fit,
+    project.reusePlan,
     ...project.capabilities,
-  ].join(" ").toLowerCase();
-  const tokens = query.toLowerCase().split(/[\s，。,.、/]+/).filter((token) => token.length > 1);
-  const tokenScore = tokens.reduce((score, token) => score + (haystack.includes(token) ? 4 : 0), 0);
-  const capabilityScore = capabilities.reduce(
-    (score, capability) => score + (project.capabilities.some((item) => item.includes(capability) || capability.includes(item)) ? 6 : 0),
-    0,
+    ...project.taskTerms,
+  ].join(" "));
+
+  const ruleMatches = rules
+    .map((rule) => ({
+      rule,
+      terms: rule.projectTerms.filter((term) => haystack.includes(normalize(term))),
+    }))
+    .filter((match) => match.terms.length > 0);
+  const matchedTokens = tokens.filter((token) => haystack.includes(normalize(token)));
+  const semanticScore = Math.min(
+    54,
+    ruleMatches.reduce((score, match) => score + 10 + Math.min(12, (match.terms.length - 1) * 4), 0),
   );
-  return tokenScore + capabilityScore + project.reuseScore / 20;
+  const tokenScore = Math.min(20, matchedTokens.length * 5);
+  const evidenceScore = project.analysisState === "深度分析" ? 10 : project.analysisState === "静态分析" ? 6 : 2;
+  const reuseScore = Math.round(project.reuseScore * 0.12);
+  const score = Math.min(96, semanticScore + tokenScore + evidenceScore + reuseScore);
+  const reasons = [
+    ...ruleMatches.map((match) => `${match.rule.label}：${match.terms.slice(0, 2).join("、")}`),
+    ...(matchedTokens.length ? [`直接命中：${matchedTokens.slice(0, 2).join("、")}`] : []),
+    project.analysisState,
+  ];
+
+  return {
+    project,
+    score,
+    strongMatch: ruleMatches.length > 0 || matchedTokens.length > 0,
+    reasons: [...new Set(reasons)].slice(0, 3),
+  };
 }
 
 export function SearchWorkbench({ compact = false }: { compact?: boolean }) {
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
 
-  const capabilities = useMemo(() => {
-    const matched = capabilityRules
-      .filter((rule) => rule.words.some((word) => submitted.toLowerCase().includes(word)))
-      .flatMap((rule) => rule.capabilities);
-    return [...new Set(matched.length ? matched : ["需求理解", "相似项目", "可复用模块"])]
-      .slice(0, compact ? 3 : 6);
-  }, [compact, submitted]);
+  const intent = useMemo(() => analyzeIntent(submitted), [submitted]);
 
   const results = useMemo(() => {
     if (!submitted) return [];
-    return projects
-      .map((project) => ({ project, score: scoreProject(project, submitted, capabilities) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, compact ? 3 : 5);
-  }, [capabilities, compact, submitted]);
+    const ranked = projects
+      .map((project) => matchProject(project, submitted, intent.rules, intent.tokens))
+      .sort((a, b) => b.score - a.score || b.project.reuseScore - a.project.reuseScore);
+    const strong = ranked.filter((result) => result.strongMatch);
+    return (strong.length ? strong : ranked).slice(0, compact ? 3 : 5);
+  }, [compact, intent, submitted]);
+
+  const displayedResults = submitted
+    ? results
+    : projects.slice(0, 3).map((project) => ({
+        project,
+        score: project.reuseScore,
+        reasons: [project.heatLabel ?? "当前高价值候选", project.analysisState],
+      }));
+  const observedCount = projects.filter((project) => project.growthKind === "observed").length;
+  const averageReuse = projects.length
+    ? Math.round(projects.reduce((sum, project) => sum + project.reuseScore, 0) / projects.length)
+    : 0;
+  const deepCount = projects.filter((project) => project.analysisState === "深度分析").length;
+
+  const presets = [
+    ["AI Agent", "找一个可自托管的 AI Agent 平台"],
+    ["自动化", "找一个可以自托管的工作流自动化平台"],
+    ["研究证据", "找一个能检索资料、整理证据并生成报告的项目"],
+    ["第三方集成", "找一个支持 OAuth、MCP 和第三方服务连接器的项目"],
+  ];
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (query.trim()) setSubmitted(query.trim());
   }
 
+  function applyPreset(value: string) {
+    setQuery(value);
+    setSubmitted(value);
+  }
+
   return (
     <div className={`search-workbench ${compact ? "compact-search" : ""}`}>
       <form onSubmit={submit}>
-        <label htmlFor={compact ? "home-task" : "search-task"}>描述你想实现的功能</label>
+        <label htmlFor={compact ? "home-task" : "search-task"}>{compact ? "描述你想实现的功能" : "输入一个任务，而不是仓库名"}</label>
         <div className="search-row">
           <input
             id={compact ? "home-task" : "search-task"}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="例如：找到能扫描账号、拆解视频并预测流量的项目"
+            placeholder={compact ? "例如：找到能扫描账号、拆解视频并预测流量的项目" : "例如：找一个可以自托管、支持 AI Agent 的工作流平台"}
           />
-          <button type="submit">开始侦察</button>
+          <button type="submit">开始侦察 <span aria-hidden="true">→</span></button>
         </div>
       </form>
 
-      {submitted && (
-        <div className="search-results" aria-live="polite">
+      {!compact && (
+        <>
+          <div className="search-presets" aria-label="常用任务示例">
+            {presets.map(([label, value]) => (
+              <button key={label} type="button" onClick={() => applyPreset(value)}>
+                <span>✦</span>{label}
+              </button>
+            ))}
+            <small>点击示例可直接检索</small>
+          </div>
+          <div className="search-overview" aria-label="候选项目概况">
+            <div><strong>{projects.length}</strong><span>候选项目</span></div>
+            <div><strong>{observedCount}</strong><span>真实增长观测</span></div>
+            <div><strong>{averageReuse}</strong><span>平均复用分</span></div>
+            <div><strong>{deepCount}</strong><span>已完成深读</span></div>
+            <div className="overview-sort"><span>排序方式</span><strong>任务相关性⌄</strong></div>
+          </div>
+        </>
+      )}
+
+      {(submitted || !compact) && (
+        <div className={`search-results ${compact ? "" : "full-search-results"}`} aria-live="polite">
+          {!compact && (
+            <div className="match-heading">
+              <div><span className="section-label">{submitted ? "Task matches" : "Radar picks"}</span><strong>{submitted ? `找到 ${displayedResults.length} 个优先匹配` : "当前高价值候选"}</strong></div>
+              <small>{submitted ? "已按任务能力、实现证据与复用价值重排" : "输入任务后将重新计算匹配顺序"}</small>
+            </div>
+          )}
+          {submitted && (
           <div className="capability-breakdown">
             <span className="section-label">目标拆解</span>
             <div className="capability-list">
-              {capabilities.map((capability) => <span key={capability}>{capability}</span>)}
+              {intent.capabilities.map((capability) => <span key={capability}>{capability}</span>)}
             </div>
           </div>
+          )}
           <div className="match-list">
-            {results.map(({ project, score }, index) => (
-              <Link href={`/projects/${project.slug}`} key={project.slug} className="match-row">
+            {displayedResults.map(({ project, score, reasons }, index) => (
+              <Link href={`/projects/${project.slug}`} key={project.slug} className={`match-row ${compact ? "" : "match-row-rich"}`}>
                 <span>{String(index + 1).padStart(2, "0")}</span>
-                <div>
+                <div className="match-identity">
                   <strong>{project.repo}</strong>
-                  <p>{project.fit}</p>
+                  <p>{project.description}</p>
+                  <small>{reasons.join(" · ")}</small>
                 </div>
-                <b>{Math.min(96, Math.round(score * 4.2))}%</b>
+                {compact ? <b>{score}%</b> : (
+                  <>
+                    <div className="match-stat"><span>区间增长</span><strong className={project.growthValue < 0 ? "trend-down" : "trend-up"}>{project.trend}</strong><small>★ {formatNumber(project.stars)}</small></div>
+                    <div className="match-stat reuse-stat"><span>复用价值</span><strong>{project.reuseScore}</strong><small>{project.recommendation}</small></div>
+                    <div className="match-stat"><span>许可证</span><strong>{project.license}</strong><small>{project.analysisState}</small></div>
+                    <div className="match-why"><span>为什么现在</span><p>{project.whyNow}</p></div>
+                  </>
+                )}
               </Link>
             ))}
           </div>
-          <p className="model-note">当前结果为规则匹配演示；接入 Codex 后会继续读取代码并生成组合复用方案。</p>
+          <p className="model-note">匹配依据来自本地 Codex 能力画像、仓库事实与可解释任务规则；没有明确命中时不会伪造高匹配度。 <strong>查看全部 {projects.length} 个候选 →</strong></p>
         </div>
       )}
     </div>

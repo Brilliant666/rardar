@@ -1,0 +1,41 @@
+{
+  "repository": "DietrichGebert/ponytail",
+  "source": "https://github.com/DietrichGebert/ponytail",
+  "analyzed_at": "2026-07-11T00:01:29.078155+00:00",
+  "scanned_files": 150,
+  "language_files": {
+    ".md": 56,
+    ".js": 42,
+    ".json": 17,
+    ".py": 6,
+    ".yaml": 6,
+    ".toml": 6,
+    ".svg": 5,
+    ".yml": 3,
+    "[none]": 2,
+    ".mjs": 2,
+    ".example": 1,
+    ".mdc": 1
+  },
+  "indicators": {
+    "readme": true,
+    "license": true,
+    "tests": true,
+    "ci": true,
+    "docker": false,
+    "dependency_lock": false,
+    "package_manifest": true,
+    "examples": true,
+    "docs": true,
+    "environment_example": true
+  },
+  "counts": {
+    "test_files": 20,
+    "todo_markers": 13
+  },
+  "license_hint": "MIT",
+  "confidence": 95,
+  "warnings": [
+    "static inspection only; code was not executed"
+  ]
+}
