@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,15 @@ def _is_http_url(value: object) -> bool:
         return False
     parsed = urlparse(value)
     return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
+
+
+def _is_valid_signal_score(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and 0 <= value <= 1
+        and math.isfinite(value)
+    )
 
 
 def _check_count(
@@ -421,6 +431,16 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     _add_if(issues, len(signal_ids) != len(set(signal_ids)) or "" in signal_ids, "duplicate_signal_id", "signal IDs must be non-empty and unique")
     _add_if(issues, len(signal_urls) != len(set(signal_urls)) or "" in signal_urls, "duplicate_signal_url", "signal URLs must be non-empty and unique")
     _add_if(issues, any(not _is_http_url(value) for value in signal_urls), "unsafe_signal_url", "signal URLs must use HTTP(S) with a host")
+    invalid_signal_scores = sum(
+        not isinstance(item, dict) or not _is_valid_signal_score(item.get("score"))
+        for item in signal_items
+    )
+    _add_if(
+        issues,
+        invalid_signal_scores > 0,
+        "invalid_signal_score",
+        f"{invalid_signal_scores} signal scores must be finite numbers between 0 and 1",
+    )
     if signals_at:
         window_hours = _integer(signals.get("windowHours"))
         _add_if(issues, window_hours is None or window_hours <= 0, "invalid_signal_window", "windowHours must be a positive integer")

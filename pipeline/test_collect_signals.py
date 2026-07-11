@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import patch
 
 from pipeline.collect_signals import (
     AI_RADAR_URL,
@@ -11,6 +14,7 @@ from pipeline.collect_signals import (
     OFFICIAL_FEEDS,
     _merge_signals,
     collect_signals,
+    main,
 )
 
 
@@ -112,6 +116,67 @@ class CollectSignalsTests(unittest.TestCase):
         payload = collect_signals(client, datetime(2026, 7, 10, 12, tzinfo=timezone.utc))
 
         self.assertFalse(any(item["title"] == "Future announcement" for item in payload["signals"]))
+
+    def test_rejects_non_finite_aggregated_scores_and_clamps_finite_values(self) -> None:
+        client = StubClient()
+        client.responses[AI_RADAR_URL] = json.dumps(
+            {
+                "items": [
+                    {
+                        "title": "Injected NaN score",
+                        "primary_url": "https://example.com/nan",
+                        "latest_at": "2026-07-10T11:00:00Z",
+                        "importance_score": float("nan"),
+                    },
+                    {
+                        "title": "Invalid text score",
+                        "primary_url": "https://example.com/text-score",
+                        "latest_at": "2026-07-10T11:00:00Z",
+                        "importance_score": "not-a-number",
+                    },
+                    {
+                        "title": "High finite score",
+                        "primary_url": "https://example.com/high-score",
+                        "latest_at": "2026-07-10T11:00:00Z",
+                        "importance_score": 42,
+                    },
+                    {
+                        "title": "Low finite score",
+                        "primary_url": "https://example.com/low-score",
+                        "latest_at": "2026-07-10T11:00:00Z",
+                        "importance_score": -42,
+                    },
+                ]
+            }
+        ).encode()
+
+        payload = collect_signals(client, datetime(2026, 7, 10, 12, tzinfo=timezone.utc))
+        aggregated = {
+            item["title"]: item
+            for item in payload["signals"]
+            if item.get("source") == "AI News Radar"
+        }
+
+        self.assertNotIn("Injected NaN score", aggregated)
+        self.assertNotIn("Invalid text score", aggregated)
+        self.assertEqual(aggregated["High finite score"]["score"], 0.96)
+        self.assertEqual(aggregated["Low finite score"]["score"], 0.0)
+        json.dumps(payload, allow_nan=False)
+
+    def test_cli_refuses_to_write_non_standard_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "signals.json"
+            with (
+                patch(
+                    "pipeline.collect_signals.collect_signals",
+                    return_value={"signalCount": 1, "score": float("nan")},
+                ),
+                patch("sys.argv", ["collect_signals", "--out", str(output)]),
+                self.assertRaises(ValueError),
+            ):
+                main()
+
+            self.assertFalse(output.exists())
 
     def test_excludes_stale_daily_rank(self) -> None:
         client = StubClient()

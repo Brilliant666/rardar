@@ -1,7 +1,7 @@
 import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ensureDecisionSchema } from "../../../db/ensure";
-import { decisionEvents, feedback } from "../../../db/schema";
+import { feedback } from "../../../db/schema";
 import { projects } from "../../data";
 import { readJsonObject, trimmedString } from "../validation";
 
@@ -64,9 +64,5 @@ export async function POST(request: Request) {
     .returning({ id: feedback.id });
 
   const changed = changedRows.length === 1;
-  if (changed) {
-    await db.insert(decisionEvents).values({ deviceId, projectSlug, value });
-  }
-
   return Response.json({ ok: true, value, changed });
 }

@@ -74,6 +74,7 @@ class AuditDataTests(unittest.TestCase):
                         "id": "signal-1",
                         "url": "https://example.com/news",
                         "publishedAt": captured,
+                        "score": 0.8,
                     }
                 ],
             }
@@ -121,6 +122,7 @@ class AuditDataTests(unittest.TestCase):
                 "id": "signal-1",
                 "url": "https://example.com/news",
                 "publishedAt": "2026-07-10T11:00:00+00:00",
+                "score": 0.8,
             }
             source = {
                 "id": "official-news",
@@ -266,6 +268,74 @@ class AuditDataTests(unittest.TestCase):
                 "queue_count_mismatch",
             }.issubset(codes)
         )
+
+    def test_rejects_non_finite_and_out_of_range_signal_scores(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            captured = "2026-07-10T12:00:00+00:00"
+            write_json(
+                root / "snapshots/latest.json",
+                {"captured_at": captured, "count": 0, "repositories": []},
+            )
+            write_json(
+                root / "catalog/latest.json",
+                {
+                    "capturedAt": captured,
+                    "sourceCount": 0,
+                    "projectCount": 0,
+                    "projects": [],
+                },
+            )
+            write_json(
+                root / "signals/latest.json",
+                {
+                    "capturedAt": captured,
+                    "windowHours": 48,
+                    "signalCount": 3,
+                    "healthySourceCount": 1,
+                    "failedSourceCount": 0,
+                    "sourceStatus": [
+                        {"id": "source", "url": "https://example.com/feed", "state": "healthy"}
+                    ],
+                    "signals": [
+                        {
+                            "id": "nan",
+                            "url": "https://example.com/nan",
+                            "publishedAt": captured,
+                            "score": float("nan"),
+                        },
+                        {
+                            "id": "infinite",
+                            "url": "https://example.com/infinite",
+                            "publishedAt": captured,
+                            "score": float("inf"),
+                        },
+                        {
+                            "id": "too-high",
+                            "url": "https://example.com/high",
+                            "publishedAt": captured,
+                            "score": 1.01,
+                        },
+                    ],
+                },
+            )
+            write_json(
+                root / "queues/codex.json",
+                {
+                    "generatedAt": captured,
+                    "pendingCount": 0,
+                    "projectPendingCount": 0,
+                    "signalPendingCount": 0,
+                    "items": [],
+                },
+            )
+
+            result = audit_data(root)
+
+        matching = [item for item in result["issues"] if item["code"] == "invalid_signal_score"]
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(len(matching), 1)
+        self.assertIn("3 signal scores", matching[0]["detail"])
 
 
 if __name__ == "__main__":

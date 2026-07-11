@@ -33,6 +33,23 @@ export function ensureDecisionSchema() {
       ON decision_events (device_id, created_at)
     `),
     env.DB.prepare(`
+      CREATE TRIGGER IF NOT EXISTS feedback_insert_decision_event
+      AFTER INSERT ON feedback
+      BEGIN
+        INSERT INTO decision_events (device_id, project_slug, value)
+        VALUES (NEW.device_id, NEW.project_slug, NEW.value);
+      END
+    `),
+    env.DB.prepare(`
+      CREATE TRIGGER IF NOT EXISTS feedback_update_decision_event
+      AFTER UPDATE OF value ON feedback
+      WHEN OLD.value <> NEW.value
+      BEGIN
+        INSERT INTO decision_events (device_id, project_slug, value)
+        VALUES (NEW.device_id, NEW.project_slug, NEW.value);
+      END
+    `),
+    env.DB.prepare(`
       CREATE TABLE IF NOT EXISTS project_actions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         device_id TEXT NOT NULL,

@@ -87,6 +87,16 @@ class RefreshTests(unittest.TestCase):
             self.assertEqual(json.loads(second.read_text(encoding="utf-8")), {"version": 1})
             self.assertEqual(sorted(path.name for path in root.iterdir()), ["first.json", "second.json"])
 
+    def test_json_batch_rejects_non_finite_values_before_replacing_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "artifact.json"
+            path.write_text('{"score": 0.5}\n', encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "JSON compliant"):
+                _write_json_batch([(path, {"score": float("nan")})])
+
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"score": 0.5})
+
     def test_second_refresh_archives_previous_and_reports_observed_growth(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory)

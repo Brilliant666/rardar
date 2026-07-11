@@ -175,6 +175,7 @@ class SchedulerTests(unittest.TestCase):
                 8,
                 0,
                 "Asia/Shanghai",
+                latest_snapshot_at="2026-07-10T00:00:02+00:00",
             )
         )
 

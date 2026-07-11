@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getDeviceId,
   recordProjectAction,
@@ -31,17 +31,26 @@ export function TrackedRepositoryLink({ projectSlug, repository }: { projectSlug
 export function ProjectActions({ projectSlug }: { projectSlug: string }) {
   const [selected, setSelected] = useState<Set<ProjectActionValue>>(new Set());
   const [message, setMessage] = useState("");
+  const successfulMutationVersion = useRef(0);
 
   useEffect(() => {
     const deviceId = getDeviceId();
     if (!deviceId) return;
-    fetch(`/api/actions?deviceId=${encodeURIComponent(deviceId)}&projectSlug=${encodeURIComponent(projectSlug)}`)
+    const controller = new AbortController();
+    const mutationVersionAtStart = successfulMutationVersion.current;
+
+    fetch(`/api/actions?deviceId=${encodeURIComponent(deviceId)}&projectSlug=${encodeURIComponent(projectSlug)}`, {
+      signal: controller.signal,
+    })
       .then((response) => (response.ok ? response.json() : null))
       .then((payload) => {
+        if (controller.signal.aborted || successfulMutationVersion.current !== mutationVersionAtStart) return;
         const values = (payload?.actions ?? []).map((item: { action: ProjectActionValue }) => item.action);
         setSelected(new Set(values));
       })
       .catch(() => undefined);
+
+    return () => controller.abort();
   }, [projectSlug]);
 
   async function save(action: ProjectActionValue) {
@@ -49,6 +58,7 @@ export function ProjectActions({ projectSlug }: { projectSlug: string }) {
     setMessage("记录中…");
     try {
       await recordProjectAction(projectSlug, action);
+      successfulMutationVersion.current += 1;
       setSelected((current) => new Set([...current, action]));
       setMessage("已记录为真实行动");
     } catch {

@@ -73,11 +73,16 @@ def should_catch_up(
     elapsed = now - target
     if elapsed.total_seconds() < 0 or elapsed > timedelta(hours=max(1, window_hours)):
         return False
+    # A committed artifact set is not necessarily healthy: refresh publishes
+    # before audit_data runs. Preserve a failed run across scheduler restarts
+    # so the normal retry path can repair or revalidate that generation.
+    if last_state == "failed":
+        return True
     committed_snapshot = _parse_datetime(latest_snapshot_at)
     if committed_snapshot and target <= committed_snapshot <= now + timedelta(hours=2):
         return False
     completed = _parse_datetime(last_run_completed_at)
-    return last_state == "failed" or completed is None or completed < target
+    return completed is None or completed < target
 
 
 def should_retry(last_state: object, attempts_in_cycle: int, max_attempts: int = MAX_REFRESH_ATTEMPTS) -> bool:

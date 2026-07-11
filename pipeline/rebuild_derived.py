@@ -15,6 +15,7 @@ from typing import Any
 
 from pipeline.build_catalog import build_catalog
 from pipeline.codex_queue import build_codex_queue
+from pipeline.data_lock import locked_data_dir
 from pipeline.refresh import (
     _load_analyses,
     _load_enrichments,
@@ -77,6 +78,7 @@ def _previous_snapshot(
     )
 
 
+@locked_data_dir
 def rebuild_derived(
     data_dir: Path,
     now: datetime | None = None,

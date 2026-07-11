@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import html
 import json
+import math
 import os
 import re
 import urllib.parse
@@ -66,6 +67,7 @@ PRODUCT_CHANGE_TERMS = {
 
 MARKETING_STORY_TERMS = {"case study", "customer", "how ", "rewiring", "with ai"}
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+MAX_AGGREGATED_SCORE = 0.96
 
 
 class HttpClient:
@@ -175,6 +177,20 @@ def _relevance(title: str) -> float:
     return max(0.0, min(1.0, 0.24 + ai_matches * 0.14 + product_matches * 0.1 - marketing_matches * 0.09))
 
 
+def _aggregated_score(item: dict[str, Any]) -> float | None:
+    values = (item.get("importance_score"), item.get("importance"), item.get("score"))
+    raw_value = next((value for value in values if value is not None and value != ""), 0.5)
+    if isinstance(raw_value, bool):
+        return None
+    try:
+        score = float(raw_value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(score):
+        return None
+    return round(max(0.0, min(score, MAX_AGGREGATED_SCORE)), 4)
+
+
 def _official_signals(client: HttpClient, now: datetime, window_hours: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     signals: list[dict[str, Any]] = []
     statuses: list[dict[str, Any]] = []
@@ -235,16 +251,17 @@ def _radar_signals(client: HttpClient, now: datetime, window_hours: int) -> tupl
             published = _parse_datetime(item.get("latest_at") or item.get("earliest_at"))
             link = _safe_http_url(item.get("primary_url") or item.get("url"))
             title = _clean_title(item.get("title"))
+            importance = _aggregated_score(item)
             if (
                 not published
                 or not link
                 or not title
+                or importance is None
                 or published < now - timedelta(hours=window_hours)
                 or published > now + timedelta(hours=2)
             ):
                 continue
             source_names = [str(value) for value in item.get("source_names") or [item.get("source")] if value]
-            importance = float(item.get("importance_score") or item.get("importance") or item.get("score") or 0.5)
             signals.append(
                 {
                     "id": _signal_id("aggregated", link),
@@ -255,7 +272,7 @@ def _radar_signals(client: HttpClient, now: datetime, window_hours: int) -> tupl
                     "source": "AI News Radar",
                     "sourceUrl": AI_RADAR_URL,
                     "publishedAt": published.isoformat(),
-                    "score": round(min(importance, 0.96), 4),
+                    "score": importance,
                     "evidence": list(item.get("reasons") or ["curated_aggregator"]),
                     "sources": source_names or ["AI News Radar"],
                 }
@@ -421,7 +438,10 @@ def main() -> None:
         max(5, min(arguments.limit, 100)),
     )
     arguments.out.parent.mkdir(parents=True, exist_ok=True)
-    arguments.out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    arguments.out.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     print(
         f"saved {payload['signalCount']} signals from {payload['healthySourceCount']} healthy sources "
         f"({payload['failedSourceCount']} failed) to {arguments.out}"

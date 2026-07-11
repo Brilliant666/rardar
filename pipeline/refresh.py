@@ -17,6 +17,7 @@ from pipeline.build_catalog import build_catalog
 from pipeline.collect_github import GitHubClient, collect
 from pipeline.collect_signals import HttpClient, collect_signals
 from pipeline.codex_queue import build_codex_queue
+from pipeline.data_lock import locked_data_dir
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -28,7 +29,10 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     temporary.replace(path)
 
 
@@ -46,7 +50,7 @@ def _write_json_batch(entries: list[tuple[Path, dict[str, Any]]]) -> None:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary = path.with_name(f".{path.name}.{transaction_id}.tmp")
             temporary.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
                 encoding="utf-8",
             )
             staged[path] = temporary
@@ -135,6 +139,7 @@ def _load_snapshot_history(
     return sorted(snapshots.values(), key=lambda item: str(item.get("captured_at") or ""))
 
 
+@locked_data_dir
 def refresh(
     data_dir: Path,
     now: datetime,

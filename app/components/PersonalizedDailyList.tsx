@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dailyProjects, projects } from "../data";
 import type { PersonalizationResult } from "../personalization";
 import { feedbackEventName, getDeviceId } from "./device-id";
@@ -9,8 +9,10 @@ import { ProjectCard } from "./ProjectCard";
 export function PersonalizedDailyList() {
   const [result, setResult] = useState<PersonalizationResult | null>(null);
   const [failed, setFailed] = useState(false);
+  const requestVersion = useRef(0);
 
   const refresh = useCallback(async () => {
+    const currentRequestVersion = ++requestVersion.current;
     const deviceId = getDeviceId();
     if (!deviceId) return;
 
@@ -19,9 +21,12 @@ export function PersonalizedDailyList() {
         cache: "no-store",
       });
       if (!response.ok) throw new Error("recommendations unavailable");
-      setResult((await response.json()) as PersonalizationResult);
+      const nextResult = (await response.json()) as PersonalizationResult;
+      if (currentRequestVersion !== requestVersion.current) return;
+      setResult(nextResult);
       setFailed(false);
     } catch {
+      if (currentRequestVersion !== requestVersion.current) return;
       setFailed(true);
     }
   }, []);
@@ -31,6 +36,7 @@ export function PersonalizedDailyList() {
     const handleFeedback = () => void refresh();
     window.addEventListener(feedbackEventName, handleFeedback);
     return () => {
+      requestVersion.current += 1;
       window.clearTimeout(initialRefresh);
       window.removeEventListener(feedbackEventName, handleFeedback);
     };
