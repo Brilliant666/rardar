@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { projects } from "../data";
+import type { Project } from "../data";
 import { getDeviceId } from "./device-id";
 
-export function WatchlistClient() {
+export function WatchlistClient({ projects }: { projects: Project[] }) {
   const [statusBySlug, setStatusBySlug] = useState<Record<string, string[]>>({});
   const [loaded, setLoaded] = useState(false);
 

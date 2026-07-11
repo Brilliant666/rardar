@@ -2,13 +2,14 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ensureDecisionSchema } from "../../../db/ensure";
 import { projectActions } from "../../../db/schema";
-import { projects } from "../../data";
+import { loadPublishedData } from "../../server-data";
 import { readJsonObject, trimmedString } from "../validation";
 
 const allowedActions = ["opened", "saved", "tried", "cloned", "reused"] as const;
-const projectSlugs = new Set(projects.map((project) => project.slug));
 
 export async function GET(request: Request) {
+  const { projects } = loadPublishedData();
+  const projectSlugs = new Set(projects.map((project) => project.slug));
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("deviceId")?.trim();
   const projectSlug = url.searchParams.get("projectSlug")?.trim();
@@ -36,6 +37,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const { projects } = loadPublishedData();
+  const projectSlugs = new Set(projects.map((project) => project.slug));
   const payload = await readJsonObject(request);
   if (!payload) {
     return Response.json({ error: "invalid project action" }, { status: 400 });

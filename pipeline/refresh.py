@@ -16,7 +16,14 @@ from pipeline.build_catalog import build_catalog
 from pipeline.collect_github import GitHubClient, collect
 from pipeline.collect_signals import HttpClient, collect_signals
 from pipeline.codex_queue import build_codex_queue
-from pipeline.data_lock import locked_data_dir
+from pipeline.generations import (
+    CandidateGeneration,
+    CandidateGenerationError,
+    GenerationProtocolError,
+    create_candidate_generation,
+    fail_candidate_generation,
+    publish_candidate_generation,
+)
 from pipeline.schema_validation import (
     infer_artifact_kind,
     load_validated_json,
@@ -151,9 +158,24 @@ def _load_snapshot_history(
     return sorted(snapshots.values(), key=lambda item: str(item.get("captured_at") or ""))
 
 
-@locked_data_dir
-def refresh(
-    data_dir: Path,
+def _ensure_signal_enrichment(generation_root: Path, generated_at: datetime) -> dict[str, Any]:
+    """Ensure every candidate has the consumer-required enrichment artifact."""
+    path = generation_root / "signals" / "enrichment.json"
+    existing = _read_json(path)
+    if existing is not None:
+        return existing
+    payload = {
+        "schemaVersion": 1,
+        "generatedAt": generated_at.astimezone(timezone.utc).isoformat(),
+        "model": "none",
+        "items": {},
+    }
+    _write_json(path, payload)
+    return payload
+
+
+def _refresh_candidate_tree(
+    candidate: CandidateGeneration,
     now: datetime,
     since_days: int = 14,
     limit: int = 30,
@@ -162,12 +184,14 @@ def refresh(
     signal_client: HttpClient | None = None,
     collect_external_signals: bool = True,
 ) -> dict[str, Any]:
-    snapshots_dir = data_dir / "snapshots"
+    generation_root = candidate.path
+    snapshots_dir = generation_root / "snapshots"
     latest_snapshot_path = snapshots_dir / "latest.json"
     history_dir = snapshots_dir / "history"
-    analysis_dir = data_dir / "analysis"
-    enrichment_dir = data_dir / "enrichment"
-    catalog_path = data_dir / "catalog" / "latest.json"
+    analysis_dir = generation_root / "analysis"
+    enrichment_dir = generation_root / "enrichment"
+    catalog_path = generation_root / "catalog" / "latest.json"
+    _ensure_signal_enrichment(generation_root, now)
 
     previous = _read_json(latest_snapshot_path)
     history = _load_snapshot_history(history_dir, previous)
@@ -196,7 +220,7 @@ def refresh(
     )
     catalog["previousCapturedAt"] = previous.get("captured_at") if previous else None
     catalog["analysisFailures"] = failures
-    signals: dict[str, Any] = _read_json(data_dir / "signals" / "latest.json") or {"signals": []}
+    signals: dict[str, Any] = _read_json(generation_root / "signals" / "latest.json") or {"signals": []}
     if collect_external_signals:
         signals = collect_signals(
             signal_client or HttpClient(os.environ.get("GITHUB_TOKEN")),
@@ -204,15 +228,16 @@ def refresh(
             window_hours=48,
             limit=30,
         )
-        require_valid_for_path(data_dir / "signals" / "latest.json", signals)
+        require_valid_for_path(generation_root / "signals" / "latest.json", signals)
         catalog["signalCount"] = signals["signalCount"]
         catalog["healthySignalSourceCount"] = signals["healthySourceCount"]
     queue = build_codex_queue(
         catalog,
         signals,
         enrichment_dir,
-        data_dir / "signals" / "enrichment.json",
+        generation_root / "signals" / "enrichment.json",
         now,
+        input_data_prefix=f"data/generations/{candidate.generation_id}",
     )
     catalog["codexPendingCount"] = queue["pendingCount"]
 
@@ -223,15 +248,65 @@ def refresh(
     if previous and previous.get("captured_at") != current.get("captured_at"):
         writes.append((history_dir / _history_name(previous), previous))
     if collect_external_signals:
-        writes.append((data_dir / "signals" / "latest.json", signals))
+        writes.append((generation_root / "signals" / "latest.json", signals))
     writes.extend(
         [
-            (data_dir / "queues" / "codex.json", queue),
+            (generation_root / "queues" / "codex.json", queue),
             (catalog_path, catalog),
             (latest_snapshot_path, current),
         ]
     )
     _write_json_batch(writes)
+    return catalog
+
+
+def refresh(
+    data_dir: Path,
+    now: datetime,
+    since_days: int = 14,
+    limit: int = 30,
+    analyze_top: int = 5,
+    client: GitHubClient | None = None,
+    signal_client: HttpClient | None = None,
+    collect_external_signals: bool = True,
+) -> dict[str, Any]:
+    """Build and publish one audited refresh generation.
+
+    Collection and static analysis happen in a private candidate. The only
+    mutation visible to readers is the final atomic current-pointer switch.
+    """
+    canonical = data_dir.expanduser().resolve()
+    candidate = create_candidate_generation(
+        canonical,
+        "refresh",
+        created_at=now,
+    )
+    try:
+        catalog = _refresh_candidate_tree(
+            candidate,
+            now,
+            since_days,
+            limit,
+            analyze_top,
+            client,
+            signal_client,
+            collect_external_signals,
+        )
+    except Exception as error:
+        fail_candidate_generation(candidate, "build", str(error))
+        if isinstance(error, GenerationProtocolError):
+            raise
+        raise CandidateGenerationError(
+            "candidate_build_failed",
+            f"refresh candidate build failed: {error}",
+            generation_id=candidate.generation_id,
+            stage="build",
+        ) from error
+    try:
+        publish_candidate_generation(candidate, published_at=now)
+    except Exception as error:
+        fail_candidate_generation(candidate, "publish", str(error))
+        raise
     return catalog
 
 

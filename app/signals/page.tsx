@@ -1,14 +1,17 @@
 import { Nav } from "../components/Nav";
 import { RuntimeStatus } from "../components/RuntimeStatus";
 import { SignalCard } from "../components/SignalCard";
-import { codexQueue, formatSignalTime, signalSnapshot } from "../signals";
+import { formatSignalTime } from "../signals";
+import { loadPublishedData } from "../server-data";
 
 export const metadata = { title: "技术动态" };
+export const dynamic = "force-dynamic";
 
 export default function SignalsPage() {
+  const { catalog, codexQueue, signalSnapshot } = loadPublishedData();
   return (
     <div className="app-shell">
-      <Nav />
+      <Nav growthMode={catalog.growthMode} />
       <main className="page-main signals-page">
         <header className="page-hero compact-hero">
           <span className="eyebrow">AI & Tech signals</span>

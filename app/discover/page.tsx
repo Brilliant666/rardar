@@ -1,13 +1,17 @@
 import { Nav } from "../components/Nav";
 import { ProjectCard } from "../components/ProjectCard";
-import { categories, projects, snapshotNotice } from "../data";
+import { projectCategories } from "../data";
+import { loadPublishedData } from "../server-data";
 
 export const metadata = { title: "发现" };
+export const dynamic = "force-dynamic";
 
 export default function DiscoverPage() {
+  const { catalog, projects, snapshotNotice } = loadPublishedData();
+  const categories = projectCategories(projects);
   return (
     <div className="app-shell">
-      <Nav />
+      <Nav growthMode={catalog.growthMode} />
       <main className="page-main">
         <header className="page-hero">
           <span className="eyebrow">Discover</span>

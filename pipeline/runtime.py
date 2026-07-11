@@ -462,6 +462,10 @@ def _scheduler_details() -> dict[str, Any]:
         "dataAuditStatus": status.get("dataAuditStatus"),
         "dataAuditWarningCount": status.get("dataAuditWarningCount"),
         "dataAuditSummary": status.get("dataAuditSummary"),
+        "currentGenerationId": status.get("currentGenerationId"),
+        "candidateGenerationId": status.get("candidateGenerationId"),
+        "generationStage": status.get("generationStage"),
+        "generationErrorCode": status.get("generationErrorCode"),
     }
 
 

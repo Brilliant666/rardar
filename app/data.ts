@@ -1,5 +1,3 @@
-import catalogJson from "../data/catalog/latest.json";
-
 export type Evidence = {
   label: string;
   detail: string;
@@ -63,17 +61,12 @@ export type CatalogSnapshot = {
   projects: Project[];
 };
 
-export const catalog = catalogJson as CatalogSnapshot;
-export const projects = catalog.projects;
-export const dailyProjects = projects.slice(0, 5);
-export const candidateProjects = projects.slice(5);
-
-export const categories = [
-  "全部",
-  ...Array.from(new Set(projects.map((project) => project.category))),
-];
-
-export const snapshotNotice = catalog.notice;
+export function projectCategories(projects: Project[]) {
+  return [
+    "全部",
+    ...Array.from(new Set(projects.map((project) => project.category))),
+  ];
+}
 
 export function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-CN", { notation: "compact" }).format(value);
@@ -91,6 +84,6 @@ export function formatCapturedDate(value: string) {
       }).format(date);
 }
 
-export function getProject(slug: string) {
+export function getProject(projects: Project[], slug: string) {
   return projects.find((project) => project.slug === slug);
 }

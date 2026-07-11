@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { catalog } from "../data";
+import type { CatalogSnapshot } from "../data";
 
 const links = [
   ["/", "今日"],
@@ -13,7 +13,7 @@ const links = [
   ["/watchlist", "观察列表"],
 ];
 
-export function Nav() {
+export function Nav({ growthMode }: { growthMode: CatalogSnapshot["growthMode"] }) {
   const pathname = usePathname();
 
   return (
@@ -30,7 +30,7 @@ export function Nav() {
         ))}
       </nav>
       <div className="header-status">
-        <span className="live-dot" /> {catalog.growthMode === "first_observation_proxy" ? "真实首轮快照" : "真实区间增长"}
+        <span className="live-dot" /> {growthMode === "first_observation_proxy" ? "真实首轮快照" : "真实区间增长"}
       </div>
     </header>
   );

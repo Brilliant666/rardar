@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from pipeline.audit_data import audit_data
+from pipeline.generations import GenerationProtocolError, resolve_current_generation
 from pipeline.refresh import refresh
 
 
@@ -73,9 +74,8 @@ def should_catch_up(
     elapsed = now - target
     if elapsed.total_seconds() < 0 or elapsed > timedelta(hours=max(1, window_hours)):
         return False
-    # A committed artifact set is not necessarily healthy: refresh publishes
-    # before audit_data runs. Preserve a failed run across scheduler restarts
-    # so the normal retry path can repair or revalidate that generation.
+    # A failed run never advances current, but its scheduler state still needs
+    # the normal retry path to build a fresh candidate.
     if last_state == "failed":
         return True
     committed_snapshot = _parse_datetime(latest_snapshot_at)
@@ -105,11 +105,21 @@ def _read_status(path: Path) -> dict[str, object]:
 
 
 def committed_refresh_at(data_dir: Path) -> str | None:
-    """Return the capture time only when every scheduled artifact is coherent."""
-    snapshot_at = _read_status(data_dir / "snapshots" / "latest.json").get("captured_at")
-    catalog_at = _read_status(data_dir / "catalog" / "latest.json").get("capturedAt")
-    signal_at = _read_status(data_dir / "signals" / "latest.json").get("capturedAt")
-    queue_at = _read_status(data_dir / "queues" / "codex.json").get("generatedAt")
+    """Return the capture time only for one verified published generation."""
+    if os.path.lexists(data_dir / "current.json"):
+        try:
+            root = resolve_current_generation(data_dir).root
+        except GenerationProtocolError:
+            return None
+    else:
+        # Pre-generation tests and local legacy trees keep their old coherent
+        # four-file marker. Once a pointer exists, strict generation
+        # resolution above is mandatory and never falls back to these files.
+        root = data_dir
+    snapshot_at = _read_status(root / "snapshots" / "latest.json").get("captured_at")
+    catalog_at = _read_status(root / "catalog" / "latest.json").get("capturedAt")
+    signal_at = _read_status(root / "signals" / "latest.json").get("capturedAt")
+    queue_at = _read_status(root / "queues" / "codex.json").get("generatedAt")
     instants = [_parse_datetime(value) for value in (snapshot_at, catalog_at, signal_at, queue_at)]
     if any(value is None for value in instants):
         return None
@@ -159,7 +169,16 @@ def run_cycle(
 
     try:
         catalog = refresh(data_dir, started, limit=30, analyze_top=analyze_top)
-        audit = audit_data(data_dir)
+        if os.path.lexists(data_dir / "current.json"):
+            # The direct audit below is the semantic gate for this status
+            # update; avoid running the same full audit twice.
+            published = resolve_current_generation(data_dir, verify_audit=False)
+            published_root = published.root
+            current_generation_id = published.generation_id
+        else:
+            published_root = data_dir
+            current_generation_id = None
+        audit = audit_data(published_root)
         if audit["status"] == "failed":
             codes = ", ".join(str(item.get("code")) for item in audit["issues"][:5])
             raise RuntimeError(f"data audit failed after refresh: {codes}")
@@ -173,6 +192,7 @@ def run_cycle(
             "signalCount": catalog.get("signalCount", 0),
             "dataAuditStatus": audit["status"],
             "dataAuditWarningCount": audit["warningCount"],
+            "currentGenerationId": current_generation_id,
             "dataAuditSummary": {
                 "observedProjectCount": audit.get("observedProjectCount", 0),
                 "observedNetStarChange": audit.get("observedNetStarChange", 0),
@@ -193,6 +213,14 @@ def run_cycle(
             "lastRunCompletedAt": datetime.now(timezone.utc).isoformat(),
             "lastError": str(error),
         }
+        if isinstance(error, GenerationProtocolError):
+            result.update(
+                {
+                    "generationErrorCode": error.code,
+                    "candidateGenerationId": error.generation_id,
+                    "generationStage": error.stage,
+                }
+            )
     finally:
         heartbeat_stop.set()
         if heartbeat_thread:

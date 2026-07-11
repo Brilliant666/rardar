@@ -3,20 +3,25 @@ import { notFound } from "next/navigation";
 import { Nav } from "../../components/Nav";
 import { FeedbackButtons } from "../../components/FeedbackButtons";
 import { ProjectActions, TrackedRepositoryLink } from "../../components/ProjectActions";
-import { formatNumber, getProject, projects } from "../../data";
+import { formatNumber, getProject } from "../../data";
+import { loadPublishedData } from "../../server-data";
+
+export const dynamic = "force-dynamic";
 
 export function generateStaticParams() {
+  const { projects } = loadPublishedData();
   return projects.map((project) => ({ slug: project.slug }));
 }
 
 export default async function ProjectPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const project = getProject(slug);
+  const { catalog, projects } = loadPublishedData();
+  const project = getProject(projects, slug);
   if (!project) notFound();
 
   return (
     <div className="app-shell">
-      <Nav />
+      <Nav growthMode={catalog.growthMode} />
       <main className="project-page">
         <div className="project-breadcrumb"><Link href="/discover">发现</Link><span>/</span><span>{project.repo}</span></div>
         <header className="project-detail-hero">

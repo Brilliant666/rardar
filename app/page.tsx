@@ -4,16 +4,27 @@ import { SearchWorkbench } from "./components/SearchWorkbench";
 import { DecisionMetrics } from "./components/DecisionMetrics";
 import { SignalDigest } from "./components/SignalDigest";
 import { PersonalizedDailyList } from "./components/PersonalizedDailyList";
-import { catalog, dailyProjects, formatCapturedDate, formatNumber, snapshotNotice } from "./data";
+import { formatCapturedDate, formatNumber } from "./data";
+import { loadPublishedData } from "./server-data";
+
+export const dynamic = "force-dynamic";
 
 export default function Home() {
+  const {
+    catalog,
+    projects,
+    dailyProjects,
+    snapshotNotice,
+    signalSnapshot,
+    codexQueue,
+  } = loadPublishedData();
   const leadProject = dailyProjects[0];
   const recentCount = catalog.dailyTrackCounts?.recentMomentum ?? 3;
   const longTermCount = catalog.dailyTrackCounts?.longTerm ?? 2;
 
   return (
     <div className="app-shell">
-      <Nav />
+      <Nav growthMode={catalog.growthMode} />
       <main>
         <section className="hero">
           <div className="hero-copy">
@@ -69,10 +80,10 @@ export default function Home() {
               <small>长期持续性将在累计 7 次快照后升级验证</small>
             </div>
           </div>
-          <PersonalizedDailyList />
+          <PersonalizedDailyList dailyProjects={dailyProjects} projects={projects} />
         </section>
 
-        <SignalDigest />
+        <SignalDigest signalSnapshot={signalSnapshot} codexQueue={codexQueue} />
 
         <section className="home-search">
           <div className="section-heading inline-heading">
@@ -82,7 +93,7 @@ export default function Home() {
             </div>
             <Link href="/search">打开完整工作台 →</Link>
           </div>
-          <SearchWorkbench compact />
+          <SearchWorkbench projects={projects} compact />
         </section>
 
         <DecisionMetrics />

@@ -44,9 +44,18 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
-    server: isCodexSeatbeltSandbox
-      ? { watch: { useFsEvents: false, usePolling: true } }
-      : undefined,
+    server: {
+      watch: {
+        // A Windows dev watcher can keep candidate directory handles open and
+        // block the protocol's same-volume atomic rename. Published data is
+        // loaded per request via current.json, so generation internals do not
+        // need HMR watching.
+        ignored: ["**/data/generations/**"],
+        ...(isCodexSeatbeltSandbox
+          ? { useFsEvents: false, usePolling: true }
+          : {}),
+      },
+    },
     plugins: [
       vinext(),
       sites(),

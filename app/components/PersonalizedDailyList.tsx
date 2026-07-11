@@ -1,12 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { dailyProjects, projects } from "../data";
+import type { Project } from "../data";
 import type { PersonalizationResult } from "../personalization";
 import { feedbackEventName, getDeviceId } from "./device-id";
 import { ProjectCard } from "./ProjectCard";
 
-export function PersonalizedDailyList() {
+export function PersonalizedDailyList({
+  dailyProjects,
+  projects,
+}: {
+  dailyProjects: Project[];
+  projects: Project[];
+}) {
   const [result, setResult] = useState<PersonalizationResult | null>(null);
   const [failed, setFailed] = useState(false);
   const requestVersion = useRef(0);
@@ -50,9 +56,9 @@ export function PersonalizedDailyList() {
         project: projectBySlug.get(recommendation.slug),
         reason: result.personalized ? recommendation.reasons[0] ?? "" : "",
       }))
-      .filter((item): item is { project: (typeof projects)[number]; reason: string } => Boolean(item.project))
+      .filter((item): item is { project: Project; reason: string } => Boolean(item.project))
       .slice(0, 5);
-  }, [result]);
+  }, [dailyProjects, projects, result]);
 
   return (
     <>

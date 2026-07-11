@@ -2,10 +2,11 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ensureDecisionSchema } from "../../../db/ensure";
 import { feedback } from "../../../db/schema";
-import { projects } from "../../data";
 import { rankProjects } from "../../personalization";
+import { loadPublishedData } from "../../server-data";
 
 export async function GET(request: Request) {
+  const { projects } = loadPublishedData();
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("deviceId")?.trim();
   if (!deviceId || deviceId.length > 200) {

@@ -7,17 +7,22 @@ import unittest
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
+from pipeline.generations import CurrentGenerationError
 from pipeline.audit_data import audit_data
 from pipeline.refresh import _write_json_batch
 from pipeline.schema_validation import (
     ArtifactKind,
     ArtifactValidationError,
+    _validate_cli_data_tree,
     atomic_write_validated_json,
     infer_artifact_kind,
     load_validated_json,
     require_valid,
     strict_json_loads,
+    validate_data_tree,
     validate_payload,
 )
 
@@ -110,7 +115,342 @@ def valid_catalog() -> dict[str, object]:
     }
 
 
+def valid_generation_manifest() -> dict[str, object]:
+    artifacts = ["catalog/latest.json", "snapshots/latest.json"]
+    return {
+        "schemaVersion": 1,
+        "generationId": "gen-20260712-001",
+        "createdAt": "2026-07-12T12:00:00+08:00",
+        "baseGenerationId": "gen-20260711-001",
+        "operation": "refresh",
+        "state": "ready",
+        "failureStage": None,
+        "error": None,
+        "artifacts": artifacts,
+        "hashes": {path: "a" * 64 for path in artifacts},
+        "audit": {
+            "status": "healthy",
+            "errorCount": 0,
+            "warningCount": 0,
+            "validatedCount": len(artifacts),
+        },
+    }
+
+
+def valid_current_generation() -> dict[str, object]:
+    return {
+        "schemaVersion": 1,
+        "generationId": "gen-20260712-001",
+        "publishedAt": "2026-07-12T12:01:00+08:00",
+        "previousGenerationId": "gen-20260711-001",
+        "manifestSha256": "b" * 64,
+    }
+
+
 class SchemaValidationTests(unittest.TestCase):
+    def test_accepts_generation_manifest_and_current_pointer_contracts(self) -> None:
+        self.assertTrue(
+            validate_payload(
+                ArtifactKind.GENERATION_MANIFEST,
+                valid_generation_manifest(),
+            ).valid
+        )
+        self.assertTrue(
+            validate_payload(
+                ArtifactKind.CURRENT_GENERATION,
+                valid_current_generation(),
+            ).valid
+        )
+
+    def test_generation_contracts_reject_unknown_versions_and_timezone_less_times(self) -> None:
+        cases = (
+            (
+                ArtifactKind.GENERATION_MANIFEST,
+                valid_generation_manifest(),
+                "createdAt",
+            ),
+            (
+                ArtifactKind.CURRENT_GENERATION,
+                valid_current_generation(),
+                "publishedAt",
+            ),
+        )
+        for kind, base, time_field in cases:
+            with self.subTest(kind=kind.value, case="unknown version"):
+                payload = deepcopy(base)
+                payload["schemaVersion"] = 2
+                self.assertFalse(validate_payload(kind, payload).valid)
+            with self.subTest(kind=kind.value, case="timezone missing"):
+                payload = deepcopy(base)
+                payload[time_field] = "2026-07-12T12:00:00"
+                self.assertFalse(validate_payload(kind, payload).valid)
+
+    def test_generation_contracts_reject_unsafe_identifiers_and_artifact_paths(self) -> None:
+        for generation_id in ("../escape", ".hidden", "trailing-", "has space"):
+            with self.subTest(generation_id=generation_id):
+                manifest = valid_generation_manifest()
+                manifest["generationId"] = generation_id
+                pointer = valid_current_generation()
+                pointer["generationId"] = generation_id
+                self.assertFalse(
+                    validate_payload(ArtifactKind.GENERATION_MANIFEST, manifest).valid
+                )
+                self.assertFalse(
+                    validate_payload(ArtifactKind.CURRENT_GENERATION, pointer).valid
+                )
+
+        for unsafe_path in (
+            "../catalog/latest.json",
+            "/catalog/latest.json",
+            "catalog\\latest.json",
+            "catalog//latest.json",
+            "catalog/latest.txt",
+        ):
+            with self.subTest(path=unsafe_path):
+                manifest = valid_generation_manifest()
+                manifest["artifacts"] = [unsafe_path]
+                manifest["hashes"] = {unsafe_path: "a" * 64}
+                self.assertFalse(
+                    validate_payload(ArtifactKind.GENERATION_MANIFEST, manifest).valid
+                )
+
+    def test_generation_manifest_rejects_duplicate_artifacts_and_invalid_hashes(self) -> None:
+        duplicate = valid_generation_manifest()
+        duplicate["artifacts"] = ["catalog/latest.json", "catalog/latest.json"]
+        self.assertFalse(
+            validate_payload(ArtifactKind.GENERATION_MANIFEST, duplicate).valid
+        )
+
+        invalid_digest = valid_generation_manifest()
+        invalid_digest["hashes"]["catalog/latest.json"] = "A" * 64  # type: ignore[index]
+        self.assertFalse(
+            validate_payload(ArtifactKind.GENERATION_MANIFEST, invalid_digest).valid
+        )
+
+        mismatched = valid_generation_manifest()
+        mismatched["hashes"].pop("catalog/latest.json")  # type: ignore[union-attr]
+        result = validate_payload(ArtifactKind.GENERATION_MANIFEST, mismatched)
+        self.assertFalse(result.valid)
+        self.assertIn("/identity/artifact-hashes", {issue.schema_path for issue in result.issues})
+
+        pointer = valid_current_generation()
+        pointer["manifestSha256"] = "b" * 63
+        self.assertFalse(
+            validate_payload(ArtifactKind.CURRENT_GENERATION, pointer).valid
+        )
+
+    def test_generation_manifest_enforces_state_specific_diagnostics(self) -> None:
+        building = valid_generation_manifest()
+        building.update(
+            {
+                "state": "building",
+                "audit": None,
+                "failureStage": None,
+                "error": None,
+            }
+        )
+        self.assertTrue(
+            validate_payload(ArtifactKind.GENERATION_MANIFEST, building).valid
+        )
+
+        empty_building = deepcopy(building)
+        empty_building["artifacts"] = []
+        empty_building["hashes"] = {}
+        self.assertTrue(
+            validate_payload(ArtifactKind.GENERATION_MANIFEST, empty_building).valid
+        )
+
+        failed = valid_generation_manifest()
+        failed.update(
+            {
+                "state": "failed",
+                "audit": None,
+                "failureStage": "audit",
+                "error": "catalog star count differs from snapshot",
+            }
+        )
+        self.assertTrue(validate_payload(ArtifactKind.GENERATION_MANIFEST, failed).valid)
+
+        empty_failed = deepcopy(failed)
+        empty_failed["artifacts"] = []
+        empty_failed["hashes"] = {}
+        self.assertTrue(
+            validate_payload(ArtifactKind.GENERATION_MANIFEST, empty_failed).valid
+        )
+
+        invalid_states = []
+        ready_without_audit = valid_generation_manifest()
+        ready_without_audit["audit"] = None
+        invalid_states.append(ready_without_audit)
+        ready_without_artifacts = valid_generation_manifest()
+        ready_without_artifacts["artifacts"] = []
+        ready_without_artifacts["hashes"] = {}
+        invalid_states.append(ready_without_artifacts)
+        failed_without_error = deepcopy(failed)
+        failed_without_error["error"] = None
+        invalid_states.append(failed_without_error)
+        building_with_audit = deepcopy(building)
+        building_with_audit["audit"] = valid_generation_manifest()["audit"]
+        invalid_states.append(building_with_audit)
+
+        for index, payload in enumerate(invalid_states):
+            with self.subTest(case=index):
+                self.assertFalse(
+                    validate_payload(ArtifactKind.GENERATION_MANIFEST, payload).valid
+                )
+
+    def test_cli_validation_keeps_legacy_mode_only_when_pointer_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "legacy"
+            data_dir.mkdir()
+            expected: list = []
+            with patch(
+                "pipeline.schema_validation.validate_data_tree",
+                return_value=expected,
+            ) as validate_tree:
+                results = _validate_cli_data_tree(data_dir)
+
+        self.assertIs(results, expected)
+        validate_tree.assert_called_once_with(data_dir)
+
+    def test_cli_validation_resolves_pointer_once_without_recursive_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "data"
+            immutable_root = data_dir / "generations/gen-001"
+            immutable_root.mkdir(parents=True)
+            (data_dir / "current.json").write_text("{}", encoding="utf-8")
+            expected: list = []
+            with (
+                patch(
+                    "pipeline.generations.resolve_current_generation",
+                    return_value=SimpleNamespace(root=immutable_root, legacy=False),
+                ) as resolve,
+                patch(
+                    "pipeline.schema_validation.validate_data_tree",
+                    return_value=expected,
+                ) as validate_tree,
+            ):
+                results = _validate_cli_data_tree(data_dir)
+
+        self.assertIs(results, expected)
+        resolve.assert_called_once_with(data_dir, verify_audit=False)
+        validate_tree.assert_called_once_with(immutable_root)
+
+    def test_cli_validation_reports_pointer_resolution_failures_structurally(self) -> None:
+        failure_codes = (
+            "current_pointer_invalid",
+            "current_generation_missing",
+            "manifest_digest_mismatch",
+        )
+        for code in failure_codes:
+            with self.subTest(code=code):
+                with tempfile.TemporaryDirectory() as directory:
+                    data_dir = Path(directory) / "data"
+                    data_dir.mkdir()
+                    pointer = data_dir / "current.json"
+                    pointer.write_text("{}", encoding="utf-8")
+                    error = CurrentGenerationError(
+                        code,
+                        "controlled current generation failure",
+                        stage="resolve",
+                    )
+                    with (
+                        patch(
+                            "pipeline.generations.resolve_current_generation",
+                            side_effect=error,
+                        ),
+                        patch(
+                            "pipeline.schema_validation.validate_data_tree"
+                        ) as validate_tree,
+                    ):
+                        results = _validate_cli_data_tree(data_dir)
+
+                self.assertEqual(len(results), 1)
+                self.assertEqual(results[0].kind, ArtifactKind.CURRENT_GENERATION)
+                self.assertFalse(results[0].valid)
+                self.assertEqual(results[0].issues[0].schema_path, f"/resolution/{code}")
+                self.assertIn(code, results[0].issues[0].message)
+                validate_tree.assert_not_called()
+
+    def test_cli_validation_reports_schema_errors_from_resolved_immutable_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "data"
+            immutable_root = data_dir / "generations/gen-001"
+            catalog_path = immutable_root / "catalog/latest.json"
+            catalog_path.parent.mkdir(parents=True)
+            catalog_path.write_text('{"schemaVersion": 1}', encoding="utf-8")
+            (data_dir / "current.json").write_text("{}", encoding="utf-8")
+            with patch(
+                "pipeline.generations.resolve_current_generation",
+                return_value=SimpleNamespace(root=immutable_root, legacy=False),
+            ):
+                results = _validate_cli_data_tree(data_dir)
+
+        catalog_results = [
+            result for result in results if result.kind is ArtifactKind.CATALOG
+        ]
+        self.assertEqual(len(catalog_results), 1)
+        self.assertFalse(catalog_results[0].valid)
+        self.assertEqual(
+            Path(str(catalog_results[0].issues[0].source_path)).resolve(),
+            catalog_path.resolve(),
+        )
+
+    def test_cli_validation_never_falls_back_when_pointer_path_is_present(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory) / "data"
+            data_dir.mkdir()
+            (data_dir / "current.json").write_text("{}", encoding="utf-8")
+            with (
+                patch(
+                    "pipeline.generations.resolve_current_generation",
+                    return_value=SimpleNamespace(root=data_dir, legacy=True),
+                ),
+                patch("pipeline.schema_validation.validate_data_tree") as validate_tree,
+            ):
+                results = _validate_cli_data_tree(data_dir)
+
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0].valid)
+        self.assertEqual(
+            results[0].issues[0].schema_path,
+            "/resolution/current_pointer_invalid",
+        )
+        validate_tree.assert_not_called()
+
+    def test_infers_generation_contract_paths_and_validates_direct_candidate_manifest(self) -> None:
+        self.assertEqual(
+            infer_artifact_kind(Path("data/current.json")),
+            ArtifactKind.CURRENT_GENERATION,
+        )
+        self.assertEqual(
+            infer_artifact_kind(Path("data/generations/gen-001/manifest.json")),
+            ArtifactKind.GENERATION_MANIFEST,
+        )
+        self.assertEqual(
+            infer_artifact_kind(
+                Path("data/generations/.candidates/gen-001/manifest.json")
+            ),
+            ArtifactKind.GENERATION_MANIFEST,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = Path(directory) / "data/generations/.candidates/gen-20260712-001"
+            candidate.mkdir(parents=True)
+            manifest = valid_generation_manifest()
+            (candidate / "manifest.json").write_text(
+                json.dumps(manifest),
+                encoding="utf-8",
+            )
+
+            results = validate_data_tree(candidate)
+
+        manifest_results = [
+            result for result in results if result.kind is ArtifactKind.GENERATION_MANIFEST
+        ]
+        self.assertEqual(len(manifest_results), 1)
+        self.assertTrue(manifest_results[0].valid, manifest_results[0].issues)
+
     def test_accepts_valid_enrichment_without_mutating_it(self) -> None:
         payload = valid_project_enrichment()
         before = deepcopy(payload)
@@ -519,6 +859,97 @@ class SchemaValidationTests(unittest.TestCase):
                 )
 
             self.assertEqual(target.read_bytes(), before)
+
+    def test_atomic_writer_allows_flat_staging_and_candidate_generation_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            flat_target = root / "data/catalog/latest.json"
+            candidate_target = (
+                root
+                / "data/generations/.candidates/generation-001/catalog/latest.json"
+            )
+
+            atomic_write_validated_json(
+                flat_target,
+                ArtifactKind.CATALOG,
+                valid_catalog(),
+            )
+            atomic_write_validated_json(
+                candidate_target,
+                ArtifactKind.CATALOG,
+                valid_catalog(),
+            )
+
+            self.assertEqual(load_validated_json(flat_target), valid_catalog())
+            self.assertEqual(load_validated_json(candidate_target), valid_catalog())
+
+    def test_atomic_writer_rejects_final_generation_without_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = (
+                Path(directory)
+                / "data/generations/generation-001/catalog/latest.json"
+            )
+            target.parent.mkdir(parents=True)
+            target.write_text('{"retained": true}\n', encoding="utf-8")
+            before = target.read_bytes()
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "immutable published generation",
+            ):
+                atomic_write_validated_json(
+                    target,
+                    ArtifactKind.CATALOG,
+                    valid_catalog(),
+                )
+
+            self.assertEqual(target.read_bytes(), before)
+
+    def test_atomic_writer_final_generation_guard_is_case_insensitive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = (
+                Path(directory)
+                / "DATA/GENERATIONS/GENERATION-001/CATALOG/latest.json"
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "immutable published generation",
+            ):
+                atomic_write_validated_json(
+                    target,
+                    ArtifactKind.CATALOG,
+                    valid_catalog(),
+                )
+
+            self.assertFalse(target.exists())
+
+    def test_atomic_writer_rejects_alias_resolving_into_final_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            alias_target = root / "data/alias/latest.json"
+            final_target = (
+                root / "data/generations/generation-001/catalog/latest.json"
+            ).resolve()
+            original_resolve = Path.resolve
+
+            def resolve_path(path: Path, strict: bool = False) -> Path:
+                if path == alias_target:
+                    return final_target
+                return original_resolve(path, strict=strict)
+
+            with patch.object(Path, "resolve", new=resolve_path):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "immutable published generation",
+                ):
+                    atomic_write_validated_json(
+                        alias_target,
+                        ArtifactKind.CATALOG,
+                        valid_catalog(),
+                    )
+
+            self.assertFalse(alias_target.exists())
 
     def test_atomic_writer_publishes_valid_repository_identity_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "repository": "OpenHands/OpenHands",
+  "sourcePushedAt": "2026-07-10T23:37:20Z",
+  "sourceAnalysisAt": "2026-07-11T00:03:11.577692+00:00",
+  "analyzedAt": "2026-07-11T00:12:00Z",
+  "titleZh": "OpenHands：面向编码 Agent 的自托管控制中心",
+  "summaryZh": "OpenHands Agent Canvas 用统一界面连接本地、Docker、虚拟机或云端的编码 Agent，并通过定时任务与 Webhook 自动执行报告生成、Issue 拆解等工程流程；它支持 OpenHands、Codex、Claude Code、Gemini 及 ACP 兼容 Agent。",
+  "category": "AI 与 Agent",
+  "capabilities": [
+    "统一管理多个本地、远程和云端编码 Agent",
+    "通过 Agent Canvas 启动对话与工程自动化",
+    "按计划或 Webhook 触发 Agent 工作流",
+    "连接 GitHub、Slack、Linear、Notion 等工具",
+    "切换不同 Agent 后端与任意 LLM",
+    "本机、Docker、虚拟机和服务器自托管"
+  ],
+  "taskTerms": [
+    "coding agent",
+    "agent control center",
+    "ACP",
+    "issue decomposition",
+    "code review",
+    "scheduled automation",
+    "webhook",
+    "self-hosted",
+    "multi-agent",
+    "developer workflow"
+  ],
+  "bestFor": "适合希望集中运行多个编码 Agent、把 GitHub Issue 拆解、报告发布、代码审查和依赖更新变成长期自动任务的开发者或工程团队。",
+  "reusePlan": "优先研究 Agent Canvas 的多后端抽象、ACP 兼容层和自动化触发方式；试用时使用 Docker 或独立虚拟机沙箱，并分别核对 agent-canvas、software-agent-sdk 与 automation 子项目，而不是只依赖当前聚合仓库。",
+  "limitation": "官方 README 明确提示代码正在拆分迁移，Agent/Server 与 Canvas 的真实源码已分布到其他仓库；直接无沙箱运行会让 Agent 获得完整文件系统权限。当前状态含 beta/RC 成分，生产使用前必须验证版本兼容、隔离、凭据和网络权限。",
+  "evidenceSummary": "最新 README 将其描述为编码 Agent 的自托管控制中心，列出本地、Docker、虚拟机和云端后端，定时/Webhook 自动化、第三方工具及 ACP Agent 兼容，并明确提示代码正迁往 software-agent-sdk 与 agent-canvas；只读扫描覆盖 2,547 个文件，识别到 MIT 许可证线索、README、593 个测试文件、CI、Docker、依赖锁和包清单。未安装依赖或执行仓库代码。",
+  "sourceUrl": "https://github.com/OpenHands/OpenHands#readme"
+}

@@ -38,6 +38,8 @@ class ArtifactKind(str, Enum):
     SIGNAL_ENRICHMENT = "signal-enrichment"
     CATALOG = "catalog"
     CODEX_QUEUE = "codex-queue"
+    GENERATION_MANIFEST = "generation-manifest"
+    CURRENT_GENERATION = "current-generation"
 
 
 SCHEMA_FILES = {
@@ -48,6 +50,8 @@ SCHEMA_FILES = {
     ArtifactKind.SIGNAL_ENRICHMENT: "signal-enrichment.schema.json",
     ArtifactKind.CATALOG: "catalog.schema.json",
     ArtifactKind.CODEX_QUEUE: "codex-queue.schema.json",
+    ArtifactKind.GENERATION_MANIFEST: "generation-manifest.schema.json",
+    ArtifactKind.CURRENT_GENERATION: "current-generation.schema.json",
 }
 
 
@@ -290,6 +294,42 @@ def validate_payload(
                     )
                 )
 
+    if artifact_kind is ArtifactKind.GENERATION_MANIFEST and isinstance(payload, dict):
+        artifacts = payload.get("artifacts")
+        hashes = payload.get("hashes")
+        if (
+            isinstance(artifacts, list)
+            and all(isinstance(item, str) for item in artifacts)
+            and isinstance(hashes, dict)
+            and set(artifacts) != set(hashes)
+        ):
+            issues.append(
+                ValidationIssue(
+                    message="hashes must contain exactly one entry for every artifact path",
+                    instance_path="/hashes",
+                    schema_path="/identity/artifact-hashes",
+                    source_path=str(source_path) if source_path else None,
+                )
+            )
+        generation_id = payload.get("generationId")
+        if (
+            source_path is not None
+            and source_path.name.lower() == "manifest.json"
+            and isinstance(generation_id, str)
+            and source_path.parent.name != generation_id
+        ):
+            issues.append(
+                ValidationIssue(
+                    message=(
+                        f"generationId {generation_id!r} does not match directory "
+                        f"{source_path.parent.name!r}"
+                    ),
+                    instance_path="/generationId",
+                    schema_path="/identity/generation-directory",
+                    source_path=str(source_path),
+                )
+            )
+
     normalized_issues = tuple(
         ValidationIssue(
             message=issue.message,
@@ -332,6 +372,14 @@ def infer_artifact_kind(path: Path) -> ArtifactKind | None:
     name = path.name.lower()
     parent = path.parent.name.lower()
     grandparent = path.parent.parent.name.lower()
+    great_grandparent = path.parent.parent.parent.name.lower()
+    if parent == "data" and name == "current.json":
+        return ArtifactKind.CURRENT_GENERATION
+    if name == "manifest.json" and (
+        grandparent == "generations"
+        or (grandparent == ".candidates" and great_grandparent == "generations")
+    ):
+        return ArtifactKind.GENERATION_MANIFEST
     if parent == "snapshots" and name == "latest.json":
         return ArtifactKind.GITHUB_SNAPSHOT
     if parent == "history" and grandparent == "snapshots" and name.endswith(".json"):
@@ -357,6 +405,10 @@ def artifact_data_root(path: Path) -> Path | None:
     kind = infer_artifact_kind(resolved)
     if kind is None:
         return None
+    if kind is ArtifactKind.CURRENT_GENERATION:
+        return resolved.parent
+    if kind is ArtifactKind.GENERATION_MANIFEST:
+        return resolved.parent
     if (
         kind is ArtifactKind.GITHUB_SNAPSHOT
         and resolved.parent.name.lower() == "history"
@@ -385,6 +437,67 @@ def require_valid_for_path(path: Path, payload: object) -> dict[str, Any]:
     return require_valid(kind, payload, source_path=path)
 
 
+_GENERATION_ARTIFACT_DIRECTORIES = frozenset(
+    {"snapshots", "signals", "analysis", "enrichment", "catalog", "queues"}
+)
+
+
+def _resolved_writable_artifact_path(path: Path) -> Path:
+    """Resolve one output and reject the immutable final generation namespace.
+
+    The check is case-insensitive so Windows aliases cannot bypass it. Calling
+    ``resolve`` before inspecting the path also follows existing symbolic-link
+    parents and leaf links; an apparent flat output that actually targets a
+    retained generation is therefore rejected. Candidate generations remain
+    writable until their directory is atomically moved into the final namespace.
+    """
+    try:
+        resolved = Path(path).expanduser().resolve()
+    except (OSError, RuntimeError) as error:
+        raise ValueError(f"cannot safely resolve JSON output path {path}: {error}") from None
+
+    parts = [part.casefold() for part in resolved.parts]
+    generation_indexes = [
+        index
+        for index, part in enumerate(parts[:-2])
+        if part == "generations"
+    ]
+
+    # The canonical repository layout is data/generations/<id>/.... Prefer
+    # that unambiguous namespace even if an ancestor also happens to be named
+    # "generations".
+    canonical_indexes = [
+        index
+        for index in generation_indexes
+        if index > 0 and parts[index - 1] == "data"
+    ]
+    if canonical_indexes:
+        namespace_index = canonical_indexes[-1]
+        if parts[namespace_index + 1] != ".candidates":
+            raise ValueError(
+                "refusing to write immutable published generation artifact: "
+                f"{resolved}"
+            )
+        return resolved
+
+    # Support an explicitly configured data directory whose basename is not
+    # "data" without mistaking an unrelated ancestor named generations for a
+    # Rardar generation. Recognized artifact layout supplies the discriminator.
+    for index in generation_indexes:
+        if parts[index + 1] == ".candidates":
+            continue
+        generation_child = parts[index + 2]
+        if (
+            generation_child == "manifest.json"
+            or generation_child in _GENERATION_ARTIFACT_DIRECTORIES
+        ):
+            raise ValueError(
+                "refusing to write immutable published generation artifact: "
+                f"{resolved}"
+            )
+    return resolved
+
+
 def atomic_write_validated_json(
     path: Path,
     kind: ArtifactKind | str,
@@ -399,7 +512,7 @@ def atomic_write_validated_json(
     or temporary file is touched, so failures leave an existing artifact
     unchanged.
     """
-    path = Path(path)
+    path = _resolved_writable_artifact_path(Path(path))
     artifact_kind = ArtifactKind(kind)
     inferred_kind = infer_artifact_kind(path)
     if inferred_kind is not None and inferred_kind != artifact_kind:
@@ -457,6 +570,8 @@ def _artifact_timestamp(kind: ArtifactKind, payload: dict[str, Any]) -> datetime
         ArtifactKind.SIGNAL_ENRICHMENT: "generatedAt",
         ArtifactKind.CATALOG: "capturedAt",
         ArtifactKind.CODEX_QUEUE: "generatedAt",
+        ArtifactKind.GENERATION_MANIFEST: "createdAt",
+        ArtifactKind.CURRENT_GENERATION: "publishedAt",
     }[kind]
     value = payload.get(field)
     if not isinstance(value, str) or not _is_rfc3339(value):
@@ -537,6 +652,12 @@ def validate_data_tree(data_dir: Path) -> list[ValidationResult]:
     signal_enrichment = data_dir / "signals" / "enrichment.json"
     if signal_enrichment.exists():
         optional_paths.append(signal_enrichment)
+    manifest_path = data_dir / "manifest.json"
+    if manifest_path.exists():
+        optional_paths.append(manifest_path)
+    current_pointer_path = data_dir / "current.json"
+    if current_pointer_path.exists():
+        optional_paths.append(current_pointer_path)
 
     results: list[ValidationResult] = []
     for path in required_paths:
@@ -559,7 +680,13 @@ def validate_data_tree(data_dir: Path) -> list[ValidationResult]:
     for path in [*required_paths, *optional_paths]:
         if not path.exists():
             continue
-        kind = infer_artifact_kind(path)
+        kind = (
+            ArtifactKind.GENERATION_MANIFEST
+            if path == manifest_path
+            else ArtifactKind.CURRENT_GENERATION
+            if path == current_pointer_path
+            else infer_artifact_kind(path)
+        )
         if kind is None:
             continue
         try:
@@ -584,11 +711,66 @@ def validate_data_tree(data_dir: Path) -> list[ValidationResult]:
     return results
 
 
+def _validate_cli_data_tree(data_dir: Path) -> list[ValidationResult]:
+    """Validate the immutable current generation when a pointer is present.
+
+    ``validate_data_tree`` deliberately retains its direct-tree behavior for
+    candidate publication checks.  Only the repository-facing CLI resolves
+    ``current.json``; a malformed pointer or target becomes a structured
+    validation failure and never falls back to mutable legacy files.
+    """
+    data_dir = Path(data_dir).expanduser()
+    pointer_path = data_dir / "current.json"
+    if not os.path.lexists(pointer_path):
+        return validate_data_tree(data_dir)
+
+    # Import lazily: generations reuses validate_data_tree for candidate
+    # checks, so importing it while this module initializes would be circular.
+    from pipeline.generations import GenerationProtocolError, resolve_current_generation
+
+    try:
+        current = resolve_current_generation(data_dir, verify_audit=False)
+    except GenerationProtocolError as error:
+        return [
+            ValidationResult(
+                kind=ArtifactKind.CURRENT_GENERATION,
+                version=None,
+                issues=(
+                    ValidationIssue(
+                        message=f"{error.code}: {error}",
+                        instance_path="/",
+                        schema_path=f"/resolution/{error.code}",
+                        source_path=str(pointer_path),
+                    ),
+                ),
+            )
+        ]
+    if current.legacy:
+        return [
+            ValidationResult(
+                kind=ArtifactKind.CURRENT_GENERATION,
+                version=None,
+                issues=(
+                    ValidationIssue(
+                        message=(
+                            "current_pointer_invalid: current.json is present but "
+                            "resolution attempted to use legacy data"
+                        ),
+                        instance_path="/",
+                        schema_path="/resolution/current_pointer_invalid",
+                        source_path=str(pointer_path),
+                    ),
+                ),
+            )
+        ]
+    return validate_data_tree(current.root)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate Rardar JSON artifacts against contracts")
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     arguments = parser.parse_args()
-    results = validate_data_tree(arguments.data_dir)
+    results = _validate_cli_data_tree(arguments.data_dir)
     issues = [
         {
             "kind": result.kind.value,

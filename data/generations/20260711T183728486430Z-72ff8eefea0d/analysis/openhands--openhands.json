@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "repository": "OpenHands/OpenHands",
+  "source": "https://github.com/OpenHands/OpenHands",
+  "analyzed_at": "2026-07-11T00:03:11.577692+00:00",
+  "scanned_files": 2547,
+  "language_files": {
+    ".py": 907,
+    ".tsx": 752,
+    ".ts": 528,
+    ".svg": 124,
+    ".md": 77,
+    ".yml": 36,
+    ".j2": 34,
+    "[none]": 19,
+    ".json": 13,
+    ".sh": 9,
+    ".yaml": 8,
+    ".css": 7
+  },
+  "indicators": {
+    "readme": true,
+    "license": true,
+    "tests": true,
+    "ci": true,
+    "docker": true,
+    "dependency_lock": true,
+    "package_manifest": true,
+    "examples": false,
+    "docs": false,
+    "environment_example": true
+  },
+  "counts": {
+    "test_files": 593,
+    "todo_markers": 117
+  },
+  "license_hint": "MIT",
+  "confidence": 95,
+  "warnings": [
+    "static inspection only; code was not executed"
+  ]
+}

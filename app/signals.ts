@@ -1,7 +1,3 @@
-import signalJson from "../data/signals/latest.json";
-import enrichmentJson from "../data/signals/enrichment.json";
-import codexQueueJson from "../data/queues/codex.json";
-
 export type TechnicalSignal = {
   id: string;
   kind: "official" | "aggregated" | "ranking" | "curated";
@@ -45,6 +41,7 @@ export type SignalSnapshot = {
 };
 
 export type CodexQueueSnapshot = {
+  schemaVersion: number;
   generatedAt: string;
   pendingCount: number;
   projectPendingCount: number;
@@ -53,7 +50,7 @@ export type CodexQueueSnapshot = {
   completedSignalCount: number;
 };
 
-type SignalEnrichment = {
+export type SignalEnrichment = {
   titleZh: string;
   takeawayZh: string;
   whyItMattersZh: string;
@@ -62,11 +59,17 @@ type SignalEnrichment = {
   sourcePublishedAt?: string;
 };
 
-const rawSignals = signalJson as SignalSnapshot;
-const enrichments = enrichmentJson.items as Record<string, SignalEnrichment>;
-const legacyAnalyzedAt = enrichmentJson.generatedAt;
+export type SignalEnrichmentSnapshot = {
+  schemaVersion: number;
+  generatedAt: string;
+  items: Record<string, SignalEnrichment>;
+};
 
-function isCurrentEnrichment(signal: TechnicalSignal, enrichment?: SignalEnrichment) {
+function isCurrentEnrichment(
+  signal: TechnicalSignal,
+  enrichment: SignalEnrichment | undefined,
+  legacyAnalyzedAt: string,
+) {
   if (
     !enrichment?.titleZh ||
     !enrichment.takeawayZh ||
@@ -80,19 +83,25 @@ function isCurrentEnrichment(signal: TechnicalSignal, enrichment?: SignalEnrichm
   return new Date(enrichment.sourcePublishedAt).getTime() === publishedAt;
 }
 
-export const signals = rawSignals.signals.map((signal) => ({
-  ...signal,
-  ...(isCurrentEnrichment(signal, enrichments[signal.url]) ? enrichments[signal.url] : {}),
-}));
-const signalById = new Map(signals.map((signal) => [signal.id, signal]));
-
-export const signalSnapshot = {
-  ...rawSignals,
-  signals,
-  topSignals: rawSignals.topSignals.map((signal) => signalById.get(signal.id) ?? signal),
-};
-
-export const codexQueue = codexQueueJson as CodexQueueSnapshot;
+export function applySignalEnrichments(
+  rawSignals: SignalSnapshot,
+  enrichmentSnapshot: SignalEnrichmentSnapshot,
+): SignalSnapshot {
+  const enrichments = enrichmentSnapshot.items ?? {};
+  const legacyAnalyzedAt = enrichmentSnapshot.generatedAt;
+  const signals = rawSignals.signals.map((signal) => ({
+    ...signal,
+    ...(isCurrentEnrichment(signal, enrichments[signal.url], legacyAnalyzedAt)
+      ? enrichments[signal.url]
+      : {}),
+  }));
+  const signalById = new Map(signals.map((signal) => [signal.id, signal]));
+  return {
+    ...rawSignals,
+    signals,
+    topSignals: rawSignals.topSignals.map((signal) => signalById.get(signal.id) ?? signal),
+  };
+}
 
 export const signalKindLabels: Record<TechnicalSignal["kind"], string> = {
   official: "官方更新",

@@ -1,12 +1,15 @@
 import { Nav } from "../components/Nav";
 import { SearchWorkbench } from "../components/SearchWorkbench";
+import { loadPublishedData } from "../server-data";
 
 export const metadata = { title: "找项目" };
+export const dynamic = "force-dynamic";
 
 export default function SearchPage() {
+  const { catalog, projects } = loadPublishedData();
   return (
     <div className="app-shell search-page">
-      <Nav />
+      <Nav growthMode={catalog.growthMode} />
       <main className="page-main search-page-main">
         <header className="page-hero search-page-hero">
           <div className="search-hero-copy">
@@ -24,7 +27,7 @@ export default function SearchPage() {
             <b className="radar-point point-three" />
           </div>
         </header>
-        <SearchWorkbench />
+        <SearchWorkbench projects={projects} />
         <section className="search-principles">
           <div><span>01 · 完整产品</span><p>优先寻找已经覆盖主要流程、可直接试用的项目。</p></div>
           <div><span>02 · 可复用模块</span><p>识别 SDK、CLI、API 和可独立拆分的核心能力。</p></div>

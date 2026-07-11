@@ -44,3 +44,4 @@ next-env.d.ts
 /outputs/
 /work/
 /data/scheduler/status.json
+/data/generations/.candidates/

@@ -39,6 +39,9 @@ PROJECT_REQUIRED_FIELDS = {
 }
 SIGNAL_CONTENT_FIELDS = {"titleZh", "takeawayZh", "whyItMattersZh", "categoryZh"}
 SIGNAL_REQUIRED_FIELDS = {*SIGNAL_CONTENT_FIELDS, "analyzedAt", "sourcePublishedAt"}
+DATA_PREFIX_PATTERN = re.compile(
+    r"data(?:/generations/[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?)?"
+)
 
 
 def _read_json(
@@ -151,7 +154,10 @@ def build_codex_queue(
     generated_at: datetime,
     project_limit: int = 5,
     signal_limit: int = 10,
+    input_data_prefix: str = "data",
 ) -> dict[str, Any]:
+    if not DATA_PREFIX_PATTERN.fullmatch(input_data_prefix):
+        raise ValueError("Codex queue input data prefix must identify data or one immutable generation")
     items: list[dict[str, Any]] = []
     completed_projects = 0
     completed_signals = 0
@@ -198,8 +204,12 @@ def build_codex_queue(
                 "sourceAnalysisAt": analysis.get("analyzed_at") if analysis else None,
                 "previousAnalyzedAt": enrichment.get("analyzedAt") if enrichment else None,
                 "inputPaths": [
-                    *([f"data/analysis/{safe_name}.json"] if analysis_ready else []),
-                    "data/catalog/latest.json",
+                    *(
+                        [f"{input_data_prefix}/analysis/{safe_name}.json"]
+                        if analysis_ready
+                        else []
+                    ),
+                    f"{input_data_prefix}/catalog/latest.json",
                 ],
                 "outputPath": f"data/enrichment/{safe_name}.json",
                 "requiredFields": sorted(PROJECT_REQUIRED_FIELDS),
@@ -246,7 +256,7 @@ def build_codex_queue(
                 ),
                 "sourcePublishedAt": signal_item.get("publishedAt"),
                 "previousAnalyzedAt": (enrichment or {}).get("analyzedAt") or legacy_analyzed_at,
-                "inputPaths": ["data/signals/latest.json"],
+                "inputPaths": [f"{input_data_prefix}/signals/latest.json"],
                 "outputPath": "data/signals/enrichment.json",
                 "requiredFields": sorted(SIGNAL_REQUIRED_FIELDS),
                 "safety": (

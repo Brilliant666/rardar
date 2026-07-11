@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { Nav } from "../components/Nav";
-import { projects, formatNumber, snapshotNotice } from "../data";
+import { formatNumber } from "../data";
+import { loadPublishedData } from "../server-data";
 
 export const metadata = { title: "候选池" };
+export const dynamic = "force-dynamic";
 
 export default function CandidatesPage() {
+  const { catalog, projects, snapshotNotice } = loadPublishedData();
   return (
     <div className="app-shell">
-      <Nav />
+      <Nav growthMode={catalog.growthMode} />
       <main className="page-main">
         <header className="page-hero compact-hero">
           <span className="eyebrow">Candidate pool</span>

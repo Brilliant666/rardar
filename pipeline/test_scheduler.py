@@ -56,6 +56,23 @@ class SchedulerTests(unittest.TestCase):
             )
             self.assertIsNone(committed_refresh_at(root))
 
+    def test_present_pointer_is_strict_and_never_falls_back_to_flat_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            captured = "2026-07-10T00:00:02+00:00"
+            artifacts = {
+                root / "snapshots/latest.json": {"captured_at": captured},
+                root / "catalog/latest.json": {"capturedAt": captured},
+                root / "signals/latest.json": {"capturedAt": captured},
+                root / "queues/codex.json": {"generatedAt": captured},
+            }
+            for path, payload in artifacts.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(payload), encoding="utf-8")
+            (root / "current.json").write_text("{}", encoding="utf-8")
+
+            self.assertIsNone(committed_refresh_at(root))
+
     def test_cycle_publishes_running_state_before_refresh(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             status_path = Path(directory) / "scheduler.json"

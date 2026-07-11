@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-11T16:11:12.303705+00:00",
+  "scope": {
+    "projectLimit": 5,
+    "signalLimit": 10
+  },
+  "pendingCount": 1,
+  "projectPendingCount": 1,
+  "signalPendingCount": 0,
+  "completedProjectCount": 4,
+  "completedSignalCount": 10,
+  "items": [
+    {
+      "id": "project:dietrichgebert--ponytail",
+      "kind": "project",
+      "priority": 92,
+      "repository": "DietrichGebert/ponytail",
+      "title": "ponytail",
+      "reason": "进入高优先级项目区，但缺少完整中文能力画像",
+      "evidenceState": "ready",
+      "sourcePushedAt": "2026-07-10T02:44:32Z",
+      "sourceAnalysisAt": "2026-07-11T00:01:29.078155+00:00",
+      "previousAnalyzedAt": "2026-07-10T13:00:00Z",
+      "inputPaths": [
+        "data/generations/20260711T183728486430Z-72ff8eefea0d/analysis/dietrichgebert--ponytail.json",
+        "data/generations/20260711T183728486430Z-72ff8eefea0d/catalog/latest.json"
+      ],
+      "outputPath": "data/enrichment/dietrichgebert--ponytail.json",
+      "requiredFields": [
+        "analyzedAt",
+        "bestFor",
+        "capabilities",
+        "category",
+        "evidenceSummary",
+        "limitation",
+        "repository",
+        "reusePlan",
+        "schemaVersion",
+        "sourceAnalysisAt",
+        "sourcePushedAt",
+        "sourceUrl",
+        "summaryZh",
+        "taskTerms",
+        "titleZh"
+      ],
+      "safety": "只阅读 README 与静态分析证据，不执行仓库代码；必须将本项队列中的 sourcePushedAt 与 sourceAnalysisAt 原样复制到草稿，不能自行生成、推算或改写；先写 data/ 外草稿，再经 pipeline.ingest_enrichment 发布；outputPath 只是最终归属，不能直接覆盖。"
+    }
+  ]
+}

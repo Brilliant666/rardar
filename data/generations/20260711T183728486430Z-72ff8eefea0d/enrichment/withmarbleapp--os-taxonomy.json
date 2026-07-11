@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 0,
+  "repository": "withmarbleapp/os-taxonomy",
+  "analyzedAt": "2026-07-10T13:00:00Z",
+  "model": "local-codex",
+  "titleZh": "用先修关系图组织 1590 个学习微主题",
+  "summaryZh": "Marble Skill Taxonomy 是一份纯 JSON 教育知识图谱，把小学阶段知识拆成细粒度主题、掌握证据和先修依赖，并关联多个课程标准；它是数据集而不是可运行应用。",
+  "category": "知识图谱数据",
+  "capabilities": [
+    "微主题知识图谱",
+    "先修依赖关系",
+    "掌握证据",
+    "课程标准映射",
+    "JSON Schema",
+    "数据完整性校验"
+  ],
+  "taskTerms": [
+    "知识图谱",
+    "能力图谱",
+    "学习路径",
+    "先修关系",
+    "课程",
+    "教育",
+    "json 数据集",
+    "证据标准",
+    "依赖图"
+  ],
+  "bestFor": "适合研究如何把知识、能力、证据和依赖关系组织成可计算图谱，也可作为 Rardar 未来“任务—能力—项目”图模型的参考。",
+  "reusePlan": "优先参考节点、依赖边、证据标准和来源追踪的数据结构；若使用其实际文本或扩展数据库，必须按不同数据层分别处理许可证。",
+  "limitation": "仓库没有运行时，不能直接作为知识库应用；数据库为 ODbL、原创文本为 CC BY-SA，第三方课程标准还有各自上游许可证。",
+  "evidenceSummary": "README 给出 1590 个微主题、3221 条先修边、JSON 文件与 Schema，并区分数据库、原创文本和第三方课程标准的许可证边界。",
+  "sourceUrl": "https://github.com/withmarbleapp/os-taxonomy#readme"
+}
