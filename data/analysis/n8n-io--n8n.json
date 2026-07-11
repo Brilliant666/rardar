@@ -1,7 +1,7 @@
 {
   "repository": "n8n-io/n8n",
   "source": "https://github.com/n8n-io/n8n",
-  "analyzed_at": "2026-07-10T19:39:45.300019+00:00",
+  "analyzed_at": "2026-07-11T00:02:46.409131+00:00",
   "scanned_files": 12000,
   "language_files": {
     ".ts": 9947,
@@ -30,7 +30,7 @@
     "environment_example": true
   },
   "counts": {
-    "test_files": 5297,
+    "test_files": 5298,
     "todo_markers": 471
   },
   "license_hint": "存在许可证文件",

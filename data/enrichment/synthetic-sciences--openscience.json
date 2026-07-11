@@ -1,9 +1,9 @@
 {
   "repository": "synthetic-sciences/openscience",
-  "analyzedAt": "2026-07-10T13:00:00Z",
+  "analyzedAt": "2026-07-11T00:12:00Z",
   "model": "local-codex",
   "titleZh": "把文献、假设、代码实验和报告串成研究工作台",
-  "summaryZh": "OpenScience 是本地浏览器研究工作台，Agent 可以围绕目标检索文献、形成假设、编写并运行代码、执行实验、连接科学数据库并生成研究结果，支持多家模型和自带 API Key。",
+  "summaryZh": "OpenScience 是本地浏览器研究工作台，Agent 可以围绕目标检索文献、形成假设、编写并运行代码、执行实验、连接科学数据库并生成研究结果；最新 README 还列出 290+ 技能、约 30 个数据库连接以及本地模型和多家云模型路由。",
   "category": "AI 研究工作台",
   "capabilities": [
     "文献检索",
@@ -28,6 +28,6 @@
   "bestFor": "适合需要把资料检索、证据整理、代码实验和报告输出放进同一条可追溯流程的研究型任务。",
   "reusePlan": "重点参考其研究循环、会话与产物溯源、工具层和模型路由；若用于普通内容分析，可只抽取工作流思想而非整套科学数据库能力。",
   "limitation": "项目明确说明 Agent 本身没有沙箱隔离；运行陌生代码或处理敏感凭据时应使用容器或虚拟机，并核对模型与云计算成本。",
-  "evidenceSummary": "README 明确覆盖文献、假设、代码、实验、分析和报告完整研究循环，列出科学数据库、浏览器工作区、模型兼容性与未提供沙箱的安全边界。",
+  "evidenceSummary": "最新 README 明确覆盖文献、假设、代码、实验、分析和报告完整研究循环，列出研究子 Agent、290+ 技能、约 30 个科学数据库、浏览器工作区、模型路由与未提供沙箱的安全边界；只读扫描覆盖 3,828 个文件，识别到 Apache-2.0、145 个测试文件、CI、Docker、文档和环境示例。未执行仓库代码。",
   "sourceUrl": "https://github.com/synthetic-sciences/openscience#readme"
 }

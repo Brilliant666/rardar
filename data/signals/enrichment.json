@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-10T16:09:00Z",
+  "generatedAt": "2026-07-11T00:12:00Z",
   "model": "local-codex",
   "items": {
     "https://github.blog/changelog/2026-07-09-openais-gpt-5-6-sol-terra-and-luna-are-now-available-in-github-copilot": {
@@ -62,6 +62,38 @@
       "takeawayZh": "仓库把需求澄清、计划、增量构建、测试、评审、性能检查和发布组织为可复用技能与命令，并提供 Codex、Claude、Gemini 等多种集成及评测、Hook 和插件结构。",
       "whyItMattersZh": "它适合作为 Rardar 自治开发流程的参考：任务要原子化、每步有证据、评审先于发布。应优先复用技能结构和质量门禁，不因外部日榜数字直接判断成熟度。",
       "categoryZh": "开发方法"
+    },
+    "https://github.blog/changelog/2026-07-10-codeql-2-26-0-adds-kotlin-2-4-0-support-and-ai-prompt-injection-detection": {
+      "analyzedAt": "2026-07-11T00:12:00Z",
+      "sourcePublishedAt": "2026-07-10T20:40:56+00:00",
+      "titleZh": "CodeQL 2.26.0 新增系统提示词注入检测",
+      "takeawayZh": "GitHub 发布 CodeQL 2.26.0：支持 Kotlin 2.4.0，并为 JavaScript/TypeScript 新增系统提示词注入查询，扩大 OpenAI、Anthropic 和 Google GenAI SDK 的提示词注入汇点覆盖，同时改进多语言分析准确性。",
+      "whyItMattersZh": "AI 应用的系统提示词已成为可静态追踪的安全边界。开发 Agent、MCP 或内容工作台时，应把不可信输入到系统指令的传播纳入代码扫描，而不只依赖运行时过滤。",
+      "categoryZh": "AI 安全"
+    },
+    "https://github.blog/changelog/2026-07-10-clearer-names-for-secret-scanning-detector-types": {
+      "analyzedAt": "2026-07-11T00:12:00Z",
+      "sourcePublishedAt": "2026-07-10T20:06:10+00:00",
+      "titleZh": "GitHub 重命名密钥扫描检测器类型",
+      "takeawayZh": "GitHub 将“非供应商模式”改称“通用模式”，将“Copilot 密钥扫描”改称“AI 检测密钥”；这只是命名调整，检测行为、Webhook、审计日志和 REST API 均未改变。",
+      "whyItMattersZh": "团队无需因这次更新改造自动化，但文档和告警说明应同步新术语；同时要区分确定性模式与读取上下文的 AI 检测，避免把命名变化误判为能力升级。",
+      "categoryZh": "供应链安全"
+    },
+    "https://github.blog/changelog/2026-07-10-per-user-states-for-multi-user-budgets-in-the-rest-api": {
+      "analyzedAt": "2026-07-11T00:12:00Z",
+      "sourcePublishedAt": "2026-07-10T15:07:23+00:00",
+      "titleZh": "GitHub 预算 API 可批量查看逐用户消耗",
+      "takeawayZh": "GitHub Enterprise Cloud 的企业所有者和账单管理员现在可通过单个 REST API 分页获取多用户预算下每位用户的消耗与限额，并按使用比例筛选、排序或查看个人覆盖值。",
+      "whyItMattersZh": "长时间 Agent 和多模型工具的治理越来越依赖逐用户成本可见性。相关平台可直接构建临近额度预警和异常消耗看板，减少逐用户轮询脚本。",
+      "categoryZh": "成本治理"
+    },
+    "https://github.blog/changelog/2026-07-09-new-pull-requests-dashboard-is-now-generally-available": {
+      "analyzedAt": "2026-07-11T00:12:00Z",
+      "sourcePublishedAt": "2026-07-09T20:48:29+00:00",
+      "titleZh": "GitHub 新版 Pull Requests 总览正式可用",
+      "takeawayZh": "github.com/pulls 的新版总览已正式可用，提供待审、需修复、可合并等收件箱分区、自定义保存视图、跨仓库高级搜索、键盘导航，以及对 Agent 创建 PR 的筛选支持。",
+      "whyItMattersZh": "跨仓库协作入口正在从列表变成可配置工作队列。Rardar 未来若管理多项目复用任务，可参考其收件箱分区、保存视图和动作状态，而不只是展示候选卡片。",
+      "categoryZh": "开发协作"
     }
   }
 }
