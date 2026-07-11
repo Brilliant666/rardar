@@ -12,6 +12,8 @@ test("contains the complete Rardar home experience", async () => {
     signalsPage,
     searchPage,
     searchWorkbench,
+    nav,
+    globalCss,
     runtimeStatus,
     feedbackRoute,
     metricsRoute,
@@ -33,6 +35,8 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/signals/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/search/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/SearchWorkbench.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/Nav.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/components/RuntimeStatus.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/feedback/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/metrics/route.ts", import.meta.url), "utf8"),
@@ -98,6 +102,12 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(searchWorkbench, /search-presets/);
   assert.match(searchWorkbench, /search-overview/);
   assert.match(searchWorkbench, /match-row-rich/);
+  assert.match(nav, /usePathname/);
+  assert.match(nav, /aria-current/);
+  assert.match(globalCss, /Rardar fusion visual system/);
+  assert.match(globalCss, /--cobalt: #315cff/);
+  assert.match(globalCss, /--cyan: #39bdf2/);
+  assert.doesNotMatch(globalCss, /--acid: #caff59/);
   assert.match(runtimeStatus, /127\.0\.0\.1:3002\/status/);
   assert.match(runtimeStatus, /heartbeatLimit/);
   assert.match(runtimeStatus, /dataAuditStatus/);

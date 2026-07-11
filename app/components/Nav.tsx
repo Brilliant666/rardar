@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { catalog } from "../data";
 
 const links = [
@@ -11,6 +14,8 @@ const links = [
 ];
 
 export function Nav() {
+  const pathname = usePathname();
+
   return (
     <header className="site-header">
       <Link className="brand" href="/" aria-label="Rardar 首页">
@@ -19,7 +24,7 @@ export function Nav() {
       </Link>
       <nav className="main-nav" aria-label="主导航">
         {links.map(([href, label]) => (
-          <Link key={href} href={href}>
+          <Link className={pathname === href ? "active" : ""} key={href} href={href} aria-current={pathname === href ? "page" : undefined}>
             {label}
           </Link>
         ))}
