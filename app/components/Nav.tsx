@@ -25,7 +25,7 @@ export function Nav() {
         ))}
       </nav>
       <div className="header-status">
-        <span className="live-dot" /> {catalog.growthMode === "observed" ? "真实增长快照" : "真实首轮快照"}
+        <span className="live-dot" /> {catalog.growthMode === "first_observation_proxy" ? "真实首轮快照" : "真实区间增长"}
       </div>
     </header>
   );
