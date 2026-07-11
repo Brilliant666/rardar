@@ -4,8 +4,10 @@
   "sourceCount": 187,
   "queryFailureCount": 0,
   "projectCount": 30,
-  "deepAnalysisCount": 5,
-  "pendingDeepAnalysis": [],
+  "deepAnalysisCount": 4,
+  "pendingDeepAnalysis": [
+    "DietrichGebert/ponytail"
+  ],
   "dailyTrackCounts": {
     "recentMomentum": 3,
     "longTerm": 2
@@ -203,9 +205,9 @@
     {
       "slug": "dietrichgebert--ponytail",
       "repo": "DietrichGebert/ponytail",
-      "title": "让编程 Agent 优先复用现有能力而不是过度开发",
-      "description": "Ponytail 是面向多种编程 Agent 的最小实现规则集：先判断功能是否需要、代码库是否已有实现、标准库或原生平台能否完成，再考虑新增依赖和代码，同时保留验证、安全、错误处理和可访问性要求。",
-      "category": "开发效率",
+      "title": "ponytail",
+      "description": "Makes your AI agent think like the laziest senior dev in the room. The best code is the code you never wrote.",
+      "category": "AI 与 Agent",
       "language": "JavaScript",
       "license": "MIT",
       "stars": 80149,
@@ -222,22 +224,21 @@
       "heatObservationCount": 2,
       "heatObservationWindow": 2,
       "trend": "+365 / 11.4h",
-      "analysisState": "深度分析",
+      "analysisState": "画像待复核",
       "sourcePushedAt": "2026-07-10T02:44:32Z",
       "analysisAnalyzedAt": "2026-07-11T00:01:29.078155+00:00",
       "enrichmentAnalyzedAt": "2026-07-10T13:00:00Z",
       "whyNow": "Rardar 两次事实快照之间观测到 观测 +365 / 11.4 小时，且仓库最近推送于 2026-07-10。",
       "recommendation": "复用",
-      "fit": "适合经常遇到 Agent 过度封装、随意引入依赖或重复实现已有功能的代码项目。",
-      "reusePlan": "可以先把它作为代码审查和实现前决策规则使用，再根据真实项目对比是否减少代码量、依赖和返工。",
-      "risk": "README 的主要 Agent 基准覆盖 12 个功能任务和特定模型，不能直接外推到所有技术栈；它优化的是必要性和简洁度，不是盲目追求最少行数。 已只读扫描 150 个文件，发现 20 个测试文件。README、许可证、测试、CI 和文档证据较完整。静态检查不能代替实际运行验证。",
+      "fit": "当前被归入“AI 与 Agent”，命中 5 个生产力相关信号；下一步需结合具体任务做能力匹配。",
+      "reusePlan": "先阅读 README 和静态证据，再决定是否进入隔离环境试用。",
+      "risk": "现有中文画像绑定的仓库推送或静态分析版本与当前证据不一致，能力与复用判断需要重新核对。 已只读扫描 150 个文件，发现 20 个测试文件。README、许可证、测试、CI 和文档证据较完整。静态检查不能代替实际运行验证。",
       "capabilities": [
-        "YAGNI 决策阶梯",
-        "现有代码复用",
-        "依赖控制",
-        "代码精简",
-        "代码审查",
-        "多 Agent 插件"
+        "AI 与 Agent",
+        "agent skills",
+        "ai agents",
+        "claude",
+        "claude code"
       ],
       "taskTerms": [
         "AI 与 Agent",
@@ -254,15 +255,7 @@
         "cursor rules",
         "developer tools",
         "prompt engineering",
-        "yagni",
-        "减少代码",
-        "避免过度开发",
-        "复用现有代码",
-        "减少依赖",
-        "代码审查",
-        "技术债",
-        "codex 插件",
-        "开发效率"
+        "yagni"
       ],
       "evidence": [
         {
@@ -279,11 +272,6 @@
           "label": "只读仓库静态检查",
           "detail": "扫描 150 个文件；测试文件 20 个；置信度 95%。未执行仓库代码。",
           "href": "https://github.com/DietrichGebert/ponytail"
-        },
-        {
-          "label": "Codex 中文能力画像",
-          "detail": "README 给出七级复用决策阶梯、跨 Codex/Claude 等安装方式，并公开基准方法、修正后的平均结果和适用限制。",
-          "href": "https://github.com/DietrichGebert/ponytail#readme"
         }
       ],
       "capturedAt": "2026-07-11 08:00 CST"
@@ -2057,5 +2045,5 @@
   "analysisFailures": [],
   "signalCount": 28,
   "healthySignalSourceCount": 6,
-  "codexPendingCount": 0
+  "codexPendingCount": 1
 }

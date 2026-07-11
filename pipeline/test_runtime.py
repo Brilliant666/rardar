@@ -11,10 +11,13 @@ from pipeline.runtime import (
     acquire_manager_lock,
     default_runtime_dir,
     heartbeat_is_fresh,
+    missing_python_dependencies,
     parse_node_version,
+    python_dependencies_are_ready,
     release_manager_lock,
     rotate_log,
     scheduler_heartbeat_state,
+    start_manager,
 )
 
 
@@ -105,6 +108,31 @@ class RuntimeTests(unittest.TestCase):
     def test_runtime_directory_can_live_outside_project(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict("os.environ", {"RARDAR_RUNTIME_DIR": temporary}):
             self.assertEqual(default_runtime_dir(), Path(temporary).resolve())
+
+    def test_python_dependency_probe_reports_unavailable_modules(self) -> None:
+        with patch("pipeline.runtime.importlib.util.find_spec", side_effect=[object(), None]):
+            self.assertEqual(missing_python_dependencies(("available", "missing")), ("missing",))
+
+    def test_local_start_stops_before_spawning_when_python_dependency_is_missing(self) -> None:
+        with (
+            patch("pipeline.runtime._read_json", return_value={}),
+            patch("pipeline.runtime.missing_python_dependencies", return_value=("jsonschema",)),
+            patch("pipeline.runtime._stop_recorded_processes") as stop_processes,
+            patch("pipeline.runtime.subprocess.Popen") as spawn_process,
+            patch("builtins.print") as print_message,
+        ):
+            exit_code = start_manager()
+
+        self.assertEqual(exit_code, 1)
+        stop_processes.assert_not_called()
+        spawn_process.assert_not_called()
+        output = "\n".join(str(call.args[0]) for call in print_message.call_args_list)
+        self.assertIn("jsonschema", output)
+        self.assertIn("python -m pip install -r requirements.txt", output)
+
+    def test_python_dependency_preflight_succeeds_when_modules_are_available(self) -> None:
+        with patch("pipeline.runtime.missing_python_dependencies", return_value=()):
+            self.assertTrue(python_dependencies_are_ready())
 
 
 if __name__ == "__main__":

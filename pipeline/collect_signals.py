@@ -22,6 +22,13 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
+from pipeline.schema_validation import (
+    ArtifactKind,
+    artifact_write_lock,
+    atomic_write_validated_json,
+    require_valid,
+)
+
 
 OFFICIAL_FEEDS = [
     ("openai_news", "OpenAI News", "https://openai.com/news/rss.xml"),
@@ -437,11 +444,9 @@ def main() -> None:
         max(24, min(arguments.window_hours, 168)),
         max(5, min(arguments.limit, 100)),
     )
-    arguments.out.parent.mkdir(parents=True, exist_ok=True)
-    arguments.out.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+    require_valid(ArtifactKind.TECHNICAL_SIGNALS, payload, source_path=arguments.out)
+    with artifact_write_lock(arguments.out):
+        atomic_write_validated_json(arguments.out, ArtifactKind.TECHNICAL_SIGNALS, payload)
     print(
         f"saved {payload['signalCount']} signals from {payload['healthySourceCount']} healthy sources "
         f"({payload['failedSourceCount']} failed) to {arguments.out}"

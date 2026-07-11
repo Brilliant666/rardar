@@ -12,9 +12,12 @@
 
 ## 文件字段
 
+- `schemaVersion`：新项目画像固定为 `1`；缺少可信静态分析时间的历史画像仅以 legacy `0` 保留，不能作为当前结论。
 - `repository`：`owner/name`。
 - `analyzedAt`：分析时间。
-- `model`：当前填写 `local-codex`。
+- `sourcePushedAt`：从 Codex 队列原样复制的当前仓库推送时间。
+- `sourceAnalysisAt`：从 Codex 队列原样复制的当前静态证据 `analyzed_at`。
+- `model`：可选；填写时记录实际分析器，例如 `local-codex`。
 - `titleZh`、`summaryZh`：中文决策摘要。
 - `category`、`capabilities`、`taskTerms`：任务匹配输入。
 - `bestFor`：适合什么目标。
@@ -22,4 +25,11 @@
 - `limitation`：限制与风险。
 - `evidenceSummary`、`sourceUrl`：证据说明和原始仓库入口。
 
-刷新数据后，Codex 应先检查每日前五中哪些项目仍为“事实初筛”或“静态分析”，只为证据足够的项目新增或更新画像，再运行 `npm run data:build`。
+刷新数据后，Codex 应先检查每日前五中哪些项目仍为“事实初筛”或“静态分析”，只为证据足够的项目新增或更新画像。先把 JSON 写到 `data/` 之外的草稿路径，再用以下入口验证并原子发布；不要直接覆盖本目录中的正式文件：
+
+```bash
+python -m pipeline.ingest_enrichment --kind project --input tmp/project-draft.json
+npm run data:derive
+```
+
+两个来源时间必须是带时区 RFC3339，并与队列提供的字符串精确一致；`analyzedAt` 不能早于 `sourceAnalysisAt`。Codex 不得自行生成、归一化或改写。入口会核对类型、时间、URL、仓库身份和由 `repository` 推导的文件名，并与 refresh/derive 使用同一个数据目录锁。草稿的解析后路径必须在整个 `data/` 目录之外；验证或写入失败时保留已有正式画像。

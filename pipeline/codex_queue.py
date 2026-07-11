@@ -5,16 +5,30 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pipeline.data_lock import data_dir_lock
+from pipeline.schema_validation import (
+    ArtifactKind,
+    atomic_write_validated_json,
+    infer_artifact_kind,
+    load_validated_json,
+    strict_json_loads,
+)
+
 
 PROJECT_REQUIRED_FIELDS = {
+    "schemaVersion",
     "repository",
+    "sourcePushedAt",
+    "sourceAnalysisAt",
     "analyzedAt",
     "titleZh",
     "summaryZh",
+    "category",
     "capabilities",
     "taskTerms",
     "bestFor",
@@ -27,11 +41,27 @@ SIGNAL_CONTENT_FIELDS = {"titleZh", "takeawayZh", "whyItMattersZh", "categoryZh"
 SIGNAL_REQUIRED_FIELDS = {*SIGNAL_CONTENT_FIELDS, "analyzedAt", "sourcePublishedAt"}
 
 
-def _read_json(path: Path) -> dict[str, Any] | None:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+def _read_json(
+    path: Path,
+    kind: ArtifactKind | None = None,
+    *,
+    expected_repository: str | None = None,
+) -> dict[str, Any] | None:
+    if not path.exists():
         return None
+    if kind is not None:
+        return load_validated_json(
+            path,
+            kind,
+            expected_repository=expected_repository,
+        )
+    try:
+        payload = strict_json_loads(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError(f"JSON artifact must be an object: {path}")
+    return payload
 
 
 def _safe_name(repository: str) -> str:
@@ -51,25 +81,51 @@ def _parse_time(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
     return parsed.astimezone(timezone.utc)
 
 
-def _project_enrichment_is_current(payload: dict[str, Any] | None, project: dict[str, Any]) -> bool:
-    if not _is_complete(payload, PROJECT_REQUIRED_FIELDS):
+def _project_enrichment_is_current(
+    payload: dict[str, Any] | None,
+    project: dict[str, Any],
+    analysis: dict[str, Any] | None,
+) -> bool:
+    if (
+        not _is_complete(payload, PROJECT_REQUIRED_FIELDS)
+        or payload.get("repository") != project.get("repo")
+        or not analysis
+        or analysis.get("schemaVersion") != 1
+        or analysis.get("repository") != project.get("repo")
+    ):
         return False
-    pushed_at = _parse_time(project.get("sourcePushedAt"))
-    analyzed_at = _parse_time(payload.get("analyzedAt") if payload else None)
-    return bool(analyzed_at and (not pushed_at or analyzed_at >= pushed_at))
+    pushed_at = project.get("sourcePushedAt")
+    analysis_at = analysis.get("analyzed_at")
+    source_pushed_time = _parse_time(payload.get("sourcePushedAt"))
+    source_analysis_time = _parse_time(payload.get("sourceAnalysisAt"))
+    enrichment_time = _parse_time(payload.get("analyzedAt"))
+    return bool(
+        isinstance(pushed_at, str)
+        and isinstance(analysis_at, str)
+        and payload.get("sourcePushedAt") == pushed_at
+        and payload.get("sourceAnalysisAt") == analysis_at
+        and source_pushed_time
+        and source_analysis_time
+        and enrichment_time
+        and enrichment_time >= source_analysis_time
+    )
 
 
 def _project_analysis_is_current(payload: dict[str, Any] | None, project: dict[str, Any]) -> bool:
-    if not payload or payload.get("repository") != project.get("repo"):
+    if (
+        not payload
+        or payload.get("schemaVersion") != 1
+        or payload.get("repository") != project.get("repo")
+    ):
         return False
     analyzed_at = _parse_time(payload.get("analyzed_at"))
     pushed_at = _parse_time(project.get("sourcePushedAt"))
-    return bool(analyzed_at and (not pushed_at or analyzed_at >= pushed_at))
+    return bool(analyzed_at and pushed_at and analyzed_at >= pushed_at)
 
 
 def _signal_enrichment_is_current(
@@ -107,9 +163,18 @@ def build_codex_queue(
         safe_name = _safe_name(repository)
         enrichment_path = project_enrichment_dir / f"{safe_name}.json"
         analysis_path = project_enrichment_dir.parent / "analysis" / f"{safe_name}.json"
-        enrichment = _read_json(enrichment_path)
-        analysis_ready = _project_analysis_is_current(_read_json(analysis_path), project)
-        if analysis_ready and _project_enrichment_is_current(enrichment, project):
+        enrichment = _read_json(
+            enrichment_path,
+            ArtifactKind.PROJECT_ENRICHMENT,
+            expected_repository=repository,
+        )
+        analysis = _read_json(
+            analysis_path,
+            ArtifactKind.STATIC_EVIDENCE,
+            expected_repository=repository,
+        )
+        analysis_ready = _project_analysis_is_current(analysis, project)
+        if analysis_ready and _project_enrichment_is_current(enrichment, project, analysis):
             completed_projects += 1
             continue
         complete_but_stale = _is_complete(enrichment, PROJECT_REQUIRED_FIELDS)
@@ -130,6 +195,7 @@ def build_codex_queue(
                 ),
                 "evidenceState": "ready" if analysis_ready else "static_analysis_required",
                 "sourcePushedAt": project.get("sourcePushedAt"),
+                "sourceAnalysisAt": analysis.get("analyzed_at") if analysis else None,
                 "previousAnalyzedAt": enrichment.get("analyzedAt") if enrichment else None,
                 "inputPaths": [
                     *([f"data/analysis/{safe_name}.json"] if analysis_ready else []),
@@ -138,14 +204,21 @@ def build_codex_queue(
                 "outputPath": f"data/enrichment/{safe_name}.json",
                 "requiredFields": sorted(PROJECT_REQUIRED_FIELDS),
                 "safety": (
-                    "只阅读 README 与静态分析证据，不执行仓库代码"
+                    "只阅读 README 与静态分析证据，不执行仓库代码；必须将本项队列中的 "
+                    "sourcePushedAt 与 sourceAnalysisAt 原样复制到草稿，不能自行生成、推算或改写；"
                     if analysis_ready
-                    else "先执行只读浅克隆静态扫描；扫描失败则保持待分析，不得仅凭仓库元数据生成画像"
-                ),
+                    else "先执行只读浅克隆静态扫描；扫描失败则保持待分析，不得仅凭仓库元数据生成画像；"
+                    "重新扫描并重建队列、证据状态达到 ready 后，必须将新队列中的 sourcePushedAt 与 "
+                    "sourceAnalysisAt 原样复制到草稿，不能自行生成、推算或改写；"
+                )
+                + "先写 data/ 外草稿，再经 pipeline.ingest_enrichment 发布；"
+                + "outputPath 只是最终归属，不能直接覆盖。",
             }
         )
 
-    signal_enrichment = _read_json(signal_enrichment_path) or {}
+    signal_enrichment = (
+        _read_json(signal_enrichment_path, ArtifactKind.SIGNAL_ENRICHMENT) or {}
+    )
     enriched_signals = signal_enrichment.get("items") or {}
     legacy_analyzed_at = signal_enrichment.get("generatedAt")
     ranked_signals = signals.get("signals") or signals.get("topSignals") or []
@@ -176,7 +249,11 @@ def build_codex_queue(
                 "inputPaths": ["data/signals/latest.json"],
                 "outputPath": "data/signals/enrichment.json",
                 "requiredFields": sorted(SIGNAL_REQUIRED_FIELDS),
-                "safety": "保留原始链接与发布时间，明确区分来源事实和 Codex 判断",
+                "safety": (
+                    "保留原始链接与发布时间，明确区分来源事实和 Codex 判断；"
+                    "先写 data/ 外草稿，再经 pipeline.ingest_enrichment 发布；"
+                    "outputPath 只是最终归属，不能直接覆盖。"
+                ),
             }
         )
 
@@ -196,6 +273,39 @@ def build_codex_queue(
     }
 
 
+def _artifact_data_root(path: Path) -> Path | None:
+    resolved = path.expanduser().resolve()
+    kind = infer_artifact_kind(resolved)
+    if kind is None:
+        return None
+    if (
+        kind is ArtifactKind.GITHUB_SNAPSHOT
+        and resolved.parent.name.lower() == "history"
+    ):
+        return resolved.parent.parent.parent
+    return resolved.parent.parent
+
+
+def _queue_lock_roots(
+    catalog_path: Path,
+    signals_path: Path,
+    project_enrichment_dir: Path,
+    signal_enrichment_path: Path,
+    output_path: Path,
+) -> list[Path]:
+    roots = {
+        root
+        for path in (catalog_path, signals_path, signal_enrichment_path, output_path)
+        if (root := _artifact_data_root(path)) is not None
+    }
+    enrichment_dir = project_enrichment_dir.expanduser().resolve()
+    if enrichment_dir.name.lower() == "enrichment":
+        roots.add(enrichment_dir.parent)
+    if not roots:
+        roots.add(output_path.expanduser().resolve().parent)
+    return sorted(roots, key=lambda path: str(path).casefold())
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build the local Codex analysis queue")
     parser.add_argument("--catalog", type=Path, default=Path("data/catalog/latest.json"))
@@ -207,23 +317,30 @@ def main() -> None:
     parser.add_argument("--signal-limit", type=int, default=10)
     arguments = parser.parse_args()
 
-    catalog = _read_json(arguments.catalog)
-    signals = _read_json(arguments.signals)
-    if not catalog or not signals:
-        raise SystemExit("catalog and signals snapshots are required")
-    queue = build_codex_queue(
-        catalog,
-        signals,
-        arguments.project_enrichment_dir,
-        arguments.signal_enrichment,
-        datetime.now(timezone.utc),
-        max(1, min(arguments.project_limit, 30)),
-        max(1, min(arguments.signal_limit, 30)),
-    )
-    arguments.out.parent.mkdir(parents=True, exist_ok=True)
-    temporary = arguments.out.with_suffix(arguments.out.suffix + ".tmp")
-    temporary.write_text(json.dumps(queue, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(arguments.out)
+    with ExitStack() as lock_stack:
+        for data_root in _queue_lock_roots(
+            arguments.catalog,
+            arguments.signals,
+            arguments.project_enrichment_dir,
+            arguments.signal_enrichment,
+            arguments.out,
+        ):
+            lock_stack.enter_context(data_dir_lock(data_root))
+
+        catalog = _read_json(arguments.catalog, ArtifactKind.CATALOG)
+        signals = _read_json(arguments.signals, ArtifactKind.TECHNICAL_SIGNALS)
+        if not catalog or not signals:
+            raise SystemExit("catalog and signals snapshots are required")
+        queue = build_codex_queue(
+            catalog,
+            signals,
+            arguments.project_enrichment_dir,
+            arguments.signal_enrichment,
+            datetime.now(timezone.utc),
+            max(1, min(arguments.project_limit, 30)),
+            max(1, min(arguments.signal_limit, 30)),
+        )
+        atomic_write_validated_json(arguments.out, ArtifactKind.CODEX_QUEUE, queue)
     print(json.dumps({key: queue[key] for key in ("pendingCount", "projectPendingCount", "signalPendingCount")}, ensure_ascii=False))
 
 

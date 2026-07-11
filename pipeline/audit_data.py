@@ -17,6 +17,12 @@ from pipeline.build_catalog import (
     persistence_is_verified,
 )
 from pipeline.codex_queue import build_codex_queue
+from pipeline.schema_validation import (
+    ArtifactKind,
+    ArtifactValidationError,
+    strict_json_loads,
+    validate_payload,
+)
 
 
 def _parse_time(value: object) -> datetime | None:
@@ -31,18 +37,46 @@ def _parse_time(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _load(path: Path, issues: list[dict[str, str]]) -> dict[str, Any]:
+def _load(
+    path: Path,
+    issues: list[dict[str, str]],
+    kind: ArtifactKind | None = None,
+) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = strict_json_loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         issues.append({"severity": "error", "code": "missing_artifact", "detail": str(path)})
         return {}
-    except (json.JSONDecodeError, OSError) as error:
+    except (ValueError, OSError) as error:
         issues.append({"severity": "error", "code": "invalid_artifact", "detail": f"{path}: {error}"})
         return {}
     if not isinstance(payload, dict):
         issues.append({"severity": "error", "code": "invalid_artifact_shape", "detail": str(path)})
         return {}
+    if kind is not None:
+        result = validate_payload(kind, payload, source_path=path)
+        for issue in result.issues[:50]:
+            issues.append(
+                {
+                    "severity": "error",
+                    "code": "schema_validation_failed",
+                    "detail": f"{path} {issue.instance_path}: {issue.message}",
+                }
+            )
+        if len(result.issues) > 50:
+            issues.append(
+                {
+                    "severity": "error",
+                    "code": "schema_validation_failed",
+                    "detail": f"{path}: {len(result.issues) - 50} additional Schema errors",
+                }
+            )
+        # Schema-invalid objects are untrusted input.  Do not pass their
+        # containers or field types into the semantic audit below: that can
+        # both hide the original contract failure and turn a read-only audit
+        # into an exception instead of a deterministic failed report.
+        if not result.valid:
+            return {}
     return payload
 
 
@@ -58,8 +92,13 @@ def _integer(value: object) -> int | None:
 def _is_http_url(value: object) -> bool:
     if not isinstance(value, str):
         return False
-    parsed = urlparse(value)
-    return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
+    try:
+        parsed = urlparse(value)
+        hostname = parsed.hostname
+        _ = parsed.port
+    except ValueError:
+        return False
+    return parsed.scheme.lower() in {"http", "https"} and bool(hostname)
 
 
 def _is_valid_signal_score(value: object) -> bool:
@@ -84,13 +123,34 @@ def _check_count(
 def audit_data(data_dir: Path) -> dict[str, Any]:
     data_dir = data_dir.resolve()
     issues: list[dict[str, str]] = []
-    snapshot = _load(data_dir / "snapshots" / "latest.json", issues)
-    catalog = _load(data_dir / "catalog" / "latest.json", issues)
-    signals = _load(data_dir / "signals" / "latest.json", issues)
-    queue = _load(data_dir / "queues" / "codex.json", issues)
+    snapshot = _load(
+        data_dir / "snapshots" / "latest.json",
+        issues,
+        ArtifactKind.GITHUB_SNAPSHOT,
+    )
+    catalog = _load(data_dir / "catalog" / "latest.json", issues, ArtifactKind.CATALOG)
+    signals = _load(
+        data_dir / "signals" / "latest.json",
+        issues,
+        ArtifactKind.TECHNICAL_SIGNALS,
+    )
+    queue = _load(data_dir / "queues" / "codex.json", issues, ArtifactKind.CODEX_QUEUE)
     history_dir = data_dir / "snapshots" / "history"
     history_paths = sorted(history_dir.glob("*.json")) if history_dir.exists() else []
-    history_snapshots = [_load(path, issues) for path in history_paths]
+    history_snapshots = [
+        _load(path, issues, ArtifactKind.GITHUB_SNAPSHOT) for path in history_paths
+    ]
+    analysis_dir = data_dir / "analysis"
+    if analysis_dir.exists():
+        for path in sorted(analysis_dir.glob("*.json")):
+            _load(path, issues, ArtifactKind.STATIC_EVIDENCE)
+    enrichment_dir = data_dir / "enrichment"
+    if enrichment_dir.exists():
+        for path in sorted(enrichment_dir.glob("*.json")):
+            _load(path, issues, ArtifactKind.PROJECT_ENRICHMENT)
+    signal_enrichment_path = data_dir / "signals" / "enrichment.json"
+    if signal_enrichment_path.exists():
+        _load(signal_enrichment_path, issues, ArtifactKind.SIGNAL_ENRICHMENT)
 
     repository_value = snapshot.get("repositories")
     project_value = catalog.get("projects")
@@ -518,15 +578,29 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         signal_limit_value = _integer(queue["scope"].get("signalLimit"))
         project_limit = max(0, min(project_limit_value if project_limit_value is not None else 5, 30))
         signal_limit = max(0, min(signal_limit_value if signal_limit_value is not None else 10, 30))
-        expected_queue = build_codex_queue(
-            catalog,
-            signals,
-            data_dir / "enrichment",
-            data_dir / "signals" / "enrichment.json",
-            queue_at,
-            project_limit,
-            signal_limit,
-        )
+        try:
+            expected_queue = build_codex_queue(
+                catalog,
+                signals,
+                data_dir / "enrichment",
+                data_dir / "signals" / "enrichment.json",
+                queue_at,
+                project_limit,
+                signal_limit,
+            )
+        except (ArtifactValidationError, ValueError) as error:
+            issues.append(
+                {
+                    "severity": "error",
+                    "code": "schema_validation_failed",
+                    "detail": f"Codex queue inputs cannot be rebuilt: {error}",
+                }
+            )
+            expected_queue = {
+                "items": queue_items,
+                "completedProjectCount": _integer(queue.get("completedProjectCount")) or 0,
+                "completedSignalCount": _integer(queue.get("completedSignalCount")) or 0,
+            }
         _add_if(
             issues,
             queue_items != expected_queue["items"],

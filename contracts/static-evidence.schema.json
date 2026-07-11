@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/static-evidence.schema.json",
+  "title": "Rardar static evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "repository",
+    "source",
+    "scanned_files",
+    "language_files",
+    "indicators",
+    "counts",
+    "license_hint",
+    "confidence",
+    "warnings"
+  ],
+  "properties": {
+    "schemaVersion": { "enum": [0, 1] },
+    "repository": {
+      "oneOf": [
+        { "const": "local" },
+        {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200,
+          "format": "repository",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        }
+      ]
+    },
+    "source": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "analyzed_at": { "type": "string", "format": "date-time" },
+    "scanned_files": { "type": "integer", "minimum": 0, "maximum": 12000 },
+    "language_files": {
+      "type": "object",
+      "maxProperties": 100,
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "indicators": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "readme",
+        "license",
+        "tests",
+        "ci",
+        "docker",
+        "dependency_lock",
+        "package_manifest",
+        "examples",
+        "docs",
+        "environment_example"
+      ],
+      "properties": {
+        "readme": { "type": "boolean" },
+        "license": { "type": "boolean" },
+        "tests": { "type": "boolean" },
+        "ci": { "type": "boolean" },
+        "docker": { "type": "boolean" },
+        "dependency_lock": { "type": "boolean" },
+        "package_manifest": { "type": "boolean" },
+        "examples": { "type": "boolean" },
+        "docs": { "type": "boolean" },
+        "environment_example": { "type": "boolean" }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["test_files", "todo_markers"],
+      "properties": {
+        "test_files": { "type": "integer", "minimum": 0 },
+        "todo_markers": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "license_hint": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1, "maxLength": 500 }
+      ]
+    },
+    "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "warnings": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "type": "string", "minLength": 1, "maxLength": 2000 }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["schemaVersion"],
+        "properties": { "schemaVersion": { "const": 1 } }
+      },
+      "then": { "required": ["analyzed_at"] }
+    },
+    {
+      "if": {
+        "required": ["schemaVersion"],
+        "properties": { "schemaVersion": { "const": 0 } }
+      },
+      "then": { "not": { "required": ["analyzed_at"] } }
+    },
+    {
+      "if": {
+        "required": ["repository"],
+        "properties": { "repository": { "not": { "const": "local" } } }
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 2048,
+            "format": "http-url",
+            "pattern": "^https?://[^\\s]+$"
+          }
+        }
+      }
+    }
+  ]
+}

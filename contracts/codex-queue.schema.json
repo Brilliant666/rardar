@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/codex-queue.schema.json",
+  "title": "Rardar Codex queue v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "generatedAt",
+    "scope",
+    "pendingCount",
+    "projectPendingCount",
+    "signalPendingCount",
+    "completedProjectCount",
+    "completedSignalCount",
+    "items"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectLimit", "signalLimit"],
+      "properties": {
+        "projectLimit": { "type": "integer", "minimum": 0, "maximum": 30 },
+        "signalLimit": { "type": "integer", "minimum": 0, "maximum": 30 }
+      }
+    },
+    "pendingCount": { "type": "integer", "minimum": 0 },
+    "projectPendingCount": { "type": "integer", "minimum": 0 },
+    "signalPendingCount": { "type": "integer", "minimum": 0 },
+    "completedProjectCount": { "type": "integer", "minimum": 0 },
+    "completedSignalCount": { "type": "integer", "minimum": 0 },
+    "items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/projectItem" },
+          { "$ref": "#/$defs/signalItem" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "httpUrl": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 2048,
+      "format": "http-url",
+      "pattern": "^https?://[^\\s]+$"
+    },
+    "repositoryName": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200,
+      "format": "repository",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "nullableDateTime": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ]
+    },
+    "commonItemProperties": {
+      "type": "object",
+      "properties": {
+        "priority": { "type": "integer", "minimum": -100, "maximum": 100 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 5000 },
+        "previousAnalyzedAt": { "$ref": "#/$defs/nullableDateTime" },
+        "inputPaths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 500,
+            "pattern": "^data/[A-Za-z0-9._/-]+$",
+            "not": { "pattern": "(?:^|/)\\.\\.(?:/|$)" }
+          }
+        },
+        "outputPath": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 500,
+          "pattern": "^data/[A-Za-z0-9._/-]+$",
+          "not": { "pattern": "(?:^|/)\\.\\.(?:/|$)" }
+        },
+        "requiredFields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+        },
+        "safety": { "type": "string", "minLength": 1, "maxLength": 5000 }
+      }
+    },
+    "projectItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "priority",
+        "repository",
+        "title",
+        "reason",
+        "evidenceState",
+        "sourcePushedAt",
+        "sourceAnalysisAt",
+        "previousAnalyzedAt",
+        "inputPaths",
+        "outputPath",
+        "requiredFields",
+        "safety"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^project:[a-z0-9-]+$", "maxLength": 300 },
+        "kind": { "const": "project" },
+        "priority": { "$ref": "#/$defs/commonItemProperties/properties/priority" },
+        "repository": { "$ref": "#/$defs/repositoryName" },
+        "title": { "$ref": "#/$defs/commonItemProperties/properties/title" },
+        "reason": { "$ref": "#/$defs/commonItemProperties/properties/reason" },
+        "evidenceState": { "enum": ["ready", "static_analysis_required"] },
+        "sourcePushedAt": { "type": "string", "format": "date-time" },
+        "sourceAnalysisAt": { "$ref": "#/$defs/nullableDateTime" },
+        "previousAnalyzedAt": { "$ref": "#/$defs/nullableDateTime" },
+        "inputPaths": { "$ref": "#/$defs/commonItemProperties/properties/inputPaths" },
+        "outputPath": { "$ref": "#/$defs/commonItemProperties/properties/outputPath" },
+        "requiredFields": { "$ref": "#/$defs/commonItemProperties/properties/requiredFields" },
+        "safety": { "$ref": "#/$defs/commonItemProperties/properties/safety" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "evidenceState": { "const": "ready" } },
+            "required": ["evidenceState"]
+          },
+          "then": {
+            "properties": {
+              "sourcePushedAt": { "type": "string", "format": "date-time" },
+              "sourceAnalysisAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      ]
+    },
+    "signalItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "priority",
+        "title",
+        "url",
+        "source",
+        "reason",
+        "sourcePublishedAt",
+        "previousAnalyzedAt",
+        "inputPaths",
+        "outputPath",
+        "requiredFields",
+        "safety"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^signal:[A-Za-z0-9_.:-]+$", "maxLength": 300 },
+        "kind": { "const": "signal" },
+        "priority": { "$ref": "#/$defs/commonItemProperties/properties/priority" },
+        "title": { "$ref": "#/$defs/commonItemProperties/properties/title" },
+        "url": { "$ref": "#/$defs/httpUrl" },
+        "source": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 300 }
+          ]
+        },
+        "reason": { "$ref": "#/$defs/commonItemProperties/properties/reason" },
+        "sourcePublishedAt": { "$ref": "#/$defs/nullableDateTime" },
+        "previousAnalyzedAt": { "$ref": "#/$defs/nullableDateTime" },
+        "inputPaths": { "$ref": "#/$defs/commonItemProperties/properties/inputPaths" },
+        "outputPath": { "$ref": "#/$defs/commonItemProperties/properties/outputPath" },
+        "requiredFields": { "$ref": "#/$defs/commonItemProperties/properties/requiredFields" },
+        "safety": { "$ref": "#/$defs/commonItemProperties/properties/safety" }
+      }
+    }
+  }
+}
