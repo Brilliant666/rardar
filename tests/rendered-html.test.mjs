@@ -10,6 +10,8 @@ test("contains the complete Rardar home experience", async () => {
     data,
     signals,
     signalsPage,
+    searchPage,
+    searchWorkbench,
     runtimeStatus,
     feedbackRoute,
     metricsRoute,
@@ -29,6 +31,8 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/search/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/SearchWorkbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/RuntimeStatus.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/feedback/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/metrics/route.ts", import.meta.url), "utf8"),
@@ -88,6 +92,12 @@ test("contains the complete Rardar home experience", async () => {
   assert.doesNotMatch(signals, /schedulerJson/);
   assert.match(signalsPage, /sourceStatus/);
   assert.match(signalsPage, /RuntimeStatus/);
+  assert.match(searchPage, /search-page/);
+  assert.match(searchPage, /radar-field/);
+  assert.doesNotMatch(searchPage, /dark-page/);
+  assert.match(searchWorkbench, /search-presets/);
+  assert.match(searchWorkbench, /search-overview/);
+  assert.match(searchWorkbench, /match-row-rich/);
   assert.match(runtimeStatus, /127\.0\.0\.1:3002\/status/);
   assert.match(runtimeStatus, /heartbeatLimit/);
   assert.match(runtimeStatus, /dataAuditStatus/);

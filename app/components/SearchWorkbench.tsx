@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { projects, type Project } from "../data";
+import { formatNumber, projects, type Project } from "../data";
 
 type IntentRule = {
   label: string;
@@ -142,48 +142,108 @@ export function SearchWorkbench({ compact = false }: { compact?: boolean }) {
     return (strong.length ? strong : ranked).slice(0, compact ? 3 : 5);
   }, [compact, intent, submitted]);
 
+  const displayedResults = submitted
+    ? results
+    : projects.slice(0, 3).map((project) => ({
+        project,
+        score: project.reuseScore,
+        reasons: [project.heatLabel ?? "当前高价值候选", project.analysisState],
+      }));
+  const observedCount = projects.filter((project) => project.growthKind === "observed").length;
+  const averageReuse = projects.length
+    ? Math.round(projects.reduce((sum, project) => sum + project.reuseScore, 0) / projects.length)
+    : 0;
+  const deepCount = projects.filter((project) => project.analysisState === "深度分析").length;
+
+  const presets = [
+    ["AI Agent", "找一个可自托管的 AI Agent 平台"],
+    ["自动化", "找一个可以自托管的工作流自动化平台"],
+    ["研究证据", "找一个能检索资料、整理证据并生成报告的项目"],
+    ["第三方集成", "找一个支持 OAuth、MCP 和第三方服务连接器的项目"],
+  ];
+
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (query.trim()) setSubmitted(query.trim());
   }
 
+  function applyPreset(value: string) {
+    setQuery(value);
+    setSubmitted(value);
+  }
+
   return (
     <div className={`search-workbench ${compact ? "compact-search" : ""}`}>
       <form onSubmit={submit}>
-        <label htmlFor={compact ? "home-task" : "search-task"}>描述你想实现的功能</label>
+        <label htmlFor={compact ? "home-task" : "search-task"}>{compact ? "描述你想实现的功能" : "输入一个任务，而不是仓库名"}</label>
         <div className="search-row">
           <input
             id={compact ? "home-task" : "search-task"}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="例如：找到能扫描账号、拆解视频并预测流量的项目"
+            placeholder={compact ? "例如：找到能扫描账号、拆解视频并预测流量的项目" : "例如：找一个可以自托管、支持 AI Agent 的工作流平台"}
           />
-          <button type="submit">开始侦察</button>
+          <button type="submit">开始侦察 <span aria-hidden="true">→</span></button>
         </div>
       </form>
 
-      {submitted && (
-        <div className="search-results" aria-live="polite">
+      {!compact && (
+        <>
+          <div className="search-presets" aria-label="常用任务示例">
+            {presets.map(([label, value]) => (
+              <button key={label} type="button" onClick={() => applyPreset(value)}>
+                <span>✦</span>{label}
+              </button>
+            ))}
+            <small>点击示例可直接检索</small>
+          </div>
+          <div className="search-overview" aria-label="候选项目概况">
+            <div><strong>{projects.length}</strong><span>候选项目</span></div>
+            <div><strong>{observedCount}</strong><span>真实增长观测</span></div>
+            <div><strong>{averageReuse}</strong><span>平均复用分</span></div>
+            <div><strong>{deepCount}</strong><span>已完成深读</span></div>
+            <div className="overview-sort"><span>排序方式</span><strong>任务相关性⌄</strong></div>
+          </div>
+        </>
+      )}
+
+      {(submitted || !compact) && (
+        <div className={`search-results ${compact ? "" : "full-search-results"}`} aria-live="polite">
+          {!compact && (
+            <div className="match-heading">
+              <div><span className="section-label">{submitted ? "Task matches" : "Radar picks"}</span><strong>{submitted ? `找到 ${displayedResults.length} 个优先匹配` : "当前高价值候选"}</strong></div>
+              <small>{submitted ? "已按任务能力、实现证据与复用价值重排" : "输入任务后将重新计算匹配顺序"}</small>
+            </div>
+          )}
+          {submitted && (
           <div className="capability-breakdown">
             <span className="section-label">目标拆解</span>
             <div className="capability-list">
               {intent.capabilities.map((capability) => <span key={capability}>{capability}</span>)}
             </div>
           </div>
+          )}
           <div className="match-list">
-            {results.map(({ project, score, reasons }, index) => (
-              <Link href={`/projects/${project.slug}`} key={project.slug} className="match-row">
+            {displayedResults.map(({ project, score, reasons }, index) => (
+              <Link href={`/projects/${project.slug}`} key={project.slug} className={`match-row ${compact ? "" : "match-row-rich"}`}>
                 <span>{String(index + 1).padStart(2, "0")}</span>
-                <div>
+                <div className="match-identity">
                   <strong>{project.repo}</strong>
-                  <p>{reasons.join(" · ")}</p>
-                  <small>{project.reusePlan}</small>
+                  <p>{project.description}</p>
+                  <small>{reasons.join(" · ")}</small>
                 </div>
-                <b>{score}%</b>
+                {compact ? <b>{score}%</b> : (
+                  <>
+                    <div className="match-stat"><span>区间增长</span><strong className={project.growthValue < 0 ? "trend-down" : "trend-up"}>{project.trend}</strong><small>★ {formatNumber(project.stars)}</small></div>
+                    <div className="match-stat reuse-stat"><span>复用价值</span><strong>{project.reuseScore}</strong><small>{project.recommendation}</small></div>
+                    <div className="match-stat"><span>许可证</span><strong>{project.license}</strong><small>{project.analysisState}</small></div>
+                    <div className="match-why"><span>为什么现在</span><p>{project.whyNow}</p></div>
+                  </>
+                )}
               </Link>
             ))}
           </div>
-          <p className="model-note">匹配依据来自本地 Codex 能力画像、仓库事实与可解释任务规则；没有明确命中时不会伪造高匹配度。</p>
+          <p className="model-note">匹配依据来自本地 Codex 能力画像、仓库事实与可解释任务规则；没有明确命中时不会伪造高匹配度。 <strong>查看全部 {projects.length} 个候选 →</strong></p>
         </div>
       )}
     </div>
