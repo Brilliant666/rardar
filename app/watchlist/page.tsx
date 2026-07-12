@@ -5,8 +5,8 @@ import { loadPublishedData } from "../server-data";
 export const metadata = { title: "观察列表" };
 export const dynamic = "force-dynamic";
 
-export default function WatchlistPage() {
-  const { catalog, projects } = loadPublishedData();
+export default async function WatchlistPage() {
+  const { catalog, projects } = await loadPublishedData();
   return (
     <div className="app-shell">
       <Nav growthMode={catalog.growthMode} />

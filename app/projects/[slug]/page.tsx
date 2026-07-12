@@ -8,14 +8,9 @@ import { loadPublishedData } from "../../server-data";
 
 export const dynamic = "force-dynamic";
 
-export function generateStaticParams() {
-  const { projects } = loadPublishedData();
-  return projects.map((project) => ({ slug: project.slug }));
-}
-
 export default async function ProjectPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const { catalog, projects } = loadPublishedData();
+  const { catalog, projects } = await loadPublishedData();
   const project = getProject(projects, slug);
   if (!project) notFound();
 

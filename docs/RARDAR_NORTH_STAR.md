@@ -165,6 +165,8 @@ AI 判断不得覆盖、改写或伪造事实层。
 
 正式发布以不可变 generation 和单一 `data/current.json` 指针为边界。网页一次请求与下一轮增长计算都必须从一次指针解析得到同一 generation；不得分别回退到 flat 文件。并发发布需要比较候选的 base generation，回滚只能显式指向重新验证通过的保留代。
 
+本地 Cloudflare Worker 不得绕过该边界直接拼接宿主文件路径。宿主数据桥必须在每次请求内一次性验证 current、manifest 和全部 artifact 哈希，再返回同一 generation 的 bundle；pointer 损坏时页面与健康检查都必须 fail closed，不能缓存或回退上一份 flat 数据。
+
 审计失败的数据：
 
 - 不得替换上一代健康数据；

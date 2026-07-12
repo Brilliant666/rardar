@@ -7,8 +7,8 @@ import { loadPublishedData } from "../server-data";
 export const metadata = { title: "技术动态" };
 export const dynamic = "force-dynamic";
 
-export default function SignalsPage() {
-  const { catalog, codexQueue, signalSnapshot } = loadPublishedData();
+export default async function SignalsPage() {
+  const { catalog, codexQueue, signalSnapshot } = await loadPublishedData();
   return (
     <div className="app-shell">
       <Nav growthMode={catalog.growthMode} />

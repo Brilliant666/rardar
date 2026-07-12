@@ -1,4 +1,4 @@
-import { loadPublishedBundle } from "./published-data-loader.mjs";
+import { loadPublishedBundleFromBridge } from "./published-data-client";
 import type { CatalogSnapshot } from "./data";
 import {
   applySignalEnrichments,
@@ -25,11 +25,11 @@ export type PublishedData = {
  * current.json once, verifies every manifest artifact, and parses all values
  * from that same immutable generation directory.
  */
-export function loadPublishedData(): PublishedData {
+export async function loadPublishedData(): Promise<PublishedData> {
   if (typeof window !== "undefined") {
     throw new Error("published Rardar data can only be loaded on the server");
   }
-  const bundle = loadPublishedBundle();
+  const bundle = await loadPublishedBundleFromBridge();
   const catalog = bundle.catalog as unknown as CatalogSnapshot;
   const projects = catalog.projects;
   const signalSnapshot = applySignalEnrichments(

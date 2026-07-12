@@ -9,21 +9,22 @@ import { loadPublishedData } from "./server-data";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
+export default async function Home() {
   const {
+    generationId,
     catalog,
     projects,
     dailyProjects,
     snapshotNotice,
     signalSnapshot,
     codexQueue,
-  } = loadPublishedData();
+  } = await loadPublishedData();
   const leadProject = dailyProjects[0];
   const recentCount = catalog.dailyTrackCounts?.recentMomentum ?? 3;
   const longTermCount = catalog.dailyTrackCounts?.longTerm ?? 2;
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-generation={generationId}>
       <Nav growthMode={catalog.growthMode} />
       <main>
         <section className="hero">

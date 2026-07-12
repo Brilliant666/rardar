@@ -9,7 +9,7 @@ const allowedValues = new Set(["有用", "无用", "复用", "待确定"]);
 const noStoreHeaders = { "cache-control": "no-store" };
 
 export async function GET(request: Request) {
-  const { projects } = loadPublishedData();
+  const { projects } = await loadPublishedData();
   const projectSlugs = new Set(projects.map((project) => project.slug));
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("deviceId")?.trim();
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { projects } = loadPublishedData();
+  const { projects } = await loadPublishedData();
   const projectSlugs = new Set(projects.map((project) => project.slug));
   const payload = await readJsonObject(request);
   if (!payload) {

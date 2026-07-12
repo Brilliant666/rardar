@@ -14,6 +14,9 @@ test("contains the complete Rardar home experience", async () => {
     data,
     serverData,
     publishedLoader,
+    publishedClient,
+    healthRoute,
+    publishedBridge,
     signals,
     signalsPage,
     searchPage,
@@ -39,6 +42,9 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/server-data.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/published-data-loader.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/published-data-client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/health/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../build/published-data-bridge.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/search/page.tsx", import.meta.url), "utf8"),
@@ -74,11 +80,20 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(data, /dailyTrackCounts/);
   assert.doesNotMatch(data, /data\/catalog\/latest\.json|catalogJson/);
   assert.doesNotMatch(data, /starsToday/);
-  assert.match(serverData, /loadPublishedBundle/);
+  assert.match(serverData, /await loadPublishedBundleFromBridge/);
   assert.match(serverData, /projects\.slice\(0, 5\)/);
   assert.match(publishedLoader, /current\.json/);
   assert.match(publishedLoader, /manifestSha256/);
   assert.match(publishedLoader, /artifact hash mismatch/);
+  assert.match(publishedClient, /RARDAR_DATA_BRIDGE_ORIGIN/);
+  assert.doesNotMatch(publishedClient, /await headers\(\)|get\("host"\)/);
+  assert.match(publishedClient, /X-Rardar-Data-Token/);
+  assert.match(publishedClient, /cache: "no-store"/);
+  assert.match(healthRoute, /status: "healthy", generationId/);
+  assert.match(healthRoute, /status: "degraded"/);
+  assert.match(publishedBridge, /loadPublishedBundle\(dataDirectory\)/);
+  assert.match(publishedBridge, /PUBLISHED_DATA_BRIDGE_PATH/);
+  assert.match(publishedBridge, /Cache-Control", "no-store"/);
   assert.match(metricsRoute, /effective_decisions/);
   assert.match(metricsRoute, /cache-control.*no-store/s);
   assert.match(feedbackRoute, /projectSlugs/);
@@ -112,6 +127,9 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(ensure, /CREATE TRIGGER IF NOT EXISTS feedback_update_decision_event/);
   assert.match(ensure, /WHEN OLD\.value <> NEW\.value/);
   assert.match(viteConfig, /ignored: \["\*\*\/data\/generations\/\*\*"\]/);
+  assert.match(viteConfig, /publishedDataBridge/);
+  assert.match(viteConfig, /RARDAR_DATA_BRIDGE_TOKEN/);
+  assert.match(viteConfig, /RARDAR_DATA_BRIDGE_ORIGIN/);
   assert.doesNotMatch(signals, /data\/signals\/latest\.json|signalJson|codexQueueJson/);
   assert.match(signals, /applySignalEnrichments/);
   assert.match(signals, /isCurrentEnrichment/);

@@ -5,8 +5,8 @@ import { loadPublishedData } from "../server-data";
 export const metadata = { title: "找项目" };
 export const dynamic = "force-dynamic";
 
-export default function SearchPage() {
-  const { catalog, projects } = loadPublishedData();
+export default async function SearchPage() {
+  const { catalog, projects } = await loadPublishedData();
   return (
     <div className="app-shell search-page">
       <Nav growthMode={catalog.growthMode} />

@@ -6,8 +6,8 @@ import { loadPublishedData } from "../server-data";
 export const metadata = { title: "发现" };
 export const dynamic = "force-dynamic";
 
-export default function DiscoverPage() {
-  const { catalog, projects, snapshotNotice } = loadPublishedData();
+export default async function DiscoverPage() {
+  const { catalog, projects, snapshotNotice } = await loadPublishedData();
   const categories = projectCategories(projects);
   return (
     <div className="app-shell">

@@ -6,8 +6,8 @@ import { loadPublishedData } from "../server-data";
 export const metadata = { title: "候选池" };
 export const dynamic = "force-dynamic";
 
-export default function CandidatesPage() {
-  const { catalog, projects, snapshotNotice } = loadPublishedData();
+export default async function CandidatesPage() {
+  const { catalog, projects, snapshotNotice } = await loadPublishedData();
   return (
     <div className="app-shell">
       <Nav growthMode={catalog.growthMode} />

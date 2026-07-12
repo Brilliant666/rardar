@@ -6,7 +6,7 @@ import { rankProjects } from "../../personalization";
 import { loadPublishedData } from "../../server-data";
 
 export async function GET(request: Request) {
-  const { projects } = loadPublishedData();
+  const { projects } = await loadPublishedData();
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("deviceId")?.trim();
   if (!deviceId || deviceId.length > 200) {

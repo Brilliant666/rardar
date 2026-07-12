@@ -12,6 +12,8 @@
 - 固定执行 Schema gate → cross-file audit gate → ready manifest → 原子发布顺序；
 - 使用跨进程 data lock 与 `baseGenerationId` CAS 裁决并发发布；
 - 页面、API、验证、审计、调度器和增长基线只读取一次解析出的同一 generation；
+- 为本地 Vinext Worker 增加 token 保护的同端口 Vite host 数据桥，Worker 不再直接读取宿主文件；
+- 增加实际加载 published generation 的 `/api/health`，管理器以 HTTP 契约而不是 TCP 端口判断网站健康；
 - 本地 Vite watcher 忽略 generation 内部目录，避免 Windows 开发服务器占用候选目录并阻断同盘原子重命名；
 - `refresh` 发布新快照，`derive` 保持快照与 history 基线不变；
 - 构建、Schema 和审计失败保留 failed manifest；发布冲突后的 ready candidate 与指针写入中断后的 orphan generation 保持不可变，并通过稳定错误码、candidate ID、scheduler 状态和显式回滚命令诊断；
@@ -54,17 +56,25 @@ current 健康时继续执行原有严格逻辑；current pointer、manifest、g
 
 若候选已 ready 但发布冲突，或目录已重命名而 current 指针写入中断，可运行 `npm run data:generation:publish -- <generation-id>` 重试原候选；它不会重建或改写该 generation。
 
+## 本地 Vinext 消费与健康
+
+默认 `vinext dev` 使用请求级 Vite host bridge：Node host 每次调用现有 `loadPublishedBundle` 完整核对 current、manifest、ready 状态、artifact 清单与哈希，并一次性返回同一 generation 的网页 bundle；Cloudflare RSC Worker 只访问可信 Vinext 配置固定的 `127.0.0.1` bridge origin，并携带当前进程随机 token。入站 `Host` 不参与桥目标选择，不能把 token 导向其他回环端口。该方案不缓存旧代、不依赖 HMR，pointer 切换下一请求立即生效，损坏 current 时返回 503 且不回退 flat。
+
+`/api/health` 只有在同一通道成功加载 generation 时才返回 200、`status: healthy` 与 `generationId`。本地管理器把非 200 或非法健康响应标为 degraded 并保存有界诊断，不因数据错误重启仍存活的 Vinext 进程；rollback 恢复后原进程自动恢复 healthy。Cloudflare plugin 与 D1 binding 保持原运行方式。此桥是本地 `vinext dev` 通道，不声称部署或 `vinext start` 能读取宿主数据。
+
 ## 验证结果
 
 Node.js 22.13.1 与当前 Python 环境下：
 
 - `npm run lint`：通过；
-- Python：170 项测试通过，4 项真实 Windows 符号链接测试因当前用户权限不可用跳过，等价的可移植链接/真实路径边界测试已通过；
+- Python：174 项测试通过，4 项真实 Windows 符号链接测试因当前用户权限不可用跳过，等价的可移植链接/真实路径边界测试已通过；
 - `npm run data:validate`：本地每日刷新 generation `20260712T000000282772Z-0de7461784f8` 的 24 份产物通过，0 错误；该运行时 generation 不属于本轮修正提交；
 - `npm run data:audit`：同一 generation 为 `healthy`，0 错误、0 警告；
 - `npm run build`：通过，所有网页数据路由为 Dynamic；
-- `npm test`：build 通过，4 项 Node 行为/渲染测试通过；
+- `npm test`：build 通过，5 项 Node 行为/渲染/真实 Vinext HTTP 测试通过；
 - `npm run security:audit:prod`：0 个生产依赖漏洞。
+
+真实 Vinext 子进程使用隔离的临时 generation、Cloudflare/D1 状态和随机回环端口完成验收：`GET /`、`GET /api/health`、`GET /signals`、`GET /search` 与 D1 `/api/actions` 均为 200；同一进程从 `http-generation-a` 切换到 `http-generation-b` 后立即返回新一代；损坏 current 时健康端点为 503、首页为 500 且完整 flat 诱饵没有被读取；显式 rollback 后原进程的健康端点和首页恢复 200。伪造入站 `Host` 指向另一回环监听器时，健康端点仍从固定 bridge origin 返回当前 generation，诱饵监听器收到 0 个请求，因此 token 不会随 Host 泄露。
 
 新增行为测试覆盖 current manifest digest 不匹配、manifest 缺失、generation 目录缺失、artifact 被篡改、非法 JSON、链接型 pointer、损坏回滚目标保持 pointer 字节不变、目标验证后的再次篡改、与正常 publisher 的锁串行化，以及恢复后的 Python resolver、真实 validate/audit CLI 和 Node published-data loader。
 
