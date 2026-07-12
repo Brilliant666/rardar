@@ -849,6 +849,7 @@ class GenerationProtocolTests(unittest.TestCase):
             same_time = datetime.fromisoformat(
                 str(current_pointer["publishedAt"]).replace("Z", "+00:00")
             )
+            pointer_before_stale_time = (data_dir / "current.json").read_bytes()
             with self.assertRaises(GenerationConflictError) as stale_time:
                 rollback_to_generation(
                     data_dir,
@@ -856,6 +857,10 @@ class GenerationProtocolTests(unittest.TestCase):
                     published_at=same_time,
                 )
             self.assertEqual(stale_time.exception.code, "stale_publication_time")
+            self.assertEqual(
+                (data_dir / "current.json").read_bytes(),
+                pointer_before_stale_time,
+            )
             self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-2")
 
             result = rollback_to_generation(data_dir, "generation-1")
@@ -866,41 +871,140 @@ class GenerationProtocolTests(unittest.TestCase):
             self.assertEqual(pointer["generationId"], "generation-1")
             self.assertEqual(pointer["previousGenerationId"], "generation-2")
 
-    def test_recovery_rollback_repairs_current_manifest_digest_mismatch(self) -> None:
+    def test_recovery_rollback_only_preserves_trusted_pointer_times(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             data_dir = Path(temporary) / "data"
             first, _ = _publish_two_generations(data_dir)
             pointer_path = data_dir / "current.json"
-            pointer = _read(pointer_path)
-            previous_time = datetime(2099, 1, 1, tzinfo=timezone.utc)
-            pointer["publishedAt"] = previous_time.isoformat()
-            pointer["manifestSha256"] = "0" * 64
-            _write(pointer_path, pointer)
-            pointer_before = pointer_path.read_bytes()
+            broken_pointer = _read(pointer_path)
+            broken_pointer["manifestSha256"] = "0" * 64
+            recovery_now = datetime(2030, 1, 1, tzinfo=timezone.utc)
+            within_drift = recovery_now + timedelta(minutes=2)
+            drift_boundary = recovery_now + generation_module.RECOVERY_POINTER_FUTURE_DRIFT
+            cases = (
+                (
+                    "normal-past",
+                    recovery_now - timedelta(days=1),
+                    recovery_now,
+                    True,
+                ),
+                (
+                    "small-future",
+                    within_drift,
+                    within_drift + timedelta(microseconds=1),
+                    True,
+                ),
+                (
+                    "drift-boundary",
+                    drift_boundary,
+                    drift_boundary + timedelta(microseconds=1),
+                    True,
+                ),
+                (
+                    "outside-drift",
+                    drift_boundary + timedelta(microseconds=1),
+                    recovery_now,
+                    False,
+                ),
+                (
+                    "far-future",
+                    datetime(2099, 1, 1, tzinfo=timezone.utc),
+                    recovery_now,
+                    False,
+                ),
+            )
+            real_utc_timestamp = generation_module._utc_timestamp
 
-            with self.assertRaises(GenerationConflictError) as stale_time:
-                rollback_to_generation(
-                    data_dir,
-                    "generation-1",
-                    published_at=previous_time,
-                )
-            self.assertEqual(stale_time.exception.code, "stale_publication_time")
-            self.assertEqual(pointer_path.read_bytes(), pointer_before)
+            for label, old_time, expected_time, must_advance in cases:
+                with self.subTest(case=label):
+                    broken_pointer["publishedAt"] = old_time.isoformat()
+                    _write(pointer_path, broken_pointer)
 
-            result = rollback_to_generation(data_dir, "generation-1")
+                    with patch(
+                        "pipeline.generations._utc_timestamp",
+                        side_effect=lambda value=None: real_utc_timestamp(
+                            recovery_now if value is None else value
+                        ),
+                    ):
+                        result = rollback_to_generation(data_dir, "generation-1")
+
+                    self.assertEqual(result.current.generation_id, "generation-1")
+                    recovered = _read(pointer_path)
+                    recovered_time = datetime.fromisoformat(
+                        str(recovered["publishedAt"]).replace("Z", "+00:00")
+                    )
+                    self.assertEqual(recovered_time, expected_time)
+                    if must_advance:
+                        self.assertGreater(recovered_time, old_time)
+                    else:
+                        self.assertLess(recovered_time, old_time)
+                    self.assertEqual(recovered["previousGenerationId"], "generation-2")
+                    self.assertEqual(
+                        recovered["manifestSha256"],
+                        hashlib.sha256((first.root / "manifest.json").read_bytes()).hexdigest(),
+                    )
+                    self.assertEqual(
+                        resolve_current_generation(data_dir).generation_id,
+                        "generation-1",
+                    )
+
+            max_time = datetime.max.replace(tzinfo=timezone.utc)
+            overflow_recovery_now = max_time - timedelta(minutes=1)
+            broken_pointer["publishedAt"] = max_time.isoformat()
+            _write(pointer_path, broken_pointer)
+            with patch(
+                "pipeline.generations._utc_timestamp",
+                side_effect=lambda value=None: real_utc_timestamp(
+                    overflow_recovery_now if value is None else value
+                ),
+            ):
+                result = rollback_to_generation(data_dir, "generation-1")
 
             self.assertEqual(result.current.generation_id, "generation-1")
             recovered = _read(pointer_path)
+            self.assertEqual(recovered["publishedAt"], overflow_recovery_now.isoformat())
             self.assertEqual(recovered["previousGenerationId"], "generation-2")
-            self.assertGreater(
-                datetime.fromisoformat(str(recovered["publishedAt"]).replace("Z", "+00:00")),
-                previous_time,
-            )
-            self.assertEqual(
-                recovered["manifestSha256"],
-                hashlib.sha256((first.root / "manifest.json").read_bytes()).hexdigest(),
-            )
             self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+    def test_far_future_recovery_allows_immediate_derive_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            _publish_two_generations(data_dir)
+            pointer_path = data_dir / "current.json"
+            pointer = _read(pointer_path)
+            pointer["publishedAt"] = "2099-01-01T00:00:00+00:00"
+            pointer["manifestSha256"] = "0" * 64
+            _write(pointer_path, pointer)
+            recovery_now = datetime(2030, 1, 1, tzinfo=timezone.utc)
+            real_utc_timestamp = generation_module._utc_timestamp
+
+            with patch(
+                "pipeline.generations._utc_timestamp",
+                side_effect=lambda value=None: real_utc_timestamp(
+                    recovery_now if value is None else value
+                ),
+            ):
+                rollback_to_generation(data_dir, "generation-1")
+
+            recovered = _read(pointer_path)
+            self.assertEqual(recovered["publishedAt"], recovery_now.isoformat())
+            publisher = _candidate(data_dir, "generation-3")
+            finalize_candidate_generation(publisher)
+            next_publication_time = recovery_now + timedelta(seconds=1)
+            with patch(
+                "pipeline.generations._utc_timestamp",
+                side_effect=lambda value=None: real_utc_timestamp(
+                    next_publication_time if value is None else value
+                ),
+            ):
+                published = publish_candidate_generation(publisher)
+
+            self.assertEqual(published.current.generation_id, "generation-3")
+            self.assertEqual(
+                _read(pointer_path)["publishedAt"],
+                next_publication_time.isoformat(),
+            )
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-3")
 
     def test_recovery_rollback_repairs_missing_current_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

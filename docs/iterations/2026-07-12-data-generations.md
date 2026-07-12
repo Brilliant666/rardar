@@ -50,7 +50,7 @@ npm run data:generation:rollback -- <generation-id>
 
 目标必须是仍保留的 ready generation。本轮审查修正将 rollback 调整为：在同一个 canonical data lock 内，先核对目标路径、ready manifest、manifest digest、全部 artifact hash、Schema 与跨文件 audit，全部通过后才读取 current 并原子更新 pointer。目标失败时原 pointer 字节保持不变并返回结构化错误。
 
-current 健康时继续执行原有严格逻辑；current pointer、manifest、generation 目录或 artifact 已损坏时，显式 rollback 可以继续恢复，但只独立提取旧 pointer 中安全的 `generationId` 与合法 `publishedAt`，绝不信任旧 manifest/hash/audit，也不回退 flat。合法旧时间会保证新 `publishedAt` 严格递增，损坏时间不会永久阻止恢复。symlink 或 junction pointer 的目标不会被读取为可信元数据；安全原子替换成功时恢复，否则返回结构化 `pointer_write_failed`，链接目标保持不变。
+current 健康时继续执行原有严格逻辑；current pointer、manifest、generation 目录或 artifact 已损坏时，显式 rollback 可以继续恢复，但只独立验证旧 pointer 中安全的 `generationId` 与有限可信的 `publishedAt`。旧时间只有在不晚于恢复时当前 UTC 加五分钟时才用于保持新 `publishedAt` 严格递增；超过窗口的异常未来值、非法时间或递增溢出均降级使用当前 UTC，不能永久阻止恢复。该五分钟窗口只属于损坏 current 的 recovery，健康 current 的时间冲突规则保持不变。旧 manifest/hash/audit 不受信任，也不回退 flat 数据；symlink 或 junction pointer 的目标不会被读取为可信元数据，安全原子替换失败时返回结构化 `pointer_write_failed`，链接目标保持不变。
 
 若候选已 ready 但发布冲突，或目录已重命名而 current 指针写入中断，可运行 `npm run data:generation:publish -- <generation-id>` 重试原候选；它不会重建或改写该 generation。
 
@@ -59,7 +59,7 @@ current 健康时继续执行原有严格逻辑；current pointer、manifest、g
 Node.js 22.13.1 与当前 Python 环境下：
 
 - `npm run lint`：通过；
-- Python：169 项测试通过，4 项真实 Windows 符号链接测试因当前用户权限不可用跳过，等价的可移植链接/真实路径边界测试已通过；
+- Python：170 项测试通过，4 项真实 Windows 符号链接测试因当前用户权限不可用跳过，等价的可移植链接/真实路径边界测试已通过；
 - `npm run data:validate`：本地每日刷新 generation `20260712T000000282772Z-0de7461784f8` 的 24 份产物通过，0 错误；该运行时 generation 不属于本轮修正提交；
 - `npm run data:audit`：同一 generation 为 `healthy`，0 错误、0 警告；
 - `npm run build`：通过，所有网页数据路由为 Dynamic；
@@ -67,6 +67,8 @@ Node.js 22.13.1 与当前 Python 环境下：
 - `npm run security:audit:prod`：0 个生产依赖漏洞。
 
 新增行为测试覆盖 current manifest digest 不匹配、manifest 缺失、generation 目录缺失、artifact 被篡改、非法 JSON、链接型 pointer、损坏回滚目标保持 pointer 字节不变、目标验证后的再次篡改、与正常 publisher 的锁串行化，以及恢复后的 Python resolver、真实 validate/audit CLI 和 Node published-data loader。
+
+新增时间边界测试覆盖 recovery 对五分钟内未来时间保持严格单调、超过信任窗口的异常未来值降级当前 UTC、递增溢出不阻止恢复、异常未来时间恢复后可立即发布新 derive generation，以及健康 current 继续执行原有 stale publication 规则。
 
 本文件记录当前 Draft PR 分支的验证，不把尚未合并的实现标记为 main 已完成。
 

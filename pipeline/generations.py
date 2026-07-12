@@ -46,6 +46,7 @@ RFC3339_PATTERN = re.compile(
 )
 OPERATIONS = {"bootstrap", "refresh", "derive"}
 STATES = {"building", "ready", "failed"}
+RECOVERY_POINTER_FUTURE_DRIFT = timedelta(minutes=5)
 
 POINTER_FIELDS = {
     "schemaVersion",
@@ -1709,32 +1710,25 @@ def _verify_rollback_target(
 def _recovery_publication_time(
     previous_published_at: datetime | None,
     published_at: datetime | None,
-    generation_id: str,
 ) -> datetime:
-    """Choose a legal recovery time without letting a broken field block repair."""
+    """Choose a recovery time without trusting a poisoned future pointer."""
 
-    requested = _parse_timestamp(
+    recovery_now = _parse_timestamp(
         _utc_timestamp(published_at),
         field="publishedAt",
     )
-    if previous_published_at is None or requested > previous_published_at:
-        return requested
-    if published_at is not None:
-        raise GenerationConflictError(
-            "stale_publication_time",
-            "publication time must be later than the recoverable current pointer time",
-            generation_id=generation_id,
-            stage="rollback",
-        )
+    if previous_published_at is None:
+        return recovery_now
+    if (
+        previous_published_at > recovery_now
+        and previous_published_at - recovery_now > RECOVERY_POINTER_FUTURE_DRIFT
+    ):
+        return recovery_now
     try:
-        return previous_published_at + timedelta(microseconds=1)
+        advanced_previous = previous_published_at + timedelta(microseconds=1)
     except OverflowError:
-        raise GenerationConflictError(
-            "stale_publication_time",
-            "recoverable current pointer time cannot be advanced",
-            generation_id=generation_id,
-            stage="rollback",
-        ) from None
+        return recovery_now
+    return max(recovery_now, advanced_previous)
 
 
 def _confirm_rollback_target_integrity(
@@ -1823,7 +1817,6 @@ def rollback_to_generation(
             effective_published_at = _recovery_publication_time(
                 recovery.published_at,
                 published_at,
-                normalized,
             )
 
         _confirm_rollback_target_integrity(
