@@ -18,11 +18,12 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Sequence
 
@@ -144,6 +145,12 @@ class PublicationResult:
     current: ResolvedGeneration
     audit: dict[str, Any]
     rolled_back: bool = False
+
+
+@dataclass(frozen=True)
+class _RecoveryPointerMetadata:
+    generation_id: str | None
+    published_at: datetime | None
 
 
 def _utc_timestamp(value: datetime | None = None) -> str:
@@ -364,6 +371,61 @@ def _validate_pointer(payload: dict[str, Any]) -> dict[str, Any]:
             stage="pointer",
         )
     return payload
+
+
+def _read_recovery_pointer_metadata(
+    pointer_path: Path,
+    canonical_data_dir: Path,
+) -> _RecoveryPointerMetadata:
+    """Read only safe, non-authoritative metadata from a broken pointer.
+
+    This helper is deliberately narrower than pointer validation.  It never
+    follows a symbolic link or junction and never trusts the old manifest
+    digest, audit state, or previous-generation field.  Each allowed field is
+    independently accepted only when strict JSON parsing and its own contract
+    validation succeed.
+    """
+
+    empty = _RecoveryPointerMetadata(None, None)
+    if not os.path.lexists(pointer_path):
+        return empty
+    try:
+        if _is_filesystem_link(pointer_path):
+            return empty
+        before = pointer_path.stat(follow_symlinks=False)
+        if not stat.S_ISREG(before.st_mode):
+            return empty
+        _require_safe_existing_path(pointer_path, canonical_data_dir)
+        payload = _read_object(
+            pointer_path,
+            code="current_pointer_invalid",
+            stage="recovery",
+        )
+        _require_safe_existing_path(pointer_path, canonical_data_dir)
+        after = pointer_path.stat(follow_symlinks=False)
+    except (GenerationProtocolError, OSError):
+        return empty
+    identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+    identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+    if identity_before != identity_after:
+        return empty
+
+    generation_id: str | None = None
+    try:
+        generation_id = _validate_generation_id(payload.get("generationId"))
+    except GenerationProtocolError:
+        pass
+
+    published_at: datetime | None = None
+    try:
+        published_at = _parse_timestamp(
+            payload.get("publishedAt"),
+            field="publishedAt",
+        )
+    except GenerationProtocolError:
+        pass
+
+    return _RecoveryPointerMetadata(generation_id, published_at)
 
 
 def _validate_audit_summary(value: object, *, nullable: bool) -> dict[str, Any] | None:
@@ -1596,6 +1658,121 @@ def publish_candidate_generation(
         return PublicationResult(published, audit)
 
 
+def _verify_rollback_target(
+    canonical: Path,
+    generation_id: str,
+) -> tuple[Path, dict[str, Any], dict[str, Any], str]:
+    """Fully validate a retained rollback target before inspecting current."""
+
+    target = _safe_generation_path(canonical, generation_id, candidate=False)
+    if not target.exists():
+        raise CandidateGenerationError(
+            "rollback_target_missing",
+            f"retained rollback generation is unavailable: {generation_id}",
+            generation_id=generation_id,
+            stage="rollback",
+        )
+
+    try:
+        # A retained generation has no separate historical digest registry.
+        # Fully validate it before hashing, then bind those exact manifest
+        # bytes to the replacement pointer and reject a concurrent mutation.
+        manifest, audit = _verify_manifest_integrity(
+            target,
+            generation_id,
+            verify_audit=True,
+        )
+        manifest_digest = _manifest_sha256(target)
+        confirmed_manifest = _load_manifest(target, expected_id=generation_id)
+        verified_digest = _manifest_sha256(target)
+    except CandidateGenerationError:
+        raise
+    except GenerationProtocolError as error:
+        raise CandidateGenerationError(
+            error.code,
+            str(error),
+            generation_id=generation_id,
+            stage=error.stage or "integrity",
+        ) from None
+
+    if manifest != confirmed_manifest or manifest_digest != verified_digest:
+        raise CandidateGenerationError(
+            "rollback_target_changed",
+            f"rollback target manifest changed during validation: {generation_id}",
+            generation_id=generation_id,
+            stage="integrity",
+        )
+    assert audit is not None
+    return target, manifest, audit, verified_digest
+
+
+def _recovery_publication_time(
+    previous_published_at: datetime | None,
+    published_at: datetime | None,
+    generation_id: str,
+) -> datetime:
+    """Choose a legal recovery time without letting a broken field block repair."""
+
+    requested = _parse_timestamp(
+        _utc_timestamp(published_at),
+        field="publishedAt",
+    )
+    if previous_published_at is None or requested > previous_published_at:
+        return requested
+    if published_at is not None:
+        raise GenerationConflictError(
+            "stale_publication_time",
+            "publication time must be later than the recoverable current pointer time",
+            generation_id=generation_id,
+            stage="rollback",
+        )
+    try:
+        return previous_published_at + timedelta(microseconds=1)
+    except OverflowError:
+        raise GenerationConflictError(
+            "stale_publication_time",
+            "recoverable current pointer time cannot be advanced",
+            generation_id=generation_id,
+            stage="rollback",
+        ) from None
+
+
+def _confirm_rollback_target_integrity(
+    target: Path,
+    generation_id: str,
+    expected_manifest: dict[str, Any],
+    expected_manifest_digest: str,
+) -> None:
+    """Recheck immutable bytes immediately before publishing the pointer."""
+
+    try:
+        confirmed_manifest, _ = _verify_manifest_integrity(
+            target,
+            generation_id,
+            verify_audit=False,
+        )
+        confirmed_digest = _manifest_sha256(target)
+    except CandidateGenerationError:
+        raise
+    except GenerationProtocolError as error:
+        raise CandidateGenerationError(
+            error.code,
+            str(error),
+            generation_id=generation_id,
+            stage=error.stage or "integrity",
+        ) from None
+    if (
+        confirmed_manifest != expected_manifest
+        or confirmed_digest != expected_manifest_digest
+    ):
+        raise CandidateGenerationError(
+            "rollback_target_changed",
+            f"rollback target changed after its full validation: {generation_id}",
+            generation_id=generation_id,
+            stage="integrity",
+        )
+
+
 def rollback_to_generation(
     data_dir: Path,
     generation_id: str,
@@ -1607,44 +1784,62 @@ def rollback_to_generation(
     canonical = _canonical_data_dir(data_dir)
     normalized = _validate_generation_id(generation_id)
     assert normalized is not None
-    target = _safe_generation_path(canonical, normalized, candidate=False)
     with data_dir_lock(canonical):
-        current = resolve_current_generation(canonical)
-        if current.generation_id == normalized:
-            assert current.manifest is not None
-            return PublicationResult(current, dict(current.manifest["audit"]), rolled_back=True)
-        if not target.exists():
-            raise CandidateGenerationError(
-                "rollback_target_missing",
-                f"retained rollback generation is unavailable: {normalized}",
-                generation_id=normalized,
+        target, manifest, audit, manifest_digest = _verify_rollback_target(
+            canonical,
+            normalized,
+        )
+
+        pointer_path = canonical / "current.json"
+        current: ResolvedGeneration | None = None
+        if os.path.lexists(pointer_path):
+            try:
+                current = resolve_current_generation(canonical)
+            except GenerationProtocolError:
+                # Explicit rollback is the disaster-recovery entry point.  It
+                # may replace a broken pointer only after the requested target
+                # has independently passed every publication gate.
+                current = None
+
+        if current is not None and not current.legacy:
+            if current.generation_id == normalized:
+                assert current.manifest is not None
+                return PublicationResult(
+                    current,
+                    dict(current.manifest["audit"]),
+                    rolled_back=True,
+                )
+            _require_newer_publication_time(
+                current,
+                published_at,
+                normalized,
                 stage="rollback",
             )
-        manifest, audit = _verify_manifest_integrity(target, normalized, verify_audit=True)
-        assert audit is not None
-        try:
-            manifest_digest = _manifest_sha256(target)
-        except GenerationProtocolError as error:
-            raise CandidateGenerationError(
-                error.code,
-                str(error),
-                generation_id=normalized,
-                stage=error.stage or "integrity",
-            ) from None
-        _require_newer_publication_time(
-            current,
-            published_at,
+            previous_generation_id = current.generation_id
+            effective_published_at = published_at
+        else:
+            recovery = _read_recovery_pointer_metadata(pointer_path, canonical)
+            previous_generation_id = recovery.generation_id
+            effective_published_at = _recovery_publication_time(
+                recovery.published_at,
+                published_at,
+                normalized,
+            )
+
+        _confirm_rollback_target_integrity(
+            target,
             normalized,
-            stage="rollback",
+            manifest,
+            manifest_digest,
         )
         pointer = _pointer_payload(
             normalized,
-            current.generation_id,
+            previous_generation_id,
             manifest_digest,
-            published_at,
+            effective_published_at,
         )
         try:
-            _atomic_write_json(canonical / "current.json", pointer)
+            _atomic_write_json(pointer_path, pointer)
         except OSError as error:
             raise CandidateGenerationError(
                 "pointer_write_failed",
@@ -1706,7 +1901,10 @@ def _argument_parser() -> argparse.ArgumentParser:
     publish.add_argument("generation_id")
     rollback = commands.add_parser(
         "rollback",
-        help="revalidate and atomically repoint to one retained ready generation",
+        help=(
+            "fully revalidate and atomically repoint to one retained ready generation, "
+            "including recovery from a broken current pointer"
+        ),
     )
     rollback.add_argument("generation_id")
     return parser

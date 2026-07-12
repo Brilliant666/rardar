@@ -5,12 +5,14 @@ import io
 import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -163,6 +165,17 @@ def _published_growth_bytes(current) -> dict[str, bytes]:
         path.relative_to(current.root).as_posix(): path.read_bytes()
         for path in paths
     }
+
+
+def _publish_two_generations(data_dir: Path):
+    _seed_legacy(data_dir)
+    first = publish_candidate_generation(
+        _candidate(data_dir, "generation-1", "bootstrap")
+    ).current
+    second = publish_candidate_generation(
+        _candidate(data_dir, "generation-2")
+    ).current
+    return first, second
 
 
 class GenerationProtocolTests(unittest.TestCase):
@@ -823,6 +836,15 @@ class GenerationProtocolTests(unittest.TestCase):
             publish_candidate_generation(_candidate(data_dir, "generation-1", "bootstrap"))
             publish_candidate_generation(_candidate(data_dir, "generation-2"))
 
+            pointer_before_unsafe_id = (data_dir / "current.json").read_bytes()
+            with self.assertRaises(GenerationProtocolError) as unsafe_id:
+                rollback_to_generation(data_dir, "../escape")
+            self.assertEqual(unsafe_id.exception.code, "invalid_generation_id")
+            self.assertEqual(
+                (data_dir / "current.json").read_bytes(),
+                pointer_before_unsafe_id,
+            )
+
             current_pointer = _read(data_dir / "current.json")
             same_time = datetime.fromisoformat(
                 str(current_pointer["publishedAt"]).replace("Z", "+00:00")
@@ -843,6 +865,382 @@ class GenerationProtocolTests(unittest.TestCase):
             pointer = _read(data_dir / "current.json")
             self.assertEqual(pointer["generationId"], "generation-1")
             self.assertEqual(pointer["previousGenerationId"], "generation-2")
+
+    def test_recovery_rollback_repairs_current_manifest_digest_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            first, _ = _publish_two_generations(data_dir)
+            pointer_path = data_dir / "current.json"
+            pointer = _read(pointer_path)
+            previous_time = datetime(2099, 1, 1, tzinfo=timezone.utc)
+            pointer["publishedAt"] = previous_time.isoformat()
+            pointer["manifestSha256"] = "0" * 64
+            _write(pointer_path, pointer)
+            pointer_before = pointer_path.read_bytes()
+
+            with self.assertRaises(GenerationConflictError) as stale_time:
+                rollback_to_generation(
+                    data_dir,
+                    "generation-1",
+                    published_at=previous_time,
+                )
+            self.assertEqual(stale_time.exception.code, "stale_publication_time")
+            self.assertEqual(pointer_path.read_bytes(), pointer_before)
+
+            result = rollback_to_generation(data_dir, "generation-1")
+
+            self.assertEqual(result.current.generation_id, "generation-1")
+            recovered = _read(pointer_path)
+            self.assertEqual(recovered["previousGenerationId"], "generation-2")
+            self.assertGreater(
+                datetime.fromisoformat(str(recovered["publishedAt"]).replace("Z", "+00:00")),
+                previous_time,
+            )
+            self.assertEqual(
+                recovered["manifestSha256"],
+                hashlib.sha256((first.root / "manifest.json").read_bytes()).hexdigest(),
+            )
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+    def test_recovery_rollback_repairs_missing_current_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            _, second = _publish_two_generations(data_dir)
+            (second.root / "manifest.json").unlink()
+
+            rollback_to_generation(data_dir, "generation-1")
+
+            pointer = _read(data_dir / "current.json")
+            self.assertEqual(pointer["generationId"], "generation-1")
+            self.assertEqual(pointer["previousGenerationId"], "generation-2")
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+    def test_recovery_rollback_repairs_missing_current_generation_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            _, second = _publish_two_generations(data_dir)
+            shutil.rmtree(second.root)
+
+            rollback_to_generation(data_dir, "generation-1")
+
+            pointer = _read(data_dir / "current.json")
+            self.assertEqual(pointer["generationId"], "generation-1")
+            self.assertEqual(pointer["previousGenerationId"], "generation-2")
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+    def test_recovery_rollback_repairs_tampered_current_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            _, second = _publish_two_generations(data_dir)
+            artifact = second.root / "catalog/latest.json"
+            artifact.write_bytes(artifact.read_bytes() + b" ")
+
+            rollback_to_generation(data_dir, "generation-1")
+
+            pointer = _read(data_dir / "current.json")
+            self.assertEqual(pointer["generationId"], "generation-1")
+            self.assertEqual(pointer["previousGenerationId"], "generation-2")
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+    def test_recovery_rollback_repairs_invalid_json_without_flat_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            _publish_two_generations(data_dir)
+            pointer_path = data_dir / "current.json"
+            pointer_path.write_bytes(b"{not-json")
+            before = datetime.now(timezone.utc)
+
+            with patch(
+                "pipeline.generations._legacy_generation",
+                side_effect=AssertionError("rollback must not read flat data"),
+            ):
+                rollback_to_generation(data_dir, "generation-1")
+            after = datetime.now(timezone.utc)
+
+            pointer = _read(pointer_path)
+            recovered_time = datetime.fromisoformat(
+                str(pointer["publishedAt"]).replace("Z", "+00:00")
+            )
+            self.assertEqual(pointer["generationId"], "generation-1")
+            self.assertIsNone(pointer["previousGenerationId"])
+            self.assertGreaterEqual(recovered_time, before)
+            self.assertLessEqual(recovered_time, after)
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+    def test_recovery_rollback_extracts_safe_pointer_fields_independently(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            _publish_two_generations(data_dir)
+            pointer_path = data_dir / "current.json"
+            pointer = _read(pointer_path)
+            pointer["publishedAt"] = "2099-01-01T00:00:00"
+            pointer["manifestSha256"] = "0" * 64
+            _write(pointer_path, pointer)
+            before = datetime.now(timezone.utc)
+
+            rollback_to_generation(data_dir, "generation-1")
+
+            after = datetime.now(timezone.utc)
+            recovered = _read(pointer_path)
+            recovered_time = datetime.fromisoformat(
+                str(recovered["publishedAt"]).replace("Z", "+00:00")
+            )
+            self.assertEqual(recovered["previousGenerationId"], "generation-2")
+            self.assertGreaterEqual(recovered_time, before)
+            self.assertLessEqual(recovered_time, after)
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+    def test_recovery_rollback_never_reads_or_preserves_current_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data_dir = root / "data"
+            _publish_two_generations(data_dir)
+            pointer_path = data_dir / "current.json"
+            outside_pointer = root / "outside-current.json"
+            _write(
+                outside_pointer,
+                {
+                    "schemaVersion": 1,
+                    "generationId": "attacker-generation",
+                    "publishedAt": "2099-01-01T00:00:00+00:00",
+                    "previousGenerationId": None,
+                    "manifestSha256": "0" * 64,
+                },
+            )
+            outside_bytes = outside_pointer.read_bytes()
+            pointer_path.unlink()
+            try:
+                pointer_path.symlink_to(outside_pointer)
+            except OSError as error:
+                self.skipTest(f"file symlinks are unavailable: {error}")
+
+            rollback_to_generation(data_dir, "generation-1")
+
+            self.assertFalse(pointer_path.is_symlink())
+            self.assertTrue(pointer_path.is_file())
+            self.assertEqual(outside_pointer.read_bytes(), outside_bytes)
+            pointer = _read(pointer_path)
+            self.assertIsNone(pointer["previousGenerationId"])
+            self.assertLess(
+                datetime.fromisoformat(str(pointer["publishedAt"]).replace("Z", "+00:00")),
+                datetime(2099, 1, 1, tzinfo=timezone.utc),
+            )
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+    def test_recovery_rollback_portably_ignores_linked_pointer_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            _publish_two_generations(data_dir)
+            pointer_path = data_dir / "current.json"
+            _write(
+                pointer_path,
+                {
+                    "schemaVersion": 1,
+                    "generationId": "attacker-generation",
+                    "publishedAt": "2099-01-01T00:00:00+00:00",
+                    "previousGenerationId": None,
+                    "manifestSha256": "0" * 64,
+                },
+            )
+            original_link_check = generation_module._is_filesystem_link
+            original_read_object = generation_module._read_object
+
+            def report_pointer_as_link(path: Path) -> bool:
+                return Path(path).name == "current.json" or original_link_check(path)
+
+            def reject_pointer_read(path: Path, *, code: str, stage: str):
+                if Path(path).name == "current.json":
+                    raise AssertionError("a linked current pointer must never be read")
+                return original_read_object(path, code=code, stage=stage)
+
+            with patch(
+                "pipeline.generations._is_filesystem_link",
+                side_effect=report_pointer_as_link,
+            ), patch(
+                "pipeline.generations._read_object",
+                side_effect=reject_pointer_read,
+            ):
+                rollback_to_generation(data_dir, "generation-1")
+
+            pointer = _read(pointer_path)
+            self.assertIsNone(pointer["previousGenerationId"])
+            self.assertLess(
+                datetime.fromisoformat(str(pointer["publishedAt"]).replace("Z", "+00:00")),
+                datetime(2099, 1, 1, tzinfo=timezone.utc),
+            )
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+    def test_recovery_rollback_rejects_damaged_target_without_touching_pointer(self) -> None:
+        cases = (
+            ("integrity", "integrity_mismatch"),
+            ("schema", "schema_validation_failed"),
+            ("audit", "audit_failed"),
+        )
+        for corruption, expected_code in cases:
+            with self.subTest(corruption=corruption), tempfile.TemporaryDirectory() as temporary:
+                data_dir = Path(temporary) / "data"
+                first, _ = _publish_two_generations(data_dir)
+                catalog_path = first.root / "catalog/latest.json"
+                if corruption == "integrity":
+                    catalog_path.write_bytes(catalog_path.read_bytes() + b" ")
+                else:
+                    catalog = _read(catalog_path)
+                    if corruption == "schema":
+                        catalog["projects"] = "not-an-array"
+                    else:
+                        projects = catalog["projects"]
+                        assert isinstance(projects, list) and isinstance(projects[0], dict)
+                        projects[0]["stars"] = int(projects[0]["stars"]) + 1
+                    _write(catalog_path, catalog)
+                    manifest_path = first.root / "manifest.json"
+                    manifest = _read(manifest_path)
+                    manifest["hashes"]["catalog/latest.json"] = hashlib.sha256(
+                        catalog_path.read_bytes()
+                    ).hexdigest()
+                    _write(manifest_path, manifest)
+
+                pointer_path = data_dir / "current.json"
+                pointer_path.write_bytes(b"{broken-current")
+                pointer_before = pointer_path.read_bytes()
+                with patch(
+                    "pipeline.generations._atomic_write_json",
+                    wraps=generation_module._atomic_write_json,
+                ) as pointer_writer:
+                    with self.assertRaises(CandidateGenerationError) as raised:
+                        rollback_to_generation(data_dir, "generation-1")
+
+                self.assertEqual(raised.exception.code, expected_code)
+                self.assertEqual(raised.exception.generation_id, "generation-1")
+                self.assertEqual(raised.exception.as_dict()["code"], expected_code)
+                pointer_writer.assert_not_called()
+                self.assertEqual(pointer_path.read_bytes(), pointer_before)
+
+    def test_recovery_rollback_rechecks_target_immediately_before_pointer_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            first, _ = _publish_two_generations(data_dir)
+            pointer_path = data_dir / "current.json"
+            pointer_path.write_bytes(b"{broken-current")
+            pointer_before = pointer_path.read_bytes()
+            artifact = first.root / "catalog/latest.json"
+            original_metadata_reader = generation_module._read_recovery_pointer_metadata
+
+            def tamper_after_full_validation(pointer: Path, canonical: Path):
+                metadata = original_metadata_reader(pointer, canonical)
+                artifact.write_bytes(artifact.read_bytes() + b" ")
+                return metadata
+
+            with patch(
+                "pipeline.generations._read_recovery_pointer_metadata",
+                side_effect=tamper_after_full_validation,
+            ):
+                with self.assertRaises(CandidateGenerationError) as raised:
+                    rollback_to_generation(data_dir, "generation-1")
+
+            self.assertEqual(raised.exception.code, "integrity_mismatch")
+            self.assertEqual(pointer_path.read_bytes(), pointer_before)
+
+    def test_recovery_rollback_serializes_with_a_normal_publisher(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            _publish_two_generations(data_dir)
+            publisher = _candidate(data_dir, "generation-3")
+            finalize_candidate_generation(publisher)
+            pointer_path = data_dir / "current.json"
+            pointer = _read(pointer_path)
+            pointer["manifestSha256"] = "0" * 64
+            _write(pointer_path, pointer)
+
+            entered_target_validation = threading.Event()
+            release_target_validation = threading.Event()
+            rollback_thread = threading.local()
+            original_verify = generation_module._verify_manifest_integrity
+
+            def blocking_verify(root: Path, generation_id: str, *, verify_audit: bool):
+                if (
+                    getattr(rollback_thread, "active", False)
+                    and generation_id == "generation-1"
+                    and verify_audit
+                ):
+                    entered_target_validation.set()
+                    self.assertTrue(release_target_validation.wait(10))
+                return original_verify(root, generation_id, verify_audit=verify_audit)
+
+            def run_rollback():
+                rollback_thread.active = True
+                return rollback_to_generation(data_dir, "generation-1")
+
+            with patch(
+                "pipeline.generations._verify_manifest_integrity",
+                side_effect=blocking_verify,
+            ), ThreadPoolExecutor(max_workers=2) as executor:
+                rollback_future = executor.submit(run_rollback)
+                self.assertTrue(entered_target_validation.wait(10))
+                publish_future = executor.submit(publish_candidate_generation, publisher)
+                try:
+                    with self.assertRaises(FutureTimeoutError):
+                        publish_future.result(timeout=0.2)
+                finally:
+                    release_target_validation.set()
+                rolled_back = rollback_future.result(timeout=30)
+                with self.assertRaises(GenerationConflictError) as publish_error:
+                    publish_future.result(timeout=30)
+
+            self.assertEqual(rolled_back.current.generation_id, "generation-1")
+            self.assertEqual(publish_error.exception.code, "stale_base_generation")
+            self.assertEqual(_read(pointer_path)["generationId"], "generation-1")
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+    def test_recovered_generation_is_readable_by_every_published_data_consumer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            _publish_two_generations(data_dir)
+            (data_dir / "current.json").write_bytes(b"{not-json")
+
+            rollback_to_generation(data_dir, "generation-1")
+
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "generation-1")
+
+            for module in ("pipeline.schema_validation", "pipeline.audit_data"):
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        module,
+                        "--data-dir",
+                        str(data_dir),
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                report = json.loads(completed.stdout)
+                self.assertNotEqual(report["status"], "failed")
+                self.assertEqual(report["errorCount"], 0)
+                if module == "pipeline.audit_data":
+                    self.assertEqual(report["generationId"], "generation-1")
+
+            node = shutil.which("node")
+            self.assertIsNotNone(node, "Node.js is required by the repository contract")
+            loader = (REPOSITORY_ROOT / "app/published-data-loader.mjs").as_uri()
+            script = (
+                f"import {{ loadPublishedBundle }} from {json.dumps(loader)};"
+                "const bundle = loadPublishedBundle(process.argv[1]);"
+                "process.stdout.write(bundle.generationId);"
+            )
+            completed = subprocess.run(
+                [str(node), "--input-type=module", "--eval", script, str(data_dir)],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(completed.stdout, "generation-1")
 
     def test_cli_bootstrap_status_publish_and_rollback_use_the_same_protocol(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

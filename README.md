@@ -72,11 +72,11 @@ npm run data:generation:status
 npm run data:generation:bootstrap
 # 重试一个 ready candidate 或指针中断后保留的 orphan
 npm run data:generation:publish -- <generation-id>
-# 显式回滚到仍保留且重新验证通过的 generation
+# 显式回滚/灾难恢复到仍保留且重新验证通过的 generation
 npm run data:generation:rollback -- <generation-id>
 ```
 
-候选目录位于 `data/generations/.candidates/`，构建、Schema 或审计失败会留下 failed manifest，但不会进入 Git；已经 ready 的候选在发布冲突时保持不可变，指针中断后的 orphan generation 也会保留，稳定错误码和 candidate ID 记录在命令输出与 scheduler 状态中。首次迁移机械复制既有事实和画像，只重建 Codex 队列的证据路径并生成 manifest/current，不补造采集或分析时间。`current.json` 一旦存在，损坏的指针、缺失目录或哈希不一致都会直接失败，不会静默退回 flat 数据。
+候选目录位于 `data/generations/.candidates/`，构建、Schema 或审计失败会留下 failed manifest，但不会进入 Git；已经 ready 的候选在发布冲突时保持不可变，指针中断后的 orphan generation 也会保留，稳定错误码和 candidate ID 记录在命令输出与 scheduler 状态中。首次迁移机械复制既有事实和画像，只重建 Codex 队列的证据路径并生成 manifest/current，不补造采集或分析时间。`current.json` 一旦存在，普通页面、调度、`data:validate`、`data:audit` 和正常 publish 遇到损坏指针、缺失目录或哈希不一致都会直接失败，不会静默退回 flat 数据。唯一例外是用户明确指定目标 generation 的 rollback：它先在数据锁内完整验证 retained target，再允许原子替换损坏的 current；恢复过程仍不读取 flat 数据。
 
 兼容规则不会伪造历史事实：GitHub snapshot v1 保留既有 `schema_version` 字段和早期 history 形状；两份因对应静态证据缺少可信 `analyzed_at` 而无法绑定的画像，以及一份早于当前静态证据的历史画像，显式保留为 `schemaVersion: 0`，永远不视为当前证据；signal enrichment v1 继续允许旧条目使用顶层 `generatedAt` 作为分析时间回退。旧 flat 树只在 `current.json` 尚不存在时用于一次迁移或作为 Codex enrichment staging，网页和增长基线不会绕过 current 指针。详细模型见 `docs/DATA_MODEL.md`。
 
