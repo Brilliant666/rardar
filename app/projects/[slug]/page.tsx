@@ -26,7 +26,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
             <h1>{project.title}</h1>
             <p>{project.description}</p>
             <FeedbackButtons projectSlug={project.slug} />
-            <ProjectActions projectSlug={project.slug} />
+            <ProjectActions key={project.slug} projectSlug={project.slug} />
           </div>
           <div className="detail-score-panel">
             <div><strong>{project.globalScore}</strong><span>全球影响力</span></div>

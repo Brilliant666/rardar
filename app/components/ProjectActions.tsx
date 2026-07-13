@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  createProjectActionIdempotencyKey,
   getDeviceId,
+  isRetryableProjectActionError,
   recordProjectAction,
   type ProjectActionValue,
 } from "./device-id";
@@ -30,8 +32,11 @@ export function TrackedRepositoryLink({ projectSlug, repository }: { projectSlug
 
 export function ProjectActions({ projectSlug }: { projectSlug: string }) {
   const [selected, setSelected] = useState<Set<ProjectActionValue>>(new Set());
+  const [pending, setPending] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
   const successfulMutationVersion = useRef(0);
+  const inFlightActions = useRef<Set<string>>(new Set());
+  const retryKeys = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     const deviceId = getDeviceId();
@@ -54,15 +59,35 @@ export function ProjectActions({ projectSlug }: { projectSlug: string }) {
   }, [projectSlug]);
 
   async function save(action: ProjectActionValue) {
-    if (selected.has(action)) return;
+    const requestProjectSlug = projectSlug;
+    const attemptKey = `${requestProjectSlug}:${action}`;
+    if (inFlightActions.current.has(attemptKey)) return;
+    const wasSelected = selected.has(action);
+    const idempotencyKey = retryKeys.current.get(attemptKey) ?? createProjectActionIdempotencyKey();
+    retryKeys.current.set(attemptKey, idempotencyKey);
+    inFlightActions.current.add(attemptKey);
+    setPending((current) => new Set([...current, attemptKey]));
     setMessage("记录中…");
     try {
-      await recordProjectAction(projectSlug, action);
+      const result = await recordProjectAction(requestProjectSlug, action, idempotencyKey);
+      retryKeys.current.delete(attemptKey);
       successfulMutationVersion.current += 1;
       setSelected((current) => new Set([...current, action]));
-      setMessage("已记录为真实行动");
-    } catch {
+      setMessage(
+        result.recorded
+          ? (wasSelected ? "已再次记录为本次真实行动" : "已记录为真实行动")
+          : "重复请求已安全确认，没有重复计数",
+      );
+    } catch (error) {
+      if (!isRetryableProjectActionError(error)) retryKeys.current.delete(attemptKey);
       setMessage("记录失败，请稍后重试");
+    } finally {
+      inFlightActions.current.delete(attemptKey);
+      setPending((current) => {
+        const next = new Set(current);
+        next.delete(attemptKey);
+        return next;
+      });
     }
   }
 
@@ -79,6 +104,7 @@ export function ProjectActions({ projectSlug }: { projectSlug: string }) {
             key={option.value}
             className={selected.has(option.value) ? "selected" : ""}
             aria-pressed={selected.has(option.value)}
+            disabled={pending.has(`${projectSlug}:${option.value}`)}
             onClick={() => save(option.value)}
           >
             <strong>{option.label}</strong>

@@ -1,11 +1,18 @@
-import { and, desc, eq } from "drizzle-orm";
-import { getDb } from "../../../db";
+import { env } from "cloudflare:workers";
 import { ensureDecisionSchema } from "../../../db/ensure";
-import { projectActions } from "../../../db/schema";
+import {
+  ACTION_VALUES,
+  LEGACY_IDEMPOTENCY_PREFIX,
+  appendProjectActionEvent,
+  readProjectActionState,
+  stateToActionProjection,
+} from "../../../db/project-actions.mjs";
 import { loadPublishedData } from "../../server-data";
 import { readJsonObject, trimmedString } from "../validation";
 
-const allowedActions = ["opened", "saved", "tried", "cloned", "reused"] as const;
+const allowedActions = ACTION_VALUES;
+const idempotencyKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/;
+const noStoreHeaders = { "cache-control": "no-store" };
 
 export async function GET(request: Request) {
   const { projects } = await loadPublishedData();
@@ -21,19 +28,11 @@ export async function GET(request: Request) {
   }
 
   await ensureDecisionSchema();
-  const db = getDb();
-  const rows = projectSlug
-    ? await db
-        .select()
-        .from(projectActions)
-        .where(and(eq(projectActions.deviceId, deviceId), eq(projectActions.projectSlug, projectSlug)))
-        .orderBy(desc(projectActions.createdAt))
-    : await db
-        .select()
-        .from(projectActions)
-        .where(eq(projectActions.deviceId, deviceId))
-        .orderBy(desc(projectActions.createdAt));
-  return Response.json({ actions: rows }, { headers: { "cache-control": "no-store" } });
+  const states = await readProjectActionState(env.DB, deviceId, projectSlug);
+  return Response.json(
+    { states, actions: stateToActionProjection(states) },
+    { headers: noStoreHeaders },
+  );
 }
 
 export async function POST(request: Request) {
@@ -46,23 +45,43 @@ export async function POST(request: Request) {
   const deviceId = trimmedString(payload, "deviceId");
   const projectSlug = trimmedString(payload, "projectSlug");
   const action = trimmedString(payload, "action");
+  const idempotencyKey = trimmedString(payload, "idempotencyKey");
   if (
     !deviceId ||
     deviceId.length > 200 ||
     !projectSlug ||
     !projectSlugs.has(projectSlug) ||
     !action ||
-    !allowedActions.includes(action as (typeof allowedActions)[number])
+    !allowedActions.includes(action as (typeof allowedActions)[number]) ||
+    !idempotencyKey ||
+    !idempotencyKeyPattern.test(idempotencyKey) ||
+    idempotencyKey.startsWith(LEGACY_IDEMPOTENCY_PREFIX) ||
+    "occurredAt" in payload
   ) {
     return Response.json({ error: "invalid project action" }, { status: 400 });
   }
 
   await ensureDecisionSchema();
-  const db = getDb();
-  const inserted = await db
-    .insert(projectActions)
-    .values({ deviceId, projectSlug, action })
-    .onConflictDoNothing()
-    .returning({ id: projectActions.id });
-  return Response.json({ ok: true, action, recorded: inserted.length === 1 });
+  const result = await appendProjectActionEvent(env.DB, {
+    deviceId,
+    projectSlug,
+    action: action as (typeof allowedActions)[number],
+    idempotencyKey,
+  });
+  if (result.status === "conflict") {
+    return Response.json(
+      { error: "idempotency key is already bound to another project action" },
+      { status: 409, headers: noStoreHeaders },
+    );
+  }
+  return Response.json(
+    {
+      ok: true,
+      action,
+      recorded: result.recorded,
+      idempotentReplay: result.status === "replayed",
+      event: result.event,
+    },
+    { headers: noStoreHeaders },
+  );
 }

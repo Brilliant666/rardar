@@ -220,6 +220,20 @@ async function request(baseUrl, path, accept = "application/json", timeout = 30_
   });
 }
 
+async function postJson(baseUrl, path, payload, timeout = 30_000) {
+  return fetch(new URL(path, baseUrl), {
+    method: "POST",
+    cache: "no-store",
+    redirect: "manual",
+    headers: {
+      Accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(timeout),
+  });
+}
+
 async function waitForServer(runtime, timeout = 90_000) {
   return waitUntil(
     "Vinext development URL",
@@ -391,6 +405,83 @@ test(
       const d1Payload = await d1Response.json();
       assert.ok(Array.isArray(d1Payload.actions));
 
+      const actionDeviceId = "vinext-action-events";
+      const recommendationPath = `/api/recommendations?deviceId=${encodeURIComponent(actionDeviceId)}`;
+      const recommendationsBeforeResponse = await request(baseUrl, recommendationPath);
+      assert.equal(recommendationsBeforeResponse.status, 200);
+      const recommendationsBefore = await recommendationsBeforeResponse.json();
+      const sharedAttempt = {
+        deviceId: actionDeviceId,
+        projectSlug: fixture.projectSlug,
+        action: "tried",
+        idempotencyKey: "vinext-concurrent-attempt-0001",
+      };
+      const concurrentResponses = await Promise.all(
+        Array.from({ length: 8 }, () => postJson(baseUrl, "/api/actions", sharedAttempt)),
+      );
+      assert.deepEqual(concurrentResponses.map((response) => response.status), Array(8).fill(200));
+      const concurrentPayloads = await Promise.all(concurrentResponses.map((response) => response.json()));
+      assert.equal(concurrentPayloads.filter((payload) => payload.recorded).length, 1);
+      assert.equal(concurrentPayloads.filter((payload) => payload.idempotentReplay).length, 7);
+
+      const conflictingReplay = await postJson(baseUrl, "/api/actions", {
+        ...sharedAttempt,
+        action: "cloned",
+      });
+      assert.equal(conflictingReplay.status, 409);
+
+      const repeatedAction = await postJson(baseUrl, "/api/actions", {
+        ...sharedAttempt,
+        idempotencyKey: "vinext-concurrent-attempt-0002",
+      });
+      assert.equal(repeatedAction.status, 200);
+      assert.equal((await repeatedAction.json()).recorded, true);
+
+      const stageResponses = await Promise.all(
+        ["opened", "saved", "cloned", "reused"].map((action, index) => postJson(baseUrl, "/api/actions", {
+          deviceId: actionDeviceId,
+          projectSlug: fixture.projectSlug,
+          action,
+          idempotencyKey: `vinext-stage-${action}-000${index}`,
+        })),
+      );
+      assert.deepEqual(stageResponses.map((response) => response.status), [200, 200, 200, 200]);
+
+      const actionStateResponse = await request(
+        baseUrl,
+        `/api/actions?deviceId=${encodeURIComponent(actionDeviceId)}&projectSlug=${encodeURIComponent(fixture.projectSlug)}`,
+      );
+      assert.equal(actionStateResponse.status, 200);
+      const actionState = await actionStateResponse.json();
+      assert.equal(actionState.states.length, 1);
+      assert.equal(actionState.states[0].highestStage, "reused");
+      assert.deepEqual(
+        actionState.actions.map((item) => item.action).sort(),
+        ["cloned", "opened", "reused", "saved", "tried"],
+      );
+
+      const metricsResponse = await request(
+        baseUrl,
+        `/api/metrics?deviceId=${encodeURIComponent(actionDeviceId)}`,
+      );
+      assert.equal(metricsResponse.status, 200);
+      const metricsPayload = await metricsResponse.json();
+      assert.equal(metricsPayload.northStar.value, 1);
+      assert.equal(metricsPayload.week.triedProjects, 1);
+      assert.equal(metricsPayload.week.clonedProjects, 1);
+      assert.equal(metricsPayload.week.reusedProjects, 1);
+
+      const recommendationsAfterResponse = await request(baseUrl, recommendationPath);
+      assert.equal(recommendationsAfterResponse.status, 200);
+      assert.deepEqual(await recommendationsAfterResponse.json(), recommendationsBefore);
+
+      const forgedTime = await postJson(baseUrl, "/api/actions", {
+        ...sharedAttempt,
+        idempotencyKey: "vinext-forged-time-0001",
+        occurredAt: "2099-01-01T00:00:00Z",
+      });
+      assert.equal(forgedTime.status, 400);
+
       rollback(dataDirectory, fixture.generationB);
       const switchedHealth = await waitForHealthyGeneration(
         runtime,
@@ -448,6 +539,10 @@ test(
           `damaged current status: health ${unhealthy.response.status}, home ${failedHome.status}`,
           `rollback status: health ${recoveredHealth.response.status}, home ${recoveredHome.status}`,
           `D1 API acceptance: ${d1Response.status}`,
+          `action API concurrency: ${concurrentResponses.length} requests, 1 Event`,
+          `action State highest stage: ${actionState.states[0].highestStage}`,
+          `Weekly Acted Projects: ${metricsPayload.northStar.value}`,
+          "recommendation regression: unchanged",
         ].join("\n"),
       );
     } finally {

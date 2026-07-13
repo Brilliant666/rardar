@@ -31,10 +31,13 @@ test("contains the complete Rardar home experience", async () => {
     recommendationsRoute,
     dailyList,
     projectActions,
+    projectPage,
     watchlist,
     personalization,
     schema,
     ensure,
+    actionStore,
+    actionMigration,
     build,
     viteConfig,
   ] = await Promise.all([
@@ -59,10 +62,13 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/api/recommendations/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PersonalizedDailyList.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/ProjectActions.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/projects/[slug]/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/WatchlistClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/personalization.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/ensure.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/project-actions.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0003_flaky_spacker_dave.sql", import.meta.url), "utf8"),
     access(new URL("../dist/server/index.js", import.meta.url)),
     readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
   ]);
@@ -101,17 +107,25 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(feedbackRoute, /setWhere: ne\(feedback\.value, value\)/);
   assert.match(feedbackRoute, /changedRows\.length === 1/);
   assert.doesNotMatch(feedbackRoute, /insert\(decisionEvents\)/);
-  assert.match(metricsRoute, /project_actions/);
+  assert.match(metricsRoute, /readWeeklyActionMetrics/);
+  assert.doesNotMatch(metricsRoute, /FROM project_actions/);
   assert.match(actionsRoute, /allowedActions/);
   assert.match(actionsRoute, /unknown project/);
-  assert.match(actionsRoute, /onConflictDoNothing\(\).*returning/s);
-  assert.match(actionsRoute, /recorded: inserted\.length === 1/);
+  assert.match(actionsRoute, /appendProjectActionEvent/);
+  assert.match(actionsRoute, /idempotencyKey/);
+  assert.match(actionsRoute, /status === "conflict"/);
+  assert.match(actionsRoute, /readProjectActionState/);
   assert.match(validation, /request\.json\(\)/);
   assert.match(validation, /typeof value === "string"/);
   assert.match(projectActions, /确认复用/);
   assert.match(projectActions, /successfulMutationVersion/);
   assert.match(projectActions, /mutationVersionAtStart/);
   assert.match(projectActions, /successfulMutationVersion\.current \+= 1/);
+  assert.match(projectActions, /inFlightActions/);
+  assert.match(projectActions, /retryKeys/);
+  assert.match(projectActions, /createProjectActionIdempotencyKey/);
+  assert.match(projectPage, /<ProjectActions key=\{project\.slug\}/);
+  assert.doesNotMatch(projectActions, /if \(selected\.has\(action\)\) return/);
   assert.match(watchlist, /item\.action !== "saved"/);
   assert.match(watchlist, /已收藏/);
   assert.match(recommendationsRoute, /rankProjects/);
@@ -122,10 +136,20 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(personalization, /globalScore \* 0\.58/);
   assert.match(personalization, /balanceHeatTracks/);
   assert.match(schema, /decisionEvents/);
+  assert.match(schema, /projectActionEvents/);
+  assert.match(schema, /projectActionState/);
   assert.match(ensure, /schemaReady/);
   assert.match(ensure, /CREATE TRIGGER IF NOT EXISTS feedback_insert_decision_event/);
   assert.match(ensure, /CREATE TRIGGER IF NOT EXISTS feedback_update_decision_event/);
   assert.match(ensure, /WHEN OLD\.value <> NEW\.value/);
+  assert.match(ensure, /prepareProjectActionSchema/);
+  assert.match(actionStore, /project_action_events/);
+  assert.match(actionStore, /project_action_state/);
+  assert.match(actionStore, /project_action_events_reject_update/);
+  assert.match(actionStore, /project_action_events_reject_identity_replacement/);
+  assert.match(actionStore, /legacy-project-actions:/);
+  assert.match(actionMigration, /project_action_events_sync_state/);
+  assert.match(actionMigration, /project_action_events_reject_delete/);
   assert.match(viteConfig, /ignored: \["\*\*\/data\/generations\/\*\*"\]/);
   assert.match(viteConfig, /publishedDataBridge/);
   assert.match(viteConfig, /RARDAR_DATA_BRIDGE_TOKEN/);

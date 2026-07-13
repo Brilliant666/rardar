@@ -32,11 +32,13 @@ docs/RARDAR_EVOLUTION_PROTOCOL.md
 
 然后直接执行，不要重复询问已经在文档中明确的信息。
 
-## 下一工程轮默认任务
+## 当前行动事件工程轮
 
 PR #4 合并后，下一工程轮默认任务是：
 
 > 建立追加式项目行动事件模型，并修复 Weekly Acted Projects 跨周期漏计。
+
+治理状态：当前行动事件分支正在实现本节目标；只有对应 PR 合并到 `main` 后才视为完成。本节验收与执行清单在合并前继续用于审查当前 PR，合并后不得据此重复创建行动事件实现。
 
 只有以下前置条件全部满足，才允许开始行动事件目标：
 
@@ -166,14 +168,28 @@ Weekly Acted Projects 口径
 
 完成 Draft PR 后停止，等待审查。
 
+## 当前行动事件 PR 合并后的下一默认任务
+
+只有当前行动事件 PR 已合并、最新 `main` 已包含追加式 Event、独立 State 与按近 7 天 Event 计算的 Weekly Acted Projects、工作区干净且不存在尚未完成的行动事件修正 PR 时，才允许开始：
+
+> 修正评分名称与证据能力不一致的问题，明确区分关注优先级、长期热度、静态工程就绪度、具体任务复用适配度和证据完整度。
+
+建议分支：
+
+```text
+fix/scoring-semantics
+```
+
+该轮必须重新阅读 `docs/RARDAR_AUDIT_BASELINE.md` 的 P1-4 与 `docs/RARDAR_NORTH_STAR.md` 的评分原则，另建独立 Draft PR；不得在当前行动事件 PR 中提前修改评分、UI 文案或推荐公式。
+
 ## 后续迭代规则
 
-PR #4 合并后，下一轮应按照文档优先级处理：
+每轮应结合最新 `main` 与 `docs/iterations/` 按照文档优先级处理：
 
 1. 数据 Schema 和统一契约——已由 PR #2 完成；
-2. audited generations——由 PR #4 实现，仅在合并到 `main` 后视为完成；
-3. 追加式行动事件——PR #4 合并后的第一个未完成项；
-4. 评分语义；
+2. audited generations——已由 PR #4（提交 `bf35575`）完成；
+3. 追加式行动事件——由当前行动事件分支实现，仅在对应 PR 合并到 `main` 后视为完成；
+4. 评分语义——当前行动事件 PR 合并后的第一个未完成项；
 5. verify 和 GitHub Actions；
 6. 稳定项目 ID。
 

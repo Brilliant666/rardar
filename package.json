@@ -26,7 +26,7 @@
     "local:status": "python -m pipeline.runtime status",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run build && node --test --test-concurrency=1 tests/rendered-html.test.mjs tests/vinext-http.test.mjs",
+    "test": "npm run build && node --test --test-concurrency=1 tests/action-events.test.mjs tests/rendered-html.test.mjs tests/vinext-http.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "security:audit:prod": "npm audit --omit=dev --registry=https://registry.npmjs.org",
     "db:generate": "drizzle-kit generate"
