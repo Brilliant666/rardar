@@ -7,9 +7,46 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from pipeline.generations import (
+    CandidateGenerationError,
+    create_candidate_generation,
+    publish_candidate_generation,
+    resolve_current_generation,
+)
 from pipeline.refresh import _write_json_batch, refresh
 from pipeline.scheduler import committed_refresh_at
 from pipeline.schema_validation import ArtifactValidationError
+from pipeline.test_generations import _seed_legacy
+
+
+SEED_PUBLISHED_AT = datetime(2026, 7, 11, 1, tzinfo=timezone.utc)
+FIRST_REFRESH_AT = datetime(2026, 7, 12, 12, tzinfo=timezone.utc)
+SECOND_REFRESH_AT = datetime(2026, 7, 13, 12, tzinfo=timezone.utc)
+
+
+def _bootstrap(data_dir: Path) -> None:
+    _seed_legacy(data_dir)
+    candidate = create_candidate_generation(
+        data_dir,
+        "bootstrap",
+        generation_id="seed-generation",
+        created_at=SEED_PUBLISHED_AT,
+    )
+    publish_candidate_generation(candidate, published_at=SEED_PUBLISHED_AT)
+
+
+def _signals(captured_at: datetime) -> dict[str, object]:
+    return {
+        "schemaVersion": 1,
+        "capturedAt": captured_at.isoformat(),
+        "windowHours": 48,
+        "signalCount": 0,
+        "healthySourceCount": 0,
+        "failedSourceCount": 0,
+        "sourceStatus": [],
+        "topSignals": [],
+        "signals": [],
+    }
 
 
 class StubClient:
@@ -41,29 +78,28 @@ class RefreshTests(unittest.TestCase):
     def test_successful_full_refresh_writes_a_consistent_commit_marker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory)
-            now = datetime(2026, 7, 10, 12, tzinfo=timezone.utc)
-            signals = {
-                "schemaVersion": 1,
-                "capturedAt": now.isoformat(),
-                "windowHours": 48,
-                "signalCount": 0,
-                "healthySourceCount": 0,
-                "failedSourceCount": 0,
-                "sourceStatus": [],
-                "topSignals": [],
-                "signals": [],
-            }
+            _bootstrap(data_dir)
+            pointer_before = (data_dir / "current.json").read_bytes()
 
-            with patch("pipeline.refresh.collect_signals", return_value=signals):
+            with patch("pipeline.refresh.collect_signals", return_value=_signals(FIRST_REFRESH_AT)):
                 refresh(
                     data_dir,
-                    now,
+                    FIRST_REFRESH_AT,
                     analyze_top=0,
                     client=StubClient(100),
                     collect_external_signals=True,
                 )
 
-            self.assertEqual(committed_refresh_at(data_dir), now.isoformat())
+            current = resolve_current_generation(data_dir)
+            self.assertNotEqual((data_dir / "current.json").read_bytes(), pointer_before)
+            self.assertNotEqual(current.generation_id, "seed-generation")
+            self.assertTrue((current.root / "signals/enrichment.json").is_file())
+            signal_enrichment = json.loads(
+                (current.root / "signals/enrichment.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(signal_enrichment["schemaVersion"], 1)
+            self.assertIsInstance(signal_enrichment["items"], dict)
+            self.assertEqual(committed_refresh_at(data_dir), FIRST_REFRESH_AT.isoformat())
 
     def test_json_batch_rolls_back_replacement_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -101,65 +137,102 @@ class RefreshTests(unittest.TestCase):
     def test_second_refresh_archives_previous_and_reports_observed_growth(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory)
-            refresh(
-                data_dir,
-                datetime(2026, 7, 9, 12, tzinfo=timezone.utc),
-                analyze_top=0,
-                client=StubClient(100),
-                collect_external_signals=False,
-            )
-            catalog = refresh(
-                data_dir,
-                datetime(2026, 7, 10, 12, tzinfo=timezone.utc),
-                analyze_top=0,
-                client=StubClient(140),
-                collect_external_signals=False,
-            )
+            _bootstrap(data_dir)
+            with patch("pipeline.refresh.collect_signals", return_value=_signals(FIRST_REFRESH_AT)):
+                refresh(
+                    data_dir,
+                    FIRST_REFRESH_AT,
+                    analyze_top=0,
+                    client=StubClient(100),
+                    collect_external_signals=True,
+                )
+            with patch("pipeline.refresh.collect_signals", return_value=_signals(SECOND_REFRESH_AT)):
+                catalog = refresh(
+                    data_dir,
+                    SECOND_REFRESH_AT,
+                    analyze_top=0,
+                    client=StubClient(140),
+                    collect_external_signals=True,
+                )
 
-            history = list((data_dir / "snapshots" / "history").glob("*.json"))
-            latest = json.loads((data_dir / "snapshots" / "latest.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(history), 1)
+            current = resolve_current_generation(data_dir)
+            history = list((current.root / "snapshots" / "history").glob("*.json"))
+            latest = json.loads(
+                (current.root / "snapshots" / "latest.json").read_text(encoding="utf-8")
+            )
+            history_payloads = [
+                json.loads(path.read_text(encoding="utf-8")) for path in history
+            ]
+            self.assertEqual(
+                sum(item.get("captured_at") == FIRST_REFRESH_AT.isoformat() for item in history_payloads),
+                1,
+            )
             self.assertEqual(latest["repositories"][0]["stars"], 140)
             self.assertEqual(catalog["projects"][0]["growthKind"], "observed")
             self.assertEqual(catalog["projects"][0]["growthValue"], 40)
-            self.assertEqual(catalog["previousCapturedAt"], "2026-07-09T12:00:00+00:00")
+            self.assertEqual(catalog["previousCapturedAt"], FIRST_REFRESH_AT.isoformat())
             self.assertEqual(catalog["projects"][0]["heatObservationCount"], 2)
-            self.assertEqual(catalog["projects"][0]["heatObservationWindow"], 2)
-            self.assertEqual(catalog["heatHistory"]["snapshotCount"], 2)
+            self.assertGreaterEqual(catalog["projects"][0]["heatObservationWindow"], 2)
+            self.assertEqual(
+                catalog["heatHistory"]["snapshotCount"],
+                catalog["projects"][0]["heatObservationWindow"],
+            )
 
     def test_failed_derived_collection_does_not_advance_snapshot_or_catalog(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory)
-            refresh(
-                data_dir,
-                datetime(2026, 7, 9, 12, tzinfo=timezone.utc),
-                analyze_top=0,
-                client=StubClient(100),
-                collect_external_signals=False,
-            )
+            _bootstrap(data_dir)
+            with patch("pipeline.refresh.collect_signals", return_value=_signals(FIRST_REFRESH_AT)):
+                refresh(
+                    data_dir,
+                    FIRST_REFRESH_AT,
+                    analyze_top=0,
+                    client=StubClient(100),
+                    collect_external_signals=True,
+                )
+            pointer_before = (data_dir / "current.json").read_bytes()
+            current_before = resolve_current_generation(data_dir)
             tracked_paths = [
-                data_dir / "snapshots" / "latest.json",
-                data_dir / "catalog" / "latest.json",
-                data_dir / "queues" / "codex.json",
+                current_before.root / "snapshots" / "latest.json",
+                current_before.root / "catalog" / "latest.json",
+                current_before.root / "queues" / "codex.json",
             ]
             before = {path: path.read_bytes() for path in tracked_paths}
 
             with patch("pipeline.refresh.collect_signals", side_effect=RuntimeError("signal parser failed")):
-                with self.assertRaisesRegex(RuntimeError, "signal parser failed"):
+                with self.assertRaises(CandidateGenerationError) as raised:
                     refresh(
                         data_dir,
-                        datetime(2026, 7, 10, 12, tzinfo=timezone.utc),
+                        SECOND_REFRESH_AT,
                         analyze_top=0,
                         client=StubClient(140),
                         collect_external_signals=True,
                     )
 
+            self.assertEqual(raised.exception.code, "candidate_build_failed")
+            self.assertEqual(raised.exception.stage, "build")
+            self.assertIsNotNone(raised.exception.generation_id)
+            self.assertIsInstance(raised.exception.__cause__, RuntimeError)
+            self.assertIn("signal parser failed", str(raised.exception))
             self.assertEqual({path: path.read_bytes() for path in tracked_paths}, before)
-            self.assertEqual(list((data_dir / "snapshots" / "history").glob("*.json")), [])
+            self.assertEqual((data_dir / "current.json").read_bytes(), pointer_before)
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, current_before.generation_id)
+            failed_candidates = list((data_dir / "generations/.candidates").glob("*/manifest.json"))
+            self.assertEqual(len(failed_candidates), 1)
+            self.assertEqual(
+                failed_candidates[0].parent.name,
+                raised.exception.generation_id,
+            )
+            self.assertEqual(
+                json.loads(failed_candidates[0].read_text(encoding="utf-8"))["state"],
+                "failed",
+            )
 
     def test_invalid_collector_snapshot_is_rejected_before_static_analysis(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory) / "data"
+            _bootstrap(data_dir)
+            pointer_before = (data_dir / "current.json").read_bytes()
             invalid_snapshot = {
                 "schema_version": 1,
                 "captured_at": "2026-07-10T12:00:00Z",
@@ -182,17 +255,21 @@ class RefreshTests(unittest.TestCase):
                 patch("pipeline.refresh.collect", return_value=invalid_snapshot),
                 patch("pipeline.refresh.analyze_remote") as analyze_remote,
             ):
-                with self.assertRaises(ArtifactValidationError):
+                with self.assertRaises(CandidateGenerationError) as raised:
                     refresh(
                         data_dir,
-                        datetime(2026, 7, 10, 12, tzinfo=timezone.utc),
+                        FIRST_REFRESH_AT,
                         analyze_top=1,
                         client=StubClient(100),
                         collect_external_signals=False,
                     )
 
+            self.assertEqual(raised.exception.code, "candidate_build_failed")
+            self.assertEqual(raised.exception.stage, "build")
+            self.assertIsNotNone(raised.exception.generation_id)
+            self.assertIsInstance(raised.exception.__cause__, ArtifactValidationError)
             analyze_remote.assert_not_called()
-            self.assertFalse((data_dir / "analysis").exists())
+            self.assertEqual((data_dir / "current.json").read_bytes(), pointer_before)
 
 
 if __name__ == "__main__":

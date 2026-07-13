@@ -17,6 +17,7 @@ from pipeline.build_catalog import (
     persistence_is_verified,
 )
 from pipeline.codex_queue import build_codex_queue
+from pipeline.generations import GenerationProtocolError, resolve_current_generation
 from pipeline.schema_validation import (
     ArtifactKind,
     ArtifactValidationError,
@@ -118,6 +119,15 @@ def _check_count(
     detail: str,
 ) -> None:
     _add_if(issues, _integer(declared) != actual, code, detail)
+
+
+def _immutable_input_prefix(data_dir: Path) -> str:
+    """Return the queue evidence prefix for a final or staged generation tree."""
+    if data_dir.parent.name == "generations":
+        return f"data/generations/{data_dir.name}"
+    if data_dir.parent.name == ".candidates" and data_dir.parent.parent.name == "generations":
+        return f"data/generations/{data_dir.name}"
+    return "data"
 
 
 def audit_data(data_dir: Path) -> dict[str, Any]:
@@ -587,6 +597,7 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
                 queue_at,
                 project_limit,
                 signal_limit,
+                input_data_prefix=_immutable_input_prefix(data_dir),
             )
         except (ArtifactValidationError, ValueError) as error:
             issues.append(
@@ -757,11 +768,40 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     }
 
 
+def audit_current_data(data_dir: Path) -> dict[str, Any]:
+    """Audit the one generation selected by current.json, failing closed."""
+    requested = data_dir.expanduser().resolve()
+    try:
+        # Pointer, manifest, hashes, and Schema are verified here; the direct
+        # audit below supplies the single semantic audit for this command.
+        published = resolve_current_generation(requested, verify_audit=False)
+    except GenerationProtocolError as error:
+        return {
+            "schemaVersion": 1,
+            "status": "failed",
+            "dataDir": str(requested),
+            "generationId": error.generation_id,
+            "errorCount": 1,
+            "warningCount": 0,
+            "issues": [
+                {
+                    "severity": "error",
+                    "code": error.code,
+                    "detail": str(error),
+                }
+            ],
+        }
+    result = audit_data(published.root)
+    result["requestedDataDir"] = str(requested)
+    result["generationId"] = published.generation_id
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Audit committed Rardar data without modifying it")
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     arguments = parser.parse_args()
-    result = audit_data(arguments.data_dir)
+    result = audit_current_data(arguments.data_dir)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     raise SystemExit(1 if result["status"] == "failed" else 0)
 

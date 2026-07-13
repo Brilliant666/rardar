@@ -1,8 +1,14 @@
 import Link from "next/link";
-import { codexQueue, signalSnapshot } from "../signals";
+import type { CodexQueueSnapshot, SignalSnapshot } from "../signals";
 import { SignalCard } from "./SignalCard";
 
-export function SignalDigest() {
+export function SignalDigest({
+  codexQueue,
+  signalSnapshot,
+}: {
+  codexQueue: CodexQueueSnapshot;
+  signalSnapshot: SignalSnapshot;
+}) {
   return (
     <section className="signal-digest">
       <div className="section-heading inline-heading">

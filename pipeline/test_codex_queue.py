@@ -302,6 +302,59 @@ class CodexQueueTests(unittest.TestCase):
         self.assertEqual(queue["items"][0]["sourceAnalysisAt"], "2026-07-10T08:00:00Z")
         self.assertTrue(validate_payload(ArtifactKind.CODEX_QUEUE, queue).valid)
 
+    def test_generation_queue_inputs_bind_to_immutable_evidence_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            enrichment_dir = root / "enrichment"
+            analysis_dir = root / "analysis"
+            enrichment_dir.mkdir()
+            analysis_dir.mkdir()
+            (analysis_dir / "owner--project.json").write_text(
+                json.dumps(static_evidence("owner/project", "2026-07-10T10:00:00Z")),
+                encoding="utf-8",
+            )
+
+            queue = build_codex_queue(
+                {
+                    "projects": [
+                        {
+                            "repo": "owner/project",
+                            "sourcePushedAt": "2026-07-10T09:00:00Z",
+                        }
+                    ]
+                },
+                {
+                    "signals": [
+                        {
+                            "id": "signal",
+                            "url": "https://signal.example",
+                            "title": "Signal",
+                            "publishedAt": "2026-07-10T09:00:00Z",
+                        }
+                    ]
+                },
+                enrichment_dir,
+                root / "signal-enrichment.json",
+                datetime(2026, 7, 10, 12, tzinfo=timezone.utc),
+                input_data_prefix="data/generations/20260710T120000Z-a1b2c3d4",
+            )
+
+        project = next(item for item in queue["items"] if item["kind"] == "project")
+        signal = next(item for item in queue["items"] if item["kind"] == "signal")
+        self.assertEqual(
+            project["inputPaths"],
+            [
+                "data/generations/20260710T120000Z-a1b2c3d4/analysis/owner--project.json",
+                "data/generations/20260710T120000Z-a1b2c3d4/catalog/latest.json",
+            ],
+        )
+        self.assertEqual(
+            signal["inputPaths"],
+            ["data/generations/20260710T120000Z-a1b2c3d4/signals/latest.json"],
+        )
+        self.assertEqual(project["outputPath"], "data/enrichment/owner--project.json")
+        self.assertTrue(validate_payload(ArtifactKind.CODEX_QUEUE, queue).valid)
+
 
 if __name__ == "__main__":
     unittest.main()

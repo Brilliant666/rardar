@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 0,
+  "repository": "affaan-m/ECC",
+  "source": "https://github.com/affaan-m/ECC",
+  "scanned_files": 3322,
+  "language_files": {
+    ".md": 2495,
+    ".js": 405,
+    ".json": 110,
+    ".py": 62,
+    ".yaml": 42,
+    ".sh": 32,
+    ".png": 30,
+    ".txt": 25,
+    ".ts": 18,
+    ".rs": 16,
+    ".yml": 14,
+    "[none]": 13
+  },
+  "indicators": {
+    "readme": true,
+    "license": true,
+    "tests": true,
+    "ci": true,
+    "docker": false,
+    "dependency_lock": true,
+    "package_manifest": true,
+    "examples": true,
+    "docs": true,
+    "environment_example": true
+  },
+  "counts": {
+    "test_files": 311,
+    "todo_markers": 454
+  },
+  "license_hint": "MIT",
+  "confidence": 95,
+  "warnings": [
+    "static inspection only; code was not executed"
+  ]
+}

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { formatNumber, projects, type Project } from "../data";
+import { formatNumber, type Project } from "../data";
 
 type IntentRule = {
   label: string;
@@ -127,7 +127,13 @@ function matchProject(project: Project, query: string, rules: IntentRule[], toke
   };
 }
 
-export function SearchWorkbench({ compact = false }: { compact?: boolean }) {
+export function SearchWorkbench({
+  projects,
+  compact = false,
+}: {
+  projects: Project[];
+  compact?: boolean;
+}) {
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
 
@@ -140,7 +146,7 @@ export function SearchWorkbench({ compact = false }: { compact?: boolean }) {
       .sort((a, b) => b.score - a.score || b.project.reuseScore - a.project.reuseScore);
     const strong = ranked.filter((result) => result.strongMatch);
     return (strong.length ? strong : ranked).slice(0, compact ? 3 : 5);
-  }, [compact, intent, submitted]);
+  }, [compact, intent, projects, submitted]);
 
   const displayedResults = submitted
     ? results

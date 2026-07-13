@@ -2,14 +2,15 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ensureDecisionSchema } from "../../../db/ensure";
 import { feedback } from "../../../db/schema";
-import { projects } from "../../data";
+import { loadPublishedData } from "../../server-data";
 import { readJsonObject, trimmedString } from "../validation";
 
 const allowedValues = new Set(["有用", "无用", "复用", "待确定"]);
-const projectSlugs = new Set(projects.map((project) => project.slug));
 const noStoreHeaders = { "cache-control": "no-store" };
 
 export async function GET(request: Request) {
+  const { projects } = await loadPublishedData();
+  const projectSlugs = new Set(projects.map((project) => project.slug));
   const url = new URL(request.url);
   const deviceId = url.searchParams.get("deviceId")?.trim();
   const projectSlug = url.searchParams.get("projectSlug")?.trim();
@@ -32,6 +33,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const { projects } = await loadPublishedData();
+  const projectSlugs = new Set(projects.map((project) => project.slug));
   const payload = await readJsonObject(request);
   if (!payload) {
     return Response.json({ error: "invalid feedback" }, { status: 400 });

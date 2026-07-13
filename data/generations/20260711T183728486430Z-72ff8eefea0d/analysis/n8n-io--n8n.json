@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "repository": "n8n-io/n8n",
+  "source": "https://github.com/n8n-io/n8n",
+  "analyzed_at": "2026-07-11T00:02:46.409131+00:00",
+  "scanned_files": 12000,
+  "language_files": {
+    ".ts": 9947,
+    ".json": 764,
+    ".md": 475,
+    ".yml": 260,
+    ".mjs": 150,
+    ".svg": 110,
+    ".py": 68,
+    "[none]": 65,
+    ".js": 30,
+    ".vue": 27,
+    ".mjml": 11,
+    ".handlebars": 10
+  },
+  "indicators": {
+    "readme": true,
+    "license": true,
+    "tests": true,
+    "ci": true,
+    "docker": true,
+    "dependency_lock": true,
+    "package_manifest": true,
+    "examples": false,
+    "docs": true,
+    "environment_example": true
+  },
+  "counts": {
+    "test_files": 5298,
+    "todo_markers": 471
+  },
+  "license_hint": "存在许可证文件",
+  "confidence": 95,
+  "warnings": [
+    "file scan stopped at 12000 files",
+    "static inspection only; code was not executed",
+    "shallow clone failed: and retry with 'git restore --source=HEAD :/'; inspected a bounded official GitHub source archive instead"
+  ]
+}

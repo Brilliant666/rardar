@@ -6,6 +6,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -16,6 +17,7 @@ import time
 import webbrowser
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from http.client import HTTPConnection, HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -51,6 +53,12 @@ MAX_LOG_BYTES = 5 * 1024 * 1024
 LOG_BACKUP_COUNT = 2
 SCHEDULER_HEARTBEAT_MAX_AGE = 125
 SERVICE_STARTUP_GRACE = 90
+WEBSITE_HEALTH_PATH = "/api/health"
+WEBSITE_HEALTH_TIMEOUT = 2
+WEBSITE_HEALTH_MAX_BYTES = 64 * 1024
+GENERATION_ID_PATTERN = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
+)
 _latest_status: dict[str, Any] = {}
 _latest_status_lock = threading.Lock()
 
@@ -386,6 +394,64 @@ def port_is_open(host: str = "127.0.0.1", port: int = 3000) -> bool:
         return False
 
 
+@dataclass(frozen=True)
+class WebsiteHealth:
+    state: str
+    generation_id: str | None = None
+    error: str | None = None
+
+
+def _short_health_error(value: object, limit: int = 240) -> str:
+    message = " ".join(str(value).split()).strip()
+    return (message or "website health check failed")[:limit]
+
+
+def parse_website_health(status: int, body: bytes) -> WebsiteHealth:
+    if len(body) > WEBSITE_HEALTH_MAX_BYTES:
+        return WebsiteHealth("degraded", error="health response exceeded 65536 bytes")
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return WebsiteHealth("degraded", error=f"health endpoint returned invalid JSON (HTTP {status})")
+    if not isinstance(payload, dict):
+        return WebsiteHealth("degraded", error=f"health endpoint returned a non-object (HTTP {status})")
+    if status != 200:
+        detail = payload.get("error") or payload.get("message") or f"HTTP {status}"
+        return WebsiteHealth(
+            "degraded",
+            error=_short_health_error(f"health endpoint returned HTTP {status}: {detail}"),
+        )
+    generation_id = payload.get("generationId")
+    if (
+        payload.get("status") != "healthy"
+        or not isinstance(generation_id, str)
+        or GENERATION_ID_PATTERN.fullmatch(generation_id) is None
+    ):
+        return WebsiteHealth("degraded", error="health endpoint returned an invalid contract")
+    return WebsiteHealth("healthy", generation_id=generation_id)
+
+
+def probe_website_health(
+    host: str = "127.0.0.1",
+    port: int = 3000,
+    timeout: float = WEBSITE_HEALTH_TIMEOUT,
+) -> WebsiteHealth:
+    connection = HTTPConnection(host, port, timeout=timeout)
+    try:
+        connection.request(
+            "GET",
+            WEBSITE_HEALTH_PATH,
+            headers={"Accept": "application/json", "Cache-Control": "no-store"},
+        )
+        response = connection.getresponse()
+        body = response.read(WEBSITE_HEALTH_MAX_BYTES + 1)
+        return parse_website_health(response.status, body)
+    except (OSError, TimeoutError, HTTPException) as error:
+        return WebsiteHealth("degraded", error=_short_health_error(error))
+    finally:
+        connection.close()
+
+
 @dataclass
 class ManagedService:
     name: str
@@ -462,6 +528,10 @@ def _scheduler_details() -> dict[str, Any]:
         "dataAuditStatus": status.get("dataAuditStatus"),
         "dataAuditWarningCount": status.get("dataAuditWarningCount"),
         "dataAuditSummary": status.get("dataAuditSummary"),
+        "currentGenerationId": status.get("currentGenerationId"),
+        "candidateGenerationId": status.get("candidateGenerationId"),
+        "generationStage": status.get("generationStage"),
+        "generationErrorCode": status.get("generationErrorCode"),
     }
 
 
@@ -552,7 +622,11 @@ def _run_manager() -> int:
                     time.sleep(2)
                     service.start(environment)
 
-            website_state = "healthy" if website.poll() is None and port_is_open() else "starting"
+            website_health = WebsiteHealth("starting")
+            if website.poll() is None and port_is_open():
+                website_health = probe_website_health()
+            website_state = website_health.state
+            website.last_error = website_health.error
             scheduler_details = _scheduler_details()
             scheduler_state = (
                 scheduler_heartbeat_state(
@@ -575,10 +649,22 @@ def _run_manager() -> int:
                 "schemaVersion": 1,
                 "state": overall_state,
                 "checkedAt": utc_now(),
-                "message": "网站与每日刷新均由本地管理器看护" if overall_state == "healthy" else "服务正在启动或恢复",
+                "message": (
+                    "网站与每日刷新均由本地管理器看护"
+                    if overall_state == "healthy"
+                    else (
+                        "网站健康检查失败，进程保持运行并等待数据恢复"
+                        if website_state == "degraded"
+                        else "服务正在启动或恢复"
+                    )
+                ),
                 "managerPid": current_pid,
                 "services": {
-                    "website": {**_service_payload(website, website_state), "url": LOCAL_URL},
+                    "website": {
+                        **_service_payload(website, website_state),
+                        "url": LOCAL_URL,
+                        "generationId": website_health.generation_id,
+                    },
                     "scheduler": scheduler_payload,
                 },
             }
@@ -611,16 +697,21 @@ def start_manager(open_browser: bool = False) -> int:
     control = _read_json(CONTROL_PATH) or {}
     manager_pid = control.get("pid")
     existing_status = _read_json(STATUS_PATH) or {}
-    manager_healthy = (
+    manager_active = (
         isinstance(manager_pid, int)
         and process_is_alive(manager_pid)
         and heartbeat_is_fresh(existing_status.get("checkedAt"))
     )
-    if manager_healthy:
-        print(f"Rardar is already managed at {LOCAL_URL}")
-        if open_browser:
-            webbrowser.open(LOCAL_URL)
-        return 0
+    if manager_active:
+        if existing_status.get("state") == "healthy":
+            print(f"Rardar is already managed at {LOCAL_URL}")
+            if open_browser:
+                webbrowser.open(LOCAL_URL)
+            return 0
+        website = ((existing_status.get("services") or {}).get("website") or {})
+        detail = website.get("lastError") or existing_status.get("message") or "health check failed"
+        print(f"Rardar is managed but degraded: {_short_health_error(detail)}")
+        return 1
 
     if not python_dependencies_are_ready():
         return 1

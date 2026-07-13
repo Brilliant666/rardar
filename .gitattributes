@@ -1,0 +1,4 @@
+# Generation manifests bind exact artifact bytes. Never apply checkout or
+# staging line-ending conversion to the pointer or immutable generations.
+/data/current.json -text -diff
+/data/generations/** -text -diff

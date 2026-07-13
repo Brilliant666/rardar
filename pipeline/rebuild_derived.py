@@ -15,8 +15,16 @@ from typing import Any
 
 from pipeline.build_catalog import build_catalog
 from pipeline.codex_queue import build_codex_queue
-from pipeline.data_lock import locked_data_dir
+from pipeline.generations import (
+    CandidateGeneration,
+    CandidateGenerationError,
+    GenerationProtocolError,
+    create_candidate_generation,
+    fail_candidate_generation,
+    publish_candidate_generation,
+)
 from pipeline.refresh import (
+    _ensure_signal_enrichment,
     _load_analyses,
     _load_enrichments,
     _load_snapshot_history,
@@ -77,16 +85,16 @@ def _previous_snapshot(
     )
 
 
-@locked_data_dir
-def rebuild_derived(
-    data_dir: Path,
+def _rebuild_derived_candidate(
+    candidate: CandidateGeneration,
     now: datetime | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    data_dir = data_dir.resolve()
+    data_dir = candidate.path
     snapshot_path = data_dir / "snapshots" / "latest.json"
     catalog_path = data_dir / "catalog" / "latest.json"
     signals_path = data_dir / "signals" / "latest.json"
     queue_path = data_dir / "queues" / "codex.json"
+    _ensure_signal_enrichment(data_dir, (now or datetime.now(timezone.utc)).astimezone(timezone.utc))
     snapshot = _required_json(snapshot_path)
     existing_catalog = _required_json(catalog_path)
     signals = _required_json(signals_path)
@@ -123,9 +131,42 @@ def rebuild_derived(
         generated_at,
         project_limit,
         signal_limit,
+        input_data_prefix=f"data/generations/{candidate.generation_id}",
     )
     catalog["codexPendingCount"] = queue["pendingCount"]
     _write_json_batch([(catalog_path, catalog), (queue_path, queue)])
+    return catalog, queue
+
+
+def rebuild_derived(
+    data_dir: Path,
+    now: datetime | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Rebuild derived artifacts in a candidate and atomically publish it."""
+    canonical = data_dir.expanduser().resolve()
+    generated_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    candidate = create_candidate_generation(
+        canonical,
+        "derive",
+        created_at=generated_at,
+    )
+    try:
+        catalog, queue = _rebuild_derived_candidate(candidate, generated_at)
+    except Exception as error:
+        fail_candidate_generation(candidate, "build", str(error))
+        if isinstance(error, GenerationProtocolError):
+            raise
+        raise CandidateGenerationError(
+            "candidate_build_failed",
+            f"derived candidate build failed: {error}",
+            generation_id=candidate.generation_id,
+            stage="build",
+        ) from error
+    try:
+        publish_candidate_generation(candidate, published_at=generated_at)
+    except Exception as error:
+        fail_candidate_generation(candidate, "publish", str(error))
+        raise
     return catalog, queue
 
 

@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/generation-manifest.schema.json",
+  "title": "Rardar generation manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "generationId",
+    "createdAt",
+    "baseGenerationId",
+    "operation",
+    "state",
+    "failureStage",
+    "error",
+    "artifacts",
+    "hashes",
+    "audit"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "generationId": { "$ref": "#/$defs/generationId" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "baseGenerationId": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/generationId" }
+      ]
+    },
+    "operation": { "enum": ["bootstrap", "refresh", "derive"] },
+    "state": { "enum": ["building", "ready", "failed"] },
+    "failureStage": {
+      "oneOf": [
+        { "type": "null" },
+        { "enum": ["build", "schema_validation", "audit", "manifest", "publish"] }
+      ]
+    },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1, "maxLength": 2000 }
+      ]
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 5000,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/artifactPath" }
+    },
+    "hashes": {
+      "type": "object",
+      "minProperties": 0,
+      "maxProperties": 5000,
+      "propertyNames": { "$ref": "#/$defs/artifactPath" },
+      "additionalProperties": { "$ref": "#/$defs/sha256" }
+    },
+    "audit": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/audit" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["state"],
+        "properties": { "state": { "const": "ready" } }
+      },
+      "then": {
+        "properties": {
+          "audit": { "$ref": "#/$defs/audit" },
+          "failureStage": { "type": "null" },
+          "error": { "type": "null" },
+          "artifacts": { "minItems": 1 },
+          "hashes": { "minProperties": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["state"],
+        "properties": { "state": { "const": "failed" } }
+      },
+      "then": {
+        "properties": {
+          "failureStage": {
+            "enum": ["build", "schema_validation", "audit", "manifest", "publish"]
+          },
+          "error": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["state"],
+        "properties": { "state": { "const": "building" } }
+      },
+      "then": {
+        "properties": {
+          "audit": { "type": "null" },
+          "failureStage": { "type": "null" },
+          "error": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "generationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
+    },
+    "artifactPath": {
+      "type": "string",
+      "minLength": 6,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)(?!.*//)[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\\.json$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "errorCount", "warningCount", "validatedCount"],
+      "properties": {
+        "status": { "enum": ["healthy", "degraded"] },
+        "errorCount": { "const": 0 },
+        "warningCount": { "type": "integer", "minimum": 0 },
+        "validatedCount": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

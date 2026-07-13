@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 0,
+  "repository": "DietrichGebert/ponytail",
+  "analyzedAt": "2026-07-10T13:00:00Z",
+  "model": "local-codex",
+  "titleZh": "让编程 Agent 优先复用现有能力而不是过度开发",
+  "summaryZh": "Ponytail 是面向多种编程 Agent 的最小实现规则集：先判断功能是否需要、代码库是否已有实现、标准库或原生平台能否完成，再考虑新增依赖和代码，同时保留验证、安全、错误处理和可访问性要求。",
+  "category": "开发效率",
+  "capabilities": [
+    "YAGNI 决策阶梯",
+    "现有代码复用",
+    "依赖控制",
+    "代码精简",
+    "代码审查",
+    "多 Agent 插件"
+  ],
+  "taskTerms": [
+    "减少代码",
+    "避免过度开发",
+    "复用现有代码",
+    "减少依赖",
+    "代码审查",
+    "技术债",
+    "codex 插件",
+    "yagni",
+    "开发效率"
+  ],
+  "bestFor": "适合经常遇到 Agent 过度封装、随意引入依赖或重复实现已有功能的代码项目。",
+  "reusePlan": "可以先把它作为代码审查和实现前决策规则使用，再根据真实项目对比是否减少代码量、依赖和返工。",
+  "limitation": "README 的主要 Agent 基准覆盖 12 个功能任务和特定模型，不能直接外推到所有技术栈；它优化的是必要性和简洁度，不是盲目追求最少行数。",
+  "evidenceSummary": "README 给出七级复用决策阶梯、跨 Codex/Claude 等安装方式，并公开基准方法、修正后的平均结果和适用限制。",
+  "sourceUrl": "https://github.com/DietrichGebert/ponytail#readme"
+}
