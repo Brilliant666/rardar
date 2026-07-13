@@ -34,32 +34,41 @@ docs/RARDAR_EVOLUTION_PROTOCOL.md
 
 ## 下一工程轮默认任务
 
-本治理文档 PR 合并后，优先处理：
+PR #4 合并后，下一工程轮默认任务是：
 
-> 建立 generation 的候选生成、验证、审计和原子发布协议。只有审计通过的 generation 才能成为网页数据源和后续增长基线；任何失败都必须保留上一代健康数据。
+> 建立追加式项目行动事件模型，并修复 Weekly Acted Projects 跨周期漏计。
+
+只有以下前置条件全部满足，才允许开始行动事件目标：
+
+- PR #4 已合并；
+- 最新 `main` 已包含 audited generations；
+- 工作区干净；
+- 不存在尚未完成的 generation 修正 PR。
+
+任一条件未满足时，停止并处理现有 PR 或工作区状态，不得提前创建行动事件分支或实现代码。
 
 选择这一任务的原因：
 
-- 核心 JSON Schema 和统一验证入口已经由 PR #2 建立；
-- 当前流水线仍可能先覆盖正式数据，再执行一致性审计；
-- 审计失败的数据一旦被页面或下一轮增长计算读取，就会污染事实主干；
-- generation 发布边界是长期自动运行、可回滚和可信推荐的共同前提；
-- 该目标可以作为一个有边界、可独立测试和可回滚的 PR 完成。
+- Weekly Acted Projects 是 Rardar 的北极星指标；
+- 当前 `project_actions` 的全生命周期唯一状态会漏计同一项目、同一种行动在后续周期再次发生的事实；
+- 指标需要追加式 Event，按钮和当前阶段需要独立 State，二者不能互相替代；
+- 幂等键是同时保证网络重试安全与真实跨周期重复行动可计数的必要边界；
+- audited generations 合并后，行动事件是长期优先级中第一个尚未完成的目标。
 
 ## 下一工程轮验收标准
 
 至少完成：
 
-1. 定义并版本化 generation 目录、manifest 和当前 generation 指针的契约。
-2. 在不改变当前正式 generation 的前提下生成完整候选数据。
-3. 发布前依次对候选 generation 执行 Schema 验证和跨文件一致性审计。
-4. 仅在全部检查通过后原子更新当前 generation 指针。
-5. 页面数据源与后续增长基线必须读取同一个已发布 generation。
-6. Schema 失败、审计失败、写入中断或发布冲突时，上一代健康数据和增长基线保持不变。
-7. 提供并发保护、可诊断失败状态和明确回滚路径，不补造历史事实。
-8. 增加行为测试，至少覆盖成功发布、Schema 失败、审计失败、中断写入、并发发布和旧 generation 保留。
-9. 提供对现有正式数据的兼容或迁移说明，并更新相关架构和数据模型文档。
-10. 运行完整验证，创建 Draft PR，然后停止；不得部署、合并或顺带处理行动事件、评分、CI、项目 ID 或 UI。
+1. 将历史事件与当前状态分离为 `project_action_events` 与 `project_action_state`，或语义等价的模型。
+2. Event 必须是追加式记录，至少包含 device ID、project ID/slug、action、`occurredAt` 和 idempotency key。
+3. 同一个项目、同一种行动在不同周再次发生时，必须生成新的有效事件并计入相应周度指标。
+4. 网络重试或重复提交必须通过幂等键避免重复计数。
+5. 当前按钮状态或最高行动阶段从 State 读取，不得用 State 代替历史事件。
+6. Weekly Acted Projects 必须基于近 7 天 Event 计算发生行动的不同项目数，而不是基于全生命周期唯一状态。
+7. 迁移已有 `project_actions` 时保留真实已有时间，不补造不存在的历史事件，并提供明确兼容和回滚方案。
+8. 行为测试至少覆盖同周重复请求幂等、跨周重复行动重新计数、不同行动阶段、Event 与 State 一致性、迁移、API 并发、近 7 天边界时间，以及推荐和指标读取不回归。
+9. 不顺带重做 audited generations，也不修改评分语义、CI、稳定项目 ID、UI 重设计或部署。
+10. 运行完整验证，创建 Draft PR，然后停止。
 
 ## 执行流程
 
@@ -94,7 +103,7 @@ npm run security:audit:prod
 建议：
 
 ```text
-feat/data-generations
+feat/action-events
 ```
 
 ### 4. 实现
@@ -102,7 +111,8 @@ feat/data-generations
 要求：
 
 - 最小改动；
-- 复用现有审计和 JSON 读写逻辑；
+- 复用现有 D1/SQLite、API 验证和时间处理逻辑；
+- 明确 Event、State、指标读取和迁移边界；
 - 不引入大型框架；
 - 不执行第三方仓库代码；
 - 不部署；
@@ -115,14 +125,14 @@ feat/data-generations
 
 至少覆盖：
 
-- 成功生成、审计和发布；
-- Schema 失败不切换 current；
-- 跨文件审计失败不切换 current；
-- 临时写入或指针更新中断；
-- 两个并发发布者竞争；
-- 旧 generation 或过期发布冲突；
-- 上一代健康数据和增长基线保持不变；
-- current 指针与页面数据源、增长基线一致。
+- 同周相同幂等键重复请求只产生一个 Event；
+- 同一项目、同一种行动跨周再次发生时产生新 Event，并在对应周期重新计数；
+- 打开、收藏、试用、浅克隆和确认复用等不同行动阶段正确更新 State；
+- Event 历史与 State 当前阶段保持一致；
+- 已有 `project_actions` 迁移保留真实时间且不补造历史；
+- 同幂等键的并发 API 请求只产生一个 Event，并得到确定的 State；
+- 近 7 天窗口的包含、排除和时区边界正确；
+- 推荐、按钮状态和 Weekly Acted Projects 指标读取不回归。
 
 ### 6. 完整验证
 
@@ -143,7 +153,9 @@ PR 描述包含：
 背景
 问题
 修改
-generation、manifest 与原子发布协议
+Event 与 State 模型
+幂等与并发协议
+Weekly Acted Projects 口径
 兼容性
 测试
 安全边界
@@ -156,12 +168,13 @@ generation、manifest 与原子发布协议
 
 ## 后续迭代规则
 
-本 PR 合并后，下一轮应按照文档优先级处理：
+PR #4 合并后，下一轮应按照文档优先级处理：
 
-1. 审计通过后发布 generation；
-2. 追加式行动事件；
-3. 评分语义；
-4. verify 和 GitHub Actions；
-5. 稳定项目 ID。
+1. 数据 Schema 和统一契约——已由 PR #2 完成；
+2. audited generations——由 PR #4 实现，仅在合并到 `main` 后视为完成；
+3. 追加式行动事件——PR #4 合并后的第一个未完成项；
+4. 评分语义；
+5. verify 和 GitHub Actions；
+6. 稳定项目 ID。
 
 每轮只做一项，每轮创建 Draft PR，每轮完成后停止。

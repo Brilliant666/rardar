@@ -80,7 +80,14 @@ Node.js 22.13.1 与当前 Python 环境下：
 
 新增时间边界测试覆盖 recovery 对五分钟内未来时间保持严格单调、超过信任窗口的异常未来值降级当前 UTC、递增溢出不阻止恢复、异常未来时间恢复后可立即发布新 derive generation，以及健康 current 继续执行原有 stale publication 规则。
 
-本文件记录当前 Draft PR 分支的验证，不把尚未合并的实现标记为 main 已完成。
+## 治理状态
+
+- 本文件记录 PR #4 的完整实现和验证；
+- 只有 PR #4 合并到 `main` 后，generation 目标才视为完成；
+- PR #4 合并前不得开始行动事件或其他下一工程目标；
+- PR #4 合并后，下一目标为追加式项目行动事件模型，并修复 Weekly Acted Projects 跨周期漏计。
+
+本文不声称 PR #4 已经合并。
 
 ## 是否影响 North Star
 
@@ -100,4 +107,4 @@ Node.js 22.13.1 与当前 Python 环境下：
 - 发布竞争行为测试覆盖同进程双发布者，跨进程锁另有独立测试；完整 publish CAS 的多进程端到端压力测试可在后续 verify/CI 迭代补充；
 - 正式写入 API 会拒绝 final generation namespace，但本地用户仍可手工改文件；任何此类修改会因 manifest/hash 校验 fail closed，后续 verify/CI 应阻止其进入 main。
 
-本轮 Draft PR 创建后停止，不自动开始下一工程目标。
+PR #4 保持 Draft 并等待审查；合并前停止，不开始行动事件实现。
