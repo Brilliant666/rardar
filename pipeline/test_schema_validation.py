@@ -115,6 +115,67 @@ def valid_catalog() -> dict[str, object]:
     }
 
 
+def valid_catalog_v2() -> dict[str, object]:
+    catalog = deepcopy(valid_catalog())
+    catalog["schemaVersion"] = 2
+    catalog["scoreModelVersion"] = "evidence-v2"
+    project = catalog["projects"][0]  # type: ignore[index]
+    for field in ("globalScore", "reuseScore", "momentumScore", "fit"):
+        project.pop(field)
+    project.update(
+        {
+            "attentionScore": 75,
+            "engineeringReadiness": None,
+            "reuseFitScore": None,
+            "evidenceCompleteness": 55,
+            "fitHypothesis": "适合先在隔离环境验证契约生成流程。",
+            "scoreExplanations": {
+                "attention": {
+                    "score": 75,
+                    "summary": "近期关注度来自可核验的 Star 增量。",
+                    "facts": ["两次快照之间增加 2 Star。"],
+                    "proxies": [],
+                    "limitations": ["观察窗口仍然较短。"],
+                    "upgradeConditions": ["积累更多连续快照。"],
+                },
+                "endurance": {
+                    "score": 40,
+                    "summary": "长期持续性证据尚不充分。",
+                    "facts": [],
+                    "proxies": ["仓库已有可观测 Star 基础。"],
+                    "limitations": ["未达到长期观察窗口。"],
+                    "upgradeConditions": ["达到最小持续快照数。"],
+                },
+                "engineeringReadiness": {
+                    "score": None,
+                    "summary": "缺少足够静态分析证据，暂不评分。",
+                    "facts": [],
+                    "proxies": [],
+                    "limitations": ["尚未完成静态分析。"],
+                    "upgradeConditions": ["完成受控静态分析。"],
+                },
+                "reuseFit": {
+                    "score": None,
+                    "summary": "复用适配度仍是假设，暂不评分。",
+                    "facts": [],
+                    "proxies": [],
+                    "limitations": ["没有任务上下文证据。"],
+                    "upgradeConditions": ["补充目标任务与约束。"],
+                },
+                "evidenceCompleteness": {
+                    "score": 55,
+                    "summary": "事实字段完整，但缺少工程画像。",
+                    "facts": ["仓库事实与增长快照可用。"],
+                    "proxies": [],
+                    "limitations": ["工程与复用维度未评分。"],
+                    "upgradeConditions": ["补充静态证据与画像。"],
+                },
+            },
+        }
+    )
+    return catalog
+
+
 def valid_generation_manifest() -> dict[str, object]:
     artifacts = ["catalog/latest.json", "snapshots/latest.json"]
     return {
@@ -602,6 +663,95 @@ class SchemaValidationTests(unittest.TestCase):
         self.assertIn(
             "/projects/0/capabilities",
             {issue.instance_path for issue in result.issues},
+        )
+
+    def test_catalog_contract_accepts_immutable_v1_and_evidence_v2(self) -> None:
+        self.assertTrue(validate_payload(ArtifactKind.CATALOG, valid_catalog()).valid)
+        self.assertTrue(validate_payload(ArtifactKind.CATALOG, valid_catalog_v2()).valid)
+
+    def test_catalog_contract_rejects_unknown_versions_and_mixed_fields(self) -> None:
+        unknown = valid_catalog_v2()
+        unknown["schemaVersion"] = 3
+        self.assertFalse(validate_payload(ArtifactKind.CATALOG, unknown).valid)
+
+        v1_with_v2_top_level = valid_catalog()
+        v1_with_v2_top_level["scoreModelVersion"] = "evidence-v2"
+        self.assertFalse(
+            validate_payload(ArtifactKind.CATALOG, v1_with_v2_top_level).valid
+        )
+
+        v1_with_v2_project = valid_catalog()
+        v1_with_v2_project["projects"][0]["attentionScore"] = 75  # type: ignore[index]
+        self.assertFalse(
+            validate_payload(ArtifactKind.CATALOG, v1_with_v2_project).valid
+        )
+
+        v2_with_v1_project = valid_catalog_v2()
+        v2_with_v1_project["projects"][0]["globalScore"] = 70  # type: ignore[index]
+        self.assertFalse(
+            validate_payload(ArtifactKind.CATALOG, v2_with_v1_project).valid
+        )
+
+        missing_model = valid_catalog_v2()
+        missing_model.pop("scoreModelVersion")
+        self.assertFalse(validate_payload(ArtifactKind.CATALOG, missing_model).valid)
+
+    def test_catalog_v2_requires_exact_strict_score_explanations(self) -> None:
+        missing_container = valid_catalog_v2()
+        missing_container["projects"][0].pop("scoreExplanations")  # type: ignore[index]
+        self.assertFalse(
+            validate_payload(ArtifactKind.CATALOG, missing_container).valid
+        )
+
+        missing_dimension = valid_catalog_v2()
+        explanations = missing_dimension["projects"][0]["scoreExplanations"]  # type: ignore[index]
+        explanations.pop("reuseFit")
+        self.assertFalse(
+            validate_payload(ArtifactKind.CATALOG, missing_dimension).valid
+        )
+
+        extra_dimension = valid_catalog_v2()
+        explanations = extra_dimension["projects"][0]["scoreExplanations"]  # type: ignore[index]
+        explanations["legacyGlobal"] = deepcopy(explanations["attention"])
+        self.assertFalse(
+            validate_payload(ArtifactKind.CATALOG, extra_dimension).valid
+        )
+
+        wrong_types = (
+            ("score", 1.5),
+            ("summary", ""),
+            ("facts", "not-an-array"),
+            ("proxies", [""]),
+        )
+        for field, value in wrong_types:
+            with self.subTest(field=field):
+                candidate = valid_catalog_v2()
+                candidate["projects"][0]["scoreExplanations"]["attention"][field] = value  # type: ignore[index]
+                self.assertFalse(
+                    validate_payload(ArtifactKind.CATALOG, candidate).valid
+                )
+
+    def test_catalog_v2_enforces_null_boundaries_and_recommendations(self) -> None:
+        for field in ("attentionScore", "enduranceScore", "evidenceCompleteness"):
+            with self.subTest(field=field):
+                candidate = valid_catalog_v2()
+                candidate["projects"][0][field] = None  # type: ignore[index]
+                self.assertFalse(
+                    validate_payload(ArtifactKind.CATALOG, candidate).valid
+                )
+
+        for recommendation in ("试用", "复用"):
+            with self.subTest(recommendation=recommendation):
+                candidate = valid_catalog_v2()
+                candidate["projects"][0]["recommendation"] = recommendation  # type: ignore[index]
+                self.assertFalse(
+                    validate_payload(ArtifactKind.CATALOG, candidate).valid
+                )
+
+        isolated_trial = valid_catalog_v2()
+        isolated_trial["projects"][0]["recommendation"] = "隔离试用"  # type: ignore[index]
+        self.assertTrue(
+            validate_payload(ArtifactKind.CATALOG, isolated_trial).valid
         )
 
     def test_accepts_explicit_legacy_static_evidence_but_not_unversioned_data(self) -> None:

@@ -31,7 +31,7 @@ export default async function Home() {
           <div className="hero-copy">
             <span className="eyebrow">{formatCapturedDate(catalog.capturedAt)} · 已完成今日刷新</span>
             <h1>先看 5 个，<br />不用刷 500 个。</h1>
-            <p>今天真正值得看的，不只是 Star 排名。Rardar 把近期爆发、长期高热和复用价值分开判断，让你先看到能解决问题的项目。</p>
+            <p>今天真正值得看的，不只是 Star 排名。Rardar 把近期爆发、持久热度和静态工程证据分开说明，再结合你的任务判断匹配程度。</p>
             <div className="hero-actions">
               <Link className="primary-link" href="#daily-five">查看今日重点</Link>
               <Link className="secondary-link" href="/search">按任务找项目 <span>→</span></Link>
@@ -51,7 +51,7 @@ export default async function Home() {
                 </div>
                 <div className="hero-lead-metrics">
                   <div><strong>{leadProject.trend}</strong><span>区间增长</span></div>
-                  <div><strong>{leadProject.reuseScore}</strong><span>复用价值</span></div>
+                  <div><strong>{leadProject.engineeringReadiness ?? "—"}</strong><span>静态工程就绪度</span></div>
                   <div><strong>{formatNumber(leadProject.stars)}</strong><span>累计 Star</span></div>
                 </div>
               </Link>
@@ -107,7 +107,7 @@ export default async function Home() {
           <div className="manifesto-grid">
             <div><span>01</span><strong>事实与判断分开</strong><p>数据、来源和采集时间清晰可见，AI 推断明确标注。</p></div>
             <div><span>02</span><strong>功能优先于技术栈</strong><p>先判断能解决什么问题，再讨论语言和集成成本。</p></div>
-            <div><span>03</span><strong>低热度也能高价值</strong><p>复用价值独立评分，不让真正有用的项目被流量淹没。</p></div>
+            <div><span>03</span><strong>热度不替代任务匹配</strong><p>关注优先级、工程证据与任务复用匹配分别解释，不让流量冒充适用性。</p></div>
           </div>
         </section>
       </main>

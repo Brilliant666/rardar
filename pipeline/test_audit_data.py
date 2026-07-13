@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
 from pipeline.audit_data import audit_data
+from pipeline.build_catalog import build_catalog
 from pipeline.codex_queue import build_codex_queue
 
 
@@ -191,7 +193,145 @@ def catalog_snapshot(
     }
 
 
+def write_v2_audit_fixture(root: Path) -> dict[str, object]:
+    captured = "2026-07-10T12:00:00+00:00"
+    query = "stars:>=1"
+    repositories = [
+        snapshot_repository("demo/fast-tool", captured, 500, query),
+        snapshot_repository("demo/steady-tool", captured, 100, query),
+    ]
+    repositories[0]["created_at"] = "2026-07-01T00:00:00Z"
+    repositories[0]["forks"] = 80
+    snapshot = {
+        "schema_version": 1,
+        "captured_at": captured,
+        "queries": [query],
+        "query_status": [
+            {"query": query, "state": "healthy", "item_count": 2, "error": None}
+        ],
+        "successful_query_count": 1,
+        "failed_query_count": 0,
+        "count": 2,
+        "repositories": repositories,
+    }
+    analysis = {
+        "schemaVersion": 1,
+        "repository": "demo/fast-tool",
+        "source": "https://github.com/demo/fast-tool",
+        "analyzed_at": "2026-07-10T13:00:00+00:00",
+        "scanned_files": 120,
+        "language_files": {"Python": 80},
+        "indicators": {
+            "readme": True,
+            "license": True,
+            "tests": True,
+            "ci": True,
+            "docker": False,
+            "dependency_lock": True,
+            "package_manifest": True,
+            "examples": True,
+            "docs": True,
+            "environment_example": False,
+        },
+        "counts": {"test_files": 12, "todo_markers": 1},
+        "license_hint": "MIT",
+        "confidence": 90,
+        "warnings": [],
+    }
+    enrichment = {
+        "schemaVersion": 1,
+        "repository": "demo/fast-tool",
+        "sourcePushedAt": captured,
+        "sourceAnalysisAt": analysis["analyzed_at"],
+        "analyzedAt": "2026-07-10T14:00:00+00:00",
+        "model": "test-model",
+        "titleZh": "快速工具",
+        "summaryZh": "用于验证评分语义重建的测试项目。",
+        "category": "开发工具",
+        "capabilities": ["评分审计"],
+        "taskTerms": ["audit"],
+        "bestFor": "需要验证评分审计的开发者。",
+        "reusePlan": "先核对静态证据，再隔离试用。",
+        "limitation": "仅为测试夹具。",
+        "evidenceSummary": "静态证据与画像版本精确匹配。",
+        "sourceUrl": "https://github.com/demo/fast-tool#readme",
+    }
+    catalog = build_catalog(
+        snapshot,
+        limit=2,
+        analyses={"demo/fast-tool": analysis},
+        enrichments={"demo/fast-tool": enrichment},
+    )
+    catalog["previousCapturedAt"] = None
+    signals = {
+        "schemaVersion": 1,
+        "capturedAt": captured,
+        "windowHours": 48,
+        "signalCount": 1,
+        "healthySourceCount": 1,
+        "failedSourceCount": 0,
+        "sourceStatus": [source_status("official", "https://example.com/feed")],
+        "topSignals": [signal_item("signal-1", "https://example.com/news", captured)],
+        "signals": [signal_item("signal-1", "https://example.com/news", captured)],
+    }
+    queue = build_codex_queue(
+        catalog,
+        signals,
+        root / "enrichment",
+        root / "signals/enrichment.json",
+        datetime.fromisoformat(captured),
+        project_limit=0,
+        signal_limit=0,
+    )
+    catalog["codexPendingCount"] = queue["pendingCount"]
+    write_json(root / "snapshots/latest.json", snapshot)
+    write_json(root / "analysis/demo--fast-tool.json", analysis)
+    write_json(root / "enrichment/demo--fast-tool.json", enrichment)
+    write_json(root / "catalog/latest.json", catalog)
+    write_json(root / "signals/latest.json", signals)
+    write_json(root / "queues/codex.json", queue)
+    return catalog
+
+
 class AuditDataTests(unittest.TestCase):
+    def test_rebuilds_catalog_v2_scoring_semantics_and_rejects_tampering(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = write_v2_audit_fixture(root)
+            healthy = audit_data(root)
+
+            corrupted_results: dict[str, dict[str, object]] = {}
+            for mutation in ("score", "explanation", "recommendation", "order"):
+                corrupted = deepcopy(catalog)
+                project = corrupted["projects"][0]
+                if mutation == "score":
+                    project["attentionScore"] = (
+                        99 if project["attentionScore"] == 100 else project["attentionScore"] + 1
+                    )
+                elif mutation == "explanation":
+                    project["scoreExplanations"]["attention"]["summary"] += " 篡改。"
+                elif mutation == "recommendation":
+                    project["recommendation"] = (
+                        "了解" if project["recommendation"] == "观望" else "观望"
+                    )
+                else:
+                    corrupted["projects"].reverse()
+                write_json(root / "catalog/latest.json", corrupted)
+                corrupted_results[mutation] = audit_data(root)
+
+        self.assertEqual(healthy["status"], "healthy", healthy["issues"])
+        self.assertNotIn(
+            "score_semantics_mismatch",
+            {item["code"] for item in healthy["issues"]},
+        )
+        for mutation, result in corrupted_results.items():
+            self.assertEqual(result["status"], "failed", mutation)
+            self.assertIn(
+                "score_semantics_mismatch",
+                {item["code"] for item in result["issues"]},
+                mutation,
+            )
+
     def test_verifies_exact_observed_growth_and_heat_tracks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -278,8 +418,10 @@ class AuditDataTests(unittest.TestCase):
         self.assertEqual(healthy["positiveGrowthProjectCount"], 1)
         self.assertEqual(healthy["observedNetStarChange"], 20)
         self.assertEqual(healthy["dailyTrackCounts"], {"recentMomentum": 0, "longTerm": 1})
+        self.assertNotIn("score_semantics_mismatch", {item["code"] for item in healthy["issues"]})
         self.assertIn("observed_growth_mismatch", {item["code"] for item in corrupted["issues"]})
         self.assertIn("heat_observation_mismatch", {item["code"] for item in corrupted["issues"]})
+        self.assertNotIn("score_semantics_mismatch", {item["code"] for item in corrupted["issues"]})
 
     def test_accepts_consistent_first_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

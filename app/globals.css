@@ -2131,6 +2131,66 @@ input:focus-visible {
   line-height: 1.75;
 }
 
+.score-explanation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.score-explanation-item {
+  padding: 20px;
+  background: rgb(255 255 255 / 72%);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.score-explanation-item header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.score-explanation-item header span,
+.score-explanation-item dt {
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.score-explanation-item header strong {
+  color: var(--blue);
+  font-size: 26px;
+}
+
+.score-explanation-item > p {
+  margin: 8px 0 16px;
+  color: #45504a;
+  line-height: 1.65;
+}
+
+.score-explanation-item dl {
+  margin: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.score-explanation-item dl > div {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 10px;
+}
+
+.score-explanation-item dt,
+.score-explanation-item dd {
+  margin: 0;
+}
+
+.score-explanation-item dd {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .capability-list.large span {
   padding: 10px 14px;
   background: #e8ece3;

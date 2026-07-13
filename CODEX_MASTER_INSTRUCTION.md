@@ -32,45 +32,45 @@ docs/RARDAR_EVOLUTION_PROTOCOL.md
 
 然后直接执行，不要重复询问已经在文档中明确的信息。
 
-## 当前行动事件工程轮
+## 当前评分语义工程轮
 
-PR #4 合并后，下一工程轮默认任务是：
+PR #5 已通过提交 `238b572` 合并到 `main`。当前第一个尚未完成的工程目标是：
 
-> 建立追加式项目行动事件模型，并修复 Weekly Acted Projects 跨周期漏计。
+> 修正评分名称与证据能力不一致的问题，明确区分关注优先级、持久热度、静态工程就绪度、具体任务复用适配度和证据完整度。
 
-治理状态：当前行动事件分支正在实现本节目标；只有对应 PR 合并到 `main` 后才视为完成。本节验收与执行清单在合并前继续用于审查当前 PR，合并后不得据此重复创建行动事件实现。
+治理状态：当前评分语义分支正在实现本节目标；只有对应 PR 合并到 `main` 后才视为完成。本节验收与执行清单在合并前继续用于审查当前 PR，合并后不得据此重复创建评分实现。
 
-只有以下前置条件全部满足，才允许开始行动事件目标：
+只有以下前置条件全部满足，才允许开始评分语义目标：
 
-- PR #4 已合并；
-- 最新 `main` 已包含 audited generations；
+- PR #5 已合并；
+- 最新 `main` 已包含追加式 Event、独立 State 和按近 7 天 Event 计算的 Weekly Acted Projects；
 - 工作区干净；
-- 不存在尚未完成的 generation 修正 PR。
+- 不存在尚未完成的行动事件修正 PR。
 
-任一条件未满足时，停止并处理现有 PR 或工作区状态，不得提前创建行动事件分支或实现代码。
+任一条件未满足时，停止并处理现有 PR 或工作区状态，不得提前创建评分分支或实现代码。
 
 选择这一任务的原因：
 
-- Weekly Acted Projects 是 Rardar 的北极星指标；
-- 当前 `project_actions` 的全生命周期唯一状态会漏计同一项目、同一种行动在后续周期再次发生的事实；
-- 指标需要追加式 Event，按钮和当前阶段需要独立 State，二者不能互相替代；
-- 幂等键是同时保证网络重试安全与真实跨周期重复行动可计数的必要边界；
-- audited generations 合并后，行动事件是长期优先级中第一个尚未完成的目标。
+- 当前 `globalScore` 实际更接近关注优先级，却被页面描述成全球影响力；
+- 当前 `reuseScore` 只依据静态文件存在性，却被描述成复用价值，并可能触发确定性的“复用”建议；
+- 没有具体任务上下文或隔离运行证据时，Rardar 不能声称项目适合直接复用；
+- 评分会直接影响每日五项、个性化排序和用户行动，语义夸大比单纯缺少功能更容易造成错误决策；
+- 追加式行动事件合并后，评分语义是长期优先级中第一个尚未完成的目标。
 
-## 下一工程轮验收标准
+## 当前工程轮验收标准
 
 至少完成：
 
-1. 将历史事件与当前状态分离为 `project_action_events` 与 `project_action_state`，或语义等价的模型。
-2. Event 必须是追加式记录，至少包含 device ID、project ID/slug、action、`occurredAt` 和 idempotency key。
-3. 同一个项目、同一种行动在不同周再次发生时，必须生成新的有效事件并计入相应周度指标。
-4. 网络重试或重复提交必须通过幂等键避免重复计数。
-5. 当前按钮状态或最高行动阶段从 State 读取，不得用 State 代替历史事件。
-6. Weekly Acted Projects 必须基于近 7 天 Event 计算发生行动的不同项目数，而不是基于全生命周期唯一状态。
-7. 迁移已有 `project_actions` 时保留真实已有时间，不补造不存在的历史事件，并提供明确兼容和回滚方案。
-8. 行为测试至少覆盖同周重复请求幂等、跨周重复行动重新计数、不同行动阶段、Event 与 State 一致性、迁移、API 并发、近 7 天边界时间，以及推荐和指标读取不回归。
-9. 不顺带重做 audited generations，也不修改评分语义、CI、稳定项目 ID、UI 重设计或部署。
-10. 运行完整验证，创建 Draft PR，然后停止。
+1. 新 Catalog 明确发布 Attention Score、Endurance Score、Engineering Readiness、Reuse Fit Score 和 Evidence Completeness，不再发布含义模糊的 `globalScore`、`reuseScore` 或 `momentumScore`。
+2. Engineering Readiness 只能来自与当前仓库推送匹配的只读静态证据；没有当前证据时必须为 `null`，且静态评分不得描述成运行可靠性。
+3. 通用目录没有具体任务上下文时，Reuse Fit Score 必须为 `null`；中文能力画像和适用场景只能作为假设，不能冒充任务匹配事实。
+4. 每项评分都必须携带结构化说明，区分事实、代理、未知或限制，以及升级条件。
+5. 推荐不得输出“直接复用”；没有实际运行验证时，最强建议只能是带许可证和风险门槛的“隔离试用”。
+6. Catalog 新增明确 Schema 版本；旧 v1 generation 仍能严格验证、审计、回滚和由网页保守读取，不能把旧 `reuseScore` 静默解释成新版 Engineering Readiness。
+7. generation audit 对 v2 使用生产构建器重算评分、解释、推荐和排序；任一语义字段被篡改都必须阻止发布，v1 历史审计摘要保持不变。
+8. 页面和推荐 API 统一使用新名称；任务搜索分数明确为任务匹配规则分而非复用概率；用户真实反馈“复用”和行动“确认复用”保持事实语义不变。
+9. 测试至少覆盖 v1/v2 契约互斥、空值边界、静态证据当前性、无任务上下文、风险与许可证门槛、审计篡改、旧版网页兼容、个性化和真实 HTTP 读取。
+10. 不顺带实现 verify/CI、稳定项目 ID、新信源、UI 重设计、第三方代码执行或部署；运行完整验证，创建 Draft PR，然后停止。
 
 ## 执行流程
 
@@ -105,7 +105,7 @@ npm run security:audit:prod
 建议：
 
 ```text
-feat/action-events
+fix/scoring-semantics
 ```
 
 ### 4. 实现
@@ -113,8 +113,8 @@ feat/action-events
 要求：
 
 - 最小改动；
-- 复用现有 D1/SQLite、API 验证和时间处理逻辑；
-- 明确 Event、State、指标读取和迁移边界；
+- 复用现有事实快照、静态证据、generation 发布和网页数据桥；
+- 明确评分名称、证据上限、未知值和版本兼容边界；
 - 不引入大型框架；
 - 不执行第三方仓库代码；
 - 不部署；
@@ -127,14 +127,14 @@ feat/action-events
 
 至少覆盖：
 
-- 同周相同幂等键重复请求只产生一个 Event；
-- 同一项目、同一种行动跨周再次发生时产生新 Event，并在对应周期重新计数；
-- 打开、收藏、试用、浅克隆和确认复用等不同行动阶段正确更新 State；
-- Event 历史与 State 当前阶段保持一致；
-- 已有 `project_actions` 迁移保留真实时间且不补造历史；
-- 同幂等键的并发 API 请求只产生一个 Event，并得到确定的 State；
-- 近 7 天窗口的包含、排除和时区边界正确；
-- 推荐、按钮状态和 Weekly Acted Projects 指标读取不回归。
+- v1 与 v2 Catalog 均严格通过各自 Schema，未知版本和新旧字段混用失败；
+- 没有当前静态证据时 Engineering Readiness 为未知，当前静态证据只产生静态就绪度；
+- 没有具体任务上下文时 Reuse Fit Score 为未知；
+- 风险、许可证、证据完整度和推荐上限正确；
+- v2 分数、解释、推荐或排序被修改后跨文件审计失败；
+- 旧 v1 generation 可回滚并由网页保守显示，不能恢复强“复用”结论；
+- 个性化、任务搜索和真实 Vinext HTTP 页面统一使用新语义；
+- 当前 v2 generation 能通过完整 Schema、audit、hash 和网页读取链路。
 
 ### 6. 完整验证
 
@@ -155,9 +155,10 @@ PR 描述包含：
 背景
 问题
 修改
-Event 与 State 模型
-幂等与并发协议
-Weekly Acted Projects 口径
+评分模型与证据边界
+Catalog v2 与 v1 兼容
+审计重算协议
+页面和推荐语义
 兼容性
 测试
 安全边界
@@ -168,19 +169,19 @@ Weekly Acted Projects 口径
 
 完成 Draft PR 后停止，等待审查。
 
-## 当前行动事件 PR 合并后的下一默认任务
+## 当前评分语义 PR 合并后的下一默认任务
 
-只有当前行动事件 PR 已合并、最新 `main` 已包含追加式 Event、独立 State 与按近 7 天 Event 计算的 Weekly Acted Projects、工作区干净且不存在尚未完成的行动事件修正 PR 时，才允许开始：
+只有当前评分语义 PR 已合并、最新 `main` 已包含 evidence-v2 评分与旧 generation 兼容、工作区干净且不存在尚未完成的评分修正 PR 时，才允许开始：
 
-> 修正评分名称与证据能力不一致的问题，明确区分关注优先级、长期热度、静态工程就绪度、具体任务复用适配度和证据完整度。
+> 建立仓库级统一 `verify` 命令与 GitHub Actions 合并门槛。
 
 建议分支：
 
 ```text
-fix/scoring-semantics
+feat/verify-ci
 ```
 
-该轮必须重新阅读 `docs/RARDAR_AUDIT_BASELINE.md` 的 P1-4 与 `docs/RARDAR_NORTH_STAR.md` 的评分原则，另建独立 Draft PR；不得在当前行动事件 PR 中提前修改评分、UI 文案或推荐公式。
+该轮必须重新阅读 `docs/RARDAR_AUDIT_BASELINE.md` 的 P1-5，另建独立 Draft PR；不得在当前评分语义 PR 中提前修改 CI、分支保护或稳定项目 ID。
 
 ## 后续迭代规则
 
@@ -188,9 +189,9 @@ fix/scoring-semantics
 
 1. 数据 Schema 和统一契约——已由 PR #2 完成；
 2. audited generations——已由 PR #4（提交 `bf35575`）完成；
-3. 追加式行动事件——由当前行动事件分支实现，仅在对应 PR 合并到 `main` 后视为完成；
-4. 评分语义——当前行动事件 PR 合并后的第一个未完成项；
-5. verify 和 GitHub Actions；
+3. 追加式行动事件——已由 PR #5（提交 `238b572`）完成；
+4. 评分语义——由当前评分语义分支实现，仅在对应 PR 合并到 `main` 后视为完成；
+5. verify 和 GitHub Actions——当前评分语义 PR 合并后的第一个未完成项；
 6. 稳定项目 ID。
 
 每轮只做一项，每轮创建 Draft PR，每轮完成后停止。

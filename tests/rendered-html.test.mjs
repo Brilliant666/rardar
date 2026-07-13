@@ -30,10 +30,13 @@ test("contains the complete Rardar home experience", async () => {
     validation,
     recommendationsRoute,
     dailyList,
+    projectCard,
     projectActions,
     projectPage,
+    candidatesPage,
     watchlist,
     personalization,
+    scoreSemantics,
     schema,
     ensure,
     actionStore,
@@ -61,10 +64,13 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/api/validation.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/recommendations/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/components/PersonalizedDailyList.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/ProjectCard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/ProjectActions.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/projects/[slug]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/candidates/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/WatchlistClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/personalization.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/score-semantics.mjs", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/ensure.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/project-actions.mjs", import.meta.url), "utf8"),
@@ -83,10 +89,18 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(page, /PersonalizedDailyList/);
   assert.match(data, /taskTerms/);
   assert.match(data, /enduranceScore/);
+  assert.match(data, /attentionScore/);
+  assert.match(data, /engineeringReadiness/);
+  assert.match(data, /reuseFitScore/);
+  assert.match(data, /evidenceCompleteness/);
+  assert.match(data, /scoreExplanations/);
+  assert.match(data, /fitHypothesis/);
+  assert.doesNotMatch(data, /globalScore|reuseScore|\bfit:/);
   assert.match(data, /dailyTrackCounts/);
   assert.doesNotMatch(data, /data\/catalog\/latest\.json|catalogJson/);
   assert.doesNotMatch(data, /starsToday/);
   assert.match(serverData, /await loadPublishedBundleFromBridge/);
+  assert.match(serverData, /normalizeCatalogSnapshot\(bundle\.catalog\)/);
   assert.match(serverData, /projects\.slice\(0, 5\)/);
   assert.match(publishedLoader, /current\.json/);
   assert.match(publishedLoader, /manifestSha256/);
@@ -133,8 +147,15 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(dailyList, /currentRequestVersion = \+\+requestVersion\.current/);
   assert.match(dailyList, /currentRequestVersion !== requestVersion\.current/);
   assert.match(personalization, /降低重复曝光/);
-  assert.match(personalization, /globalScore \* 0\.58/);
+  assert.match(personalization, /evidenceBaseScore\(project\)/);
+  assert.doesNotMatch(personalization, /globalScore|reuseScore/);
   assert.match(personalization, /balanceHeatTracks/);
+  assert.match(scoreSemantics, /schemaVersion === 1/);
+  assert.match(scoreSemantics, /schemaVersion === 2/);
+  assert.match(scoreSemantics, /engineeringReadiness: null/);
+  assert.match(scoreSemantics, /reuseFitScore: null/);
+  assert.match(scoreSemantics, /evidenceCompleteness: null/);
+  assert.match(scoreSemantics, /attentionScore \* 0\.58 \+ engineeringReadiness \* 0\.42/);
   assert.match(schema, /decisionEvents/);
   assert.match(schema, /projectActionEvents/);
   assert.match(schema, /projectActionState/);
@@ -167,6 +188,24 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(searchWorkbench, /search-presets/);
   assert.match(searchWorkbench, /search-overview/);
   assert.match(searchWorkbench, /match-row-rich/);
+  assert.match(searchWorkbench, /任务匹配/);
+  assert.match(searchWorkbench, /\/100/);
+  assert.doesNotMatch(searchWorkbench, /reuseScore|复用价值|\{score\}%/);
+  assert.match(projectCard, /关注优先级/);
+  assert.match(projectCard, /静态工程就绪度/);
+  assert.match(projectPage, /持久热度/);
+  assert.match(projectPage, /证据完整度|SCORE_DIMENSION_LABELS/);
+  assert.match(projectPage, /适用场景假设/);
+  assert.match(projectPage, />事实</);
+  assert.match(projectPage, />代理</);
+  assert.match(projectPage, />未知</);
+  assert.match(projectPage, />升级条件</);
+  assert.match(candidatesPage, /关注/);
+  assert.match(candidatesPage, /静态就绪/);
+  assert.doesNotMatch(
+    [page, projectCard, projectPage, candidatesPage, searchPage, searchWorkbench, dailyList].join("\n"),
+    /全球影响|全局影响|复用价值/,
+  );
   assert.match(nav, /usePathname/);
   assert.match(nav, /aria-current/);
   assert.match(globalCss, /Rardar fusion visual system/);

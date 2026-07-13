@@ -40,12 +40,12 @@ export function ProjectCard({
         </div>
         <div className="score-stack" aria-label="项目评分">
           <div>
-            <strong>{project.globalScore}</strong>
-            <span>全球影响</span>
+            <strong>{project.attentionScore}</strong>
+            <span>关注优先级</span>
           </div>
           <div>
-            <strong>{project.reuseScore}</strong>
-            <span>复用价值</span>
+            <strong>{project.engineeringReadiness ?? "—"}</strong>
+            <span>静态工程就绪度</span>
           </div>
         </div>
       </div>

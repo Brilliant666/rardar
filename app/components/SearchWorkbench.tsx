@@ -92,7 +92,7 @@ function matchProject(project: Project, query: string, rules: IntentRule[], toke
     project.title,
     project.description,
     project.category,
-    project.fit,
+    project.fitHypothesis,
     project.reusePlan,
     ...project.capabilities,
     ...project.taskTerms,
@@ -111,8 +111,10 @@ function matchProject(project: Project, query: string, rules: IntentRule[], toke
   );
   const tokenScore = Math.min(20, matchedTokens.length * 5);
   const evidenceScore = project.analysisState === "深度分析" ? 10 : project.analysisState === "静态分析" ? 6 : 2;
-  const reuseScore = Math.round(project.reuseScore * 0.12);
-  const score = Math.min(96, semanticScore + tokenScore + evidenceScore + reuseScore);
+  const readinessEvidence = project.engineeringReadiness === null
+    ? 0
+    : Math.round(project.engineeringReadiness * 0.06);
+  const score = Math.min(100, semanticScore + tokenScore + evidenceScore + readinessEvidence);
   const reasons = [
     ...ruleMatches.map((match) => `${match.rule.label}：${match.terms.slice(0, 2).join("、")}`),
     ...(matchedTokens.length ? [`直接命中：${matchedTokens.slice(0, 2).join("、")}`] : []),
@@ -143,7 +145,7 @@ export function SearchWorkbench({
     if (!submitted) return [];
     const ranked = projects
       .map((project) => matchProject(project, submitted, intent.rules, intent.tokens))
-      .sort((a, b) => b.score - a.score || b.project.reuseScore - a.project.reuseScore);
+      .sort((a, b) => b.score - a.score || b.project.attentionScore - a.project.attentionScore);
     const strong = ranked.filter((result) => result.strongMatch);
     return (strong.length ? strong : ranked).slice(0, compact ? 3 : 5);
   }, [compact, intent, projects, submitted]);
@@ -152,13 +154,16 @@ export function SearchWorkbench({
     ? results
     : projects.slice(0, 3).map((project) => ({
         project,
-        score: project.reuseScore,
+        score: null,
         reasons: [project.heatLabel ?? "当前高价值候选", project.analysisState],
       }));
   const observedCount = projects.filter((project) => project.growthKind === "observed").length;
-  const averageReuse = projects.length
-    ? Math.round(projects.reduce((sum, project) => sum + project.reuseScore, 0) / projects.length)
-    : 0;
+  const readinessScores = projects
+    .map((project) => project.engineeringReadiness)
+    .filter((score): score is number => score !== null);
+  const averageReadiness = readinessScores.length
+    ? Math.round(readinessScores.reduce((sum, score) => sum + score, 0) / readinessScores.length)
+    : null;
   const deepCount = projects.filter((project) => project.analysisState === "深度分析").length;
 
   const presets = [
@@ -206,7 +211,7 @@ export function SearchWorkbench({
           <div className="search-overview" aria-label="候选项目概况">
             <div><strong>{projects.length}</strong><span>候选项目</span></div>
             <div><strong>{observedCount}</strong><span>真实增长观测</span></div>
-            <div><strong>{averageReuse}</strong><span>平均复用分</span></div>
+            <div><strong>{averageReadiness ?? "—"}</strong><span>静态就绪均值</span></div>
             <div><strong>{deepCount}</strong><span>已完成深读</span></div>
             <div className="overview-sort"><span>排序方式</span><strong>任务相关性⌄</strong></div>
           </div>
@@ -218,7 +223,7 @@ export function SearchWorkbench({
           {!compact && (
             <div className="match-heading">
               <div><span className="section-label">{submitted ? "Task matches" : "Radar picks"}</span><strong>{submitted ? `找到 ${displayedResults.length} 个优先匹配` : "当前高价值候选"}</strong></div>
-              <small>{submitted ? "已按任务能力、实现证据与复用价值重排" : "输入任务后将重新计算匹配顺序"}</small>
+              <small>{submitted ? "已按任务能力、事实证据与静态就绪线索重排" : "输入任务后将重新计算匹配顺序"}</small>
             </div>
           )}
           {submitted && (
@@ -238,10 +243,10 @@ export function SearchWorkbench({
                   <p>{project.description}</p>
                   <small>{reasons.join(" · ")}</small>
                 </div>
-                {compact ? <b>{score}%</b> : (
+                {compact ? <b>{score === null ? "—" : score}/100</b> : (
                   <>
                     <div className="match-stat"><span>区间增长</span><strong className={project.growthValue < 0 ? "trend-down" : "trend-up"}>{project.trend}</strong><small>★ {formatNumber(project.stars)}</small></div>
-                    <div className="match-stat reuse-stat"><span>复用价值</span><strong>{project.reuseScore}</strong><small>{project.recommendation}</small></div>
+                    <div className="match-stat reuse-stat"><span>任务匹配</span><strong>{score === null ? "—" : `${score}/100`}</strong><small>{project.recommendation}</small></div>
                     <div className="match-stat"><span>许可证</span><strong>{project.license}</strong><small>{project.analysisState}</small></div>
                     <div className="match-why"><span>为什么现在</span><p>{project.whyNow}</p></div>
                   </>
