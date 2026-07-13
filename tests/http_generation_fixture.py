@@ -172,7 +172,16 @@ def prepare(source_data: Path, target_data: Path) -> dict[str, str]:
         raise RuntimeError("the source generation needs a renderable flat catalog")
     flat_projects[0]["title"] = FLAT_MARKER
     _atomic_write_json(flat_catalog_path, flat_catalog)
-    resolve_current_generation(target_data)
+    current = resolve_current_generation(target_data)
+    current_catalog = _read_object(current.root / "catalog" / "latest.json")
+    current_projects = current_catalog.get("projects")
+    if (
+        not isinstance(current_projects, list)
+        or not current_projects
+        or not isinstance(current_projects[0], dict)
+        or not isinstance(current_projects[0].get("slug"), str)
+    ):
+        raise RuntimeError("the source generation needs a project slug for action API testing")
     return {
         "generationA": GENERATION_A,
         "generationB": GENERATION_B,
@@ -181,6 +190,7 @@ def prepare(source_data: Path, target_data: Path) -> dict[str, str]:
         "signalMarkerA": SIGNAL_MARKER_A,
         "signalMarkerB": SIGNAL_MARKER_B,
         "flatMarker": FLAT_MARKER,
+        "projectSlug": current_projects[0]["slug"],
     }
 
 

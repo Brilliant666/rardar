@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { prepareProjectActionSchema } from "./project-actions.mjs";
 
 let schemaReady: Promise<void> | null = null;
 
@@ -49,23 +50,7 @@ export function ensureDecisionSchema() {
         VALUES (NEW.device_id, NEW.project_slug, NEW.value);
       END
     `),
-    env.DB.prepare(`
-      CREATE TABLE IF NOT EXISTS project_actions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        device_id TEXT NOT NULL,
-        project_slug TEXT NOT NULL,
-        action TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `),
-    env.DB.prepare(`
-      CREATE UNIQUE INDEX IF NOT EXISTS project_actions_device_project_action_idx
-      ON project_actions (device_id, project_slug, action)
-    `),
-    env.DB.prepare(`
-      CREATE INDEX IF NOT EXISTS project_actions_device_created_idx
-      ON project_actions (device_id, created_at)
-    `),
+    ...prepareProjectActionSchema(env.DB),
   ])
     .then(() => undefined)
     .catch((error) => {
