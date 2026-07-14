@@ -93,6 +93,13 @@ def _seed_legacy(data_dir: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, destination)
 
+    # Immutable checked-in generations retain their original bytes, including
+    # historical CRLF snapshots.  Re-materialize this scratch legacy baseline
+    # with the platform-native JSON writer used by refresh fixtures so the
+    # byte-exact archive assertion does not depend on the host line ending.
+    snapshot_path = data_dir / "snapshots/latest.json"
+    _write(snapshot_path, _read(snapshot_path))
+
     # A checked-in source may already be a generation whose queue binds its
     # evidence to that immutable path.  A legacy fixture must bind to data/.
     catalog = _read(data_dir / "catalog/latest.json")
