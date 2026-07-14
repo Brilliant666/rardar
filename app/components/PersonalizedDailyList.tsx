@@ -63,12 +63,12 @@ export function PersonalizedDailyList({
   return (
     <>
       <div className="personalization-status" aria-live="polite">
-        <span>{result?.personalized ? "已开启偏好重排" : "当前为全局事实排序"}</span>
+        <span>{result?.personalized ? "已开启偏好重排" : "当前为证据基础排序"}</span>
         <p>
           {result?.personalized
-            ? `已根据 ${result.feedbackCount} 条反馈调整；事实与复用评分仍占主干，已处理项目会减少重复曝光。`
+            ? `已根据 ${result.feedbackCount} 条反馈调整；关注优先级与可用工程证据仍占主干，已处理项目会减少重复曝光。`
             : "点击“有用 / 无用 / 复用 / 待确定”后，下一次推荐会学习你的目标。"}
-          {failed ? " 个性化接口暂时不可用，已保留全局排序。" : ""}
+          {failed ? " 个性化接口暂时不可用，已保留证据基础排序。" : ""}
         </p>
       </div>
       <div className="daily-list">

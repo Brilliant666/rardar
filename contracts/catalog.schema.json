@@ -1,91 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rardar.local/contracts/catalog.schema.json",
-  "title": "Rardar catalog v1",
+  "title": "Rardar catalog v1 and v2",
   "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schemaVersion",
-    "capturedAt",
-    "sourceCount",
-    "queryFailureCount",
-    "projectCount",
-    "deepAnalysisCount",
-    "pendingDeepAnalysis",
-    "dailyTrackCounts",
-    "heatHistory",
-    "growthMode",
-    "notice",
-    "projects"
-  ],
-  "properties": {
-    "schemaVersion": { "const": 1 },
-    "capturedAt": { "type": "string", "format": "date-time" },
-    "sourceCount": { "type": "integer", "minimum": 0 },
-    "queryFailureCount": { "type": "integer", "minimum": 0 },
-    "projectCount": { "type": "integer", "minimum": 0 },
-    "deepAnalysisCount": { "type": "integer", "minimum": 0 },
-    "pendingDeepAnalysis": {
-      "type": "array",
-      "maxItems": 100,
-      "uniqueItems": true,
-      "items": { "$ref": "#/$defs/repositoryName" }
-    },
-    "dailyTrackCounts": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["recentMomentum", "longTerm"],
-      "properties": {
-        "recentMomentum": { "type": "integer", "minimum": 0 },
-        "longTerm": { "type": "integer", "minimum": 0 }
-      }
-    },
-    "heatHistory": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "snapshotCount",
-        "maximumSnapshotCount",
-        "minimumPersistenceSnapshots",
-        "verifiedLongTermCount"
-      ],
-      "properties": {
-        "snapshotCount": { "type": "integer", "minimum": 0 },
-        "maximumSnapshotCount": { "type": "integer", "minimum": 1 },
-        "minimumPersistenceSnapshots": { "type": "integer", "minimum": 1 },
-        "verifiedLongTermCount": { "type": "integer", "minimum": 0 }
-      }
-    },
-    "growthMode": { "enum": ["observed", "mixed_observation", "first_observation_proxy"] },
-    "notice": { "type": "string", "minLength": 1, "maxLength": 10000 },
-    "projects": {
-      "type": "array",
-      "maxItems": 100,
-      "items": { "$ref": "#/$defs/project" }
-    },
-    "previousCapturedAt": {
-      "oneOf": [
-        { "type": "null" },
-        { "type": "string", "format": "date-time" }
-      ]
-    },
-    "analysisFailures": {
-      "type": "array",
-      "maxItems": 100,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["repository", "error"],
-        "properties": {
-          "repository": { "$ref": "#/$defs/repositoryName" },
-          "error": { "type": "string", "minLength": 1, "maxLength": 2000 }
-        }
-      }
-    },
-    "signalCount": { "type": "integer", "minimum": 0 },
-    "healthySignalSourceCount": { "type": "integer", "minimum": 0 },
-    "codexPendingCount": { "type": "integer", "minimum": 0 }
+  "if": {
+    "required": ["schemaVersion"],
+    "properties": { "schemaVersion": { "const": 1 } }
   },
+  "then": { "$ref": "#/$defs/catalogV1" },
+  "else": { "$ref": "#/$defs/catalogV2" },
   "$defs": {
     "repositoryName": {
       "type": "string",
@@ -117,9 +40,120 @@
         "href": { "$ref": "#/$defs/httpUrl" }
       }
     },
-    "project": {
+    "catalogCommon": {
       "type": "object",
-      "additionalProperties": false,
+      "required": [
+        "capturedAt",
+        "sourceCount",
+        "queryFailureCount",
+        "projectCount",
+        "deepAnalysisCount",
+        "pendingDeepAnalysis",
+        "dailyTrackCounts",
+        "heatHistory",
+        "growthMode",
+        "notice",
+        "projects"
+      ],
+      "properties": {
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "sourceCount": { "type": "integer", "minimum": 0 },
+        "queryFailureCount": { "type": "integer", "minimum": 0 },
+        "projectCount": { "type": "integer", "minimum": 0 },
+        "deepAnalysisCount": { "type": "integer", "minimum": 0 },
+        "pendingDeepAnalysis": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/repositoryName" }
+        },
+        "dailyTrackCounts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["recentMomentum", "longTerm"],
+          "properties": {
+            "recentMomentum": { "type": "integer", "minimum": 0 },
+            "longTerm": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "heatHistory": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "snapshotCount",
+            "maximumSnapshotCount",
+            "minimumPersistenceSnapshots",
+            "verifiedLongTermCount"
+          ],
+          "properties": {
+            "snapshotCount": { "type": "integer", "minimum": 0 },
+            "maximumSnapshotCount": { "type": "integer", "minimum": 1 },
+            "minimumPersistenceSnapshots": { "type": "integer", "minimum": 1 },
+            "verifiedLongTermCount": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "growthMode": { "enum": ["observed", "mixed_observation", "first_observation_proxy"] },
+        "notice": { "type": "string", "minLength": 1, "maxLength": 10000 },
+        "projects": {
+          "type": "array",
+          "maxItems": 100
+        },
+        "previousCapturedAt": { "$ref": "#/$defs/nullableDateTime" },
+        "analysisFailures": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["repository", "error"],
+            "properties": {
+              "repository": { "$ref": "#/$defs/repositoryName" },
+              "error": { "type": "string", "minLength": 1, "maxLength": 2000 }
+            }
+          }
+        },
+        "signalCount": { "type": "integer", "minimum": 0 },
+        "healthySignalSourceCount": { "type": "integer", "minimum": 0 },
+        "codexPendingCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "catalogV1": {
+      "allOf": [
+        { "$ref": "#/$defs/catalogCommon" },
+        {
+          "type": "object",
+          "required": ["schemaVersion"],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "projects": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/projectV1" }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "catalogV2": {
+      "allOf": [
+        { "$ref": "#/$defs/catalogCommon" },
+        {
+          "type": "object",
+          "required": ["schemaVersion", "scoreModelVersion"],
+          "properties": {
+            "schemaVersion": { "const": 2 },
+            "scoreModelVersion": { "const": "evidence-v2" },
+            "projects": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/projectV2" }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "projectCommon": {
+      "type": "object",
       "required": [
         "slug",
         "repo",
@@ -132,9 +166,6 @@
         "growthValue",
         "growthLabel",
         "growthKind",
-        "globalScore",
-        "reuseScore",
-        "momentumScore",
         "enduranceScore",
         "heatTrack",
         "heatLabel",
@@ -147,8 +178,6 @@
         "analysisAnalyzedAt",
         "enrichmentAnalyzedAt",
         "whyNow",
-        "recommendation",
-        "fit",
         "reusePlan",
         "risk",
         "capabilities",
@@ -168,9 +197,6 @@
         "growthValue": { "type": "integer" },
         "growthLabel": { "type": "string", "minLength": 1, "maxLength": 500 },
         "growthKind": { "enum": ["observed", "velocity_proxy"] },
-        "globalScore": { "type": "integer", "minimum": 0, "maximum": 100 },
-        "reuseScore": { "type": "integer", "minimum": 0, "maximum": 100 },
-        "momentumScore": { "type": "integer", "minimum": 0, "maximum": 100 },
         "enduranceScore": { "type": "integer", "minimum": 0, "maximum": 100 },
         "heatTrack": { "enum": ["recent_momentum", "long_term"] },
         "heatLabel": { "type": "string", "minLength": 1, "maxLength": 500 },
@@ -188,8 +214,6 @@
         "analysisAnalyzedAt": { "$ref": "#/$defs/nullableDateTime" },
         "enrichmentAnalyzedAt": { "$ref": "#/$defs/nullableDateTime" },
         "whyNow": { "type": "string", "minLength": 1, "maxLength": 5000 },
-        "recommendation": { "enum": ["了解", "收藏", "试用", "复用", "观望"] },
-        "fit": { "type": "string", "minLength": 1, "maxLength": 5000 },
         "reusePlan": { "type": "string", "minLength": 1, "maxLength": 8000 },
         "risk": { "type": "string", "minLength": 1, "maxLength": 10000 },
         "capabilities": {
@@ -215,6 +239,106 @@
           "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} [A-Z]{2,8}$"
         }
       }
+    },
+    "projectV1": {
+      "allOf": [
+        { "$ref": "#/$defs/projectCommon" },
+        {
+          "type": "object",
+          "required": [
+            "globalScore",
+            "reuseScore",
+            "momentumScore",
+            "recommendation",
+            "fit"
+          ],
+          "properties": {
+            "globalScore": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "reuseScore": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "momentumScore": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "recommendation": { "enum": ["了解", "收藏", "试用", "复用", "观望"] },
+            "fit": { "type": "string", "minLength": 1, "maxLength": 5000 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "nullableScore": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "integer", "minimum": 0, "maximum": 100 }
+      ]
+    },
+    "explanationStringArray": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+    },
+    "scoreExplanation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "score",
+        "summary",
+        "facts",
+        "proxies",
+        "limitations",
+        "upgradeConditions"
+      ],
+      "properties": {
+        "score": { "$ref": "#/$defs/nullableScore" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "facts": { "$ref": "#/$defs/explanationStringArray" },
+        "proxies": { "$ref": "#/$defs/explanationStringArray" },
+        "limitations": { "$ref": "#/$defs/explanationStringArray" },
+        "upgradeConditions": { "$ref": "#/$defs/explanationStringArray" }
+      }
+    },
+    "scoreExplanations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attention",
+        "endurance",
+        "engineeringReadiness",
+        "reuseFit",
+        "evidenceCompleteness"
+      ],
+      "properties": {
+        "attention": { "$ref": "#/$defs/scoreExplanation" },
+        "endurance": { "$ref": "#/$defs/scoreExplanation" },
+        "engineeringReadiness": { "$ref": "#/$defs/scoreExplanation" },
+        "reuseFit": { "$ref": "#/$defs/scoreExplanation" },
+        "evidenceCompleteness": { "$ref": "#/$defs/scoreExplanation" }
+      }
+    },
+    "projectV2": {
+      "allOf": [
+        { "$ref": "#/$defs/projectCommon" },
+        {
+          "type": "object",
+          "required": [
+            "attentionScore",
+            "engineeringReadiness",
+            "reuseFitScore",
+            "evidenceCompleteness",
+            "scoreExplanations",
+            "recommendation",
+            "fitHypothesis"
+          ],
+          "properties": {
+            "attentionScore": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "engineeringReadiness": { "$ref": "#/$defs/nullableScore" },
+            "reuseFitScore": { "$ref": "#/$defs/nullableScore" },
+            "evidenceCompleteness": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "scoreExplanations": { "$ref": "#/$defs/scoreExplanations" },
+            "recommendation": { "enum": ["了解", "收藏", "隔离试用", "观望"] },
+            "fitHypothesis": { "type": "string", "minLength": 1, "maxLength": 5000 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
     }
   }
 }

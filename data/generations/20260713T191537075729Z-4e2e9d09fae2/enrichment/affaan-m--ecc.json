@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 0,
+  "repository": "affaan-m/ECC",
+  "analyzedAt": "2026-07-10T13:00:00Z",
+  "model": "local-codex",
+  "titleZh": "把多个编程 Agent 变成可维护的工程系统",
+  "summaryZh": "ECC 为 Codex、Claude Code、Cursor、OpenCode 等工具提供可复用的技能、规则、Hook、会话记忆、安全扫描和多 Agent 编排能力，重点解决 Agent 工作流难以统一、验证和持续改进的问题。",
+  "category": "Agent 工程化",
+  "capabilities": [
+    "跨 Agent 工具链",
+    "技能与规则管理",
+    "会话记忆",
+    "验证与安全扫描",
+    "多 Agent 编排",
+    "持续学习"
+  ],
+  "taskTerms": [
+    "codex",
+    "claude code",
+    "cursor",
+    "agent 技能",
+    "hook",
+    "规则",
+    "会话记忆",
+    "多智能体",
+    "代码审查",
+    "安全扫描",
+    "工作流优化"
+  ],
+  "bestFor": "适合已经频繁使用 Codex 或 Claude Code，希望统一技能、规则、记忆、验证和多 Agent 协作方式的开发者。",
+  "reusePlan": "优先复用它的技能目录规范、验证循环和跨工具安装边界，不要一开始安装全部组件；先选择与现有项目最相关的最小配置。",
+  "limitation": "仓库覆盖范围很大，并包含会话 Hook、安装器和外部运行时；叠加多种安装方式可能产生重复规则或行为，应先预览安装计划。",
+  "evidenceSummary": "README 明确列出跨 Codex/Claude/Cursor 支持、技能与规则、记忆、验证循环、安全扫描和多 Agent 编排，并给出最小化安装与避免重复安装的边界。",
+  "sourceUrl": "https://github.com/affaan-m/ECC#readme"
+}

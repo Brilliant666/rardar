@@ -1,5 +1,6 @@
 import { loadPublishedBundleFromBridge } from "./published-data-client";
 import type { CatalogSnapshot } from "./data";
+import { normalizeCatalogSnapshot } from "./score-semantics.mjs";
 import {
   applySignalEnrichments,
   type CodexQueueSnapshot,
@@ -30,7 +31,7 @@ export async function loadPublishedData(): Promise<PublishedData> {
     throw new Error("published Rardar data can only be loaded on the server");
   }
   const bundle = await loadPublishedBundleFromBridge();
-  const catalog = bundle.catalog as unknown as CatalogSnapshot;
+  const catalog = normalizeCatalogSnapshot(bundle.catalog) as unknown as CatalogSnapshot;
   const projects = catalog.projects;
   const signalSnapshot = applySignalEnrichments(
     bundle.signals as unknown as SignalSnapshot,

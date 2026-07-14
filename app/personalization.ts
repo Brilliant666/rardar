@@ -1,4 +1,5 @@
 import type { Project } from "./data";
+import { evidenceBaseScore } from "./score-semantics.mjs";
 
 export const feedbackValues = ["有用", "无用", "复用", "待确定"] as const;
 export type FeedbackValue = (typeof feedbackValues)[number];
@@ -130,13 +131,15 @@ export function rankProjects(
       feedbackCount: 0,
       profile: [],
       recommendations: projects.map((project) => {
-        const baseScore = round(project.globalScore * 0.58 + project.reuseScore * 0.42);
+        const baseScore = round(evidenceBaseScore(project));
         return {
           slug: project.slug,
           personalizedScore: baseScore,
           baseScore,
           adjustment: 0,
-          reasons: ["当前按事实热度与复用价值排序"],
+          reasons: [project.engineeringReadiness === null
+            ? "当前按关注优先级排序；静态工程就绪度未知"
+            : "当前按关注优先级与静态工程就绪证据排序"],
         };
       }),
     };
@@ -156,7 +159,7 @@ export function rankProjects(
   });
 
   const recommendations = projects.map((project, originalIndex) => {
-    const baseScore = project.globalScore * 0.58 + project.reuseScore * 0.42;
+    const baseScore = evidenceBaseScore(project);
     const matches = projectFeatures(project)
       .map((feature) => ({ ...feature, score: featureScores.get(feature.key)?.score ?? 0 }))
       .filter((feature) => feature.score !== 0);
@@ -187,7 +190,7 @@ export function rankProjects(
     } else if (affinityAdjustment < 0) {
       reasons = ["与已标记无用的项目特征相近，轻度降权"];
     } else {
-      reasons = ["保留事实热度与复用价值的基础排序"];
+      reasons = ["保留关注优先级与静态工程就绪证据的基础排序"];
     }
 
     return {

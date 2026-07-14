@@ -93,6 +93,35 @@ def _seed_verified_generation(source_data: Path, target_data: Path) -> None:
     resolve_current_generation(target_data)
 
 
+def _copy_retained_v1_generation(source_data: Path, target_data: Path) -> str:
+    """Copy one real retained Catalog v1 generation for Web compatibility tests.
+
+    The HTTP test later enters it through the production rollback API, which
+    performs the complete manifest, hash, Schema, and semantic audit again.
+    """
+    source_generations = source_data.resolve() / "generations"
+    target_generations = target_data.resolve() / "generations"
+    for source_root in sorted(source_generations.iterdir(), reverse=True):
+        if source_root.name.startswith(".") or not source_root.is_dir() or source_root.is_symlink():
+            continue
+        catalog_path = source_root / "catalog" / "latest.json"
+        manifest_path = source_root / "manifest.json"
+        if not catalog_path.is_file() or not manifest_path.is_file():
+            continue
+        catalog = _read_object(catalog_path)
+        manifest = _read_object(manifest_path)
+        if catalog.get("schemaVersion") != 1 or manifest.get("state") != "ready":
+            continue
+        generation_id = str(manifest.get("generationId") or "")
+        if generation_id != source_root.name:
+            raise RuntimeError("retained Catalog v1 manifest identity is inconsistent")
+        destination = target_generations / generation_id
+        if not destination.exists():
+            shutil.copytree(source_root, destination)
+        return generation_id
+    raise RuntimeError("the HTTP fixture requires one retained Catalog v1 generation")
+
+
 def _mark_candidate(root: Path, catalog_marker: str, signal_marker: str) -> None:
     catalog_path = root / "catalog" / "latest.json"
     catalog = _read_object(catalog_path)
@@ -147,6 +176,10 @@ def _publish_marked_generation(
 def prepare(source_data: Path, target_data: Path) -> dict[str, str]:
     target_data.mkdir(parents=True, exist_ok=False)
     _seed_verified_generation(source_data.resolve(), target_data.resolve())
+    legacy_generation = _copy_retained_v1_generation(
+        source_data.resolve(),
+        target_data.resolve(),
+    )
     _publish_marked_generation(
         target_data,
         GENERATION_A,
@@ -185,6 +218,7 @@ def prepare(source_data: Path, target_data: Path) -> dict[str, str]:
     return {
         "generationA": GENERATION_A,
         "generationB": GENERATION_B,
+        "legacyGeneration": legacy_generation,
         "catalogMarkerA": CATALOG_MARKER_A,
         "catalogMarkerB": CATALOG_MARKER_B,
         "signalMarkerA": SIGNAL_MARKER_A,

@@ -119,6 +119,10 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertEqual(sum(item["heatTrack"] == "recent_momentum" for item in daily), 3)
         self.assertEqual(catalog["dailyTrackCounts"], {"recentMomentum": 3, "longTerm": 2})
         self.assertTrue(all(item["enduranceScore"] >= 60 for item in daily if item["heatTrack"] == "long_term"))
+        self.assertEqual(catalog["schemaVersion"], 2)
+        self.assertEqual(catalog["scoreModelVersion"], "evidence-v2")
+        self.assertTrue(all("globalScore" not in item for item in catalog["projects"]))
+        self.assertTrue(all("reuseScore" not in item for item in catalog["projects"]))
 
     def test_long_term_heat_upgrades_after_persistent_snapshot_evidence(self) -> None:
         enduring = repository("demo/enduring", 120_000, "2018-01-01T00:00:00Z")
@@ -200,7 +204,10 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertEqual(project["license"], "MIT（静态线索）")
         self.assertIn("只读静态扫描识别", project["risk"])
         self.assertNotIn("尚未进行代码静态检查", project["risk"])
-        self.assertLessEqual(project["reuseScore"], 78)
+        self.assertIsInstance(project["engineeringReadiness"], int)
+        self.assertNotEqual(project["recommendation"], "隔离试用")
+        self.assertIsNone(project["reuseFitScore"])
+        self.assertIn("没有任务上下文", project["scoreExplanations"]["reuseFit"]["limitations"][0])
 
     def test_risky_repository_stays_visible_but_cannot_enter_daily_five(self) -> None:
         risky = repository(
@@ -220,7 +227,7 @@ class BuildCatalogTests(unittest.TestCase):
         risky_project = next(item for item in catalog["projects"] if item["repo"] == "demo/unsafe-tool")
 
         self.assertEqual(risky_project["recommendation"], "观望")
-        self.assertLessEqual(risky_project["globalScore"], 49)
+        self.assertLessEqual(risky_project["attentionScore"], 49)
         self.assertNotIn("demo/unsafe-tool", [item["repo"] for item in catalog["projects"][:5]])
 
     def test_evidence_urls_fall_back_to_https(self) -> None:
@@ -244,7 +251,7 @@ class BuildCatalogTests(unittest.TestCase):
 
         self.assertTrue(all(evidence["href"].startswith("https://") for evidence in project["evidence"]))
 
-    def test_static_analysis_can_raise_reuse_confidence(self) -> None:
+    def test_static_analysis_establishes_engineering_readiness_without_reuse_fit(self) -> None:
         snapshot = {
             "captured_at": "2026-07-10T12:00:00Z",
             "count": 1,
@@ -272,10 +279,13 @@ class BuildCatalogTests(unittest.TestCase):
         facts_only = build_catalog(snapshot)
         inspected = build_catalog(snapshot, analyses={"demo/new-tool": analysis})
 
-        self.assertLessEqual(facts_only["projects"][0]["reuseScore"], 72)
-        self.assertGreater(inspected["projects"][0]["reuseScore"], facts_only["projects"][0]["reuseScore"])
+        self.assertIsNone(facts_only["projects"][0]["engineeringReadiness"])
+        self.assertIsInstance(inspected["projects"][0]["engineeringReadiness"], int)
+        self.assertGreater(inspected["projects"][0]["evidenceCompleteness"], facts_only["projects"][0]["evidenceCompleteness"])
+        self.assertIsNone(inspected["projects"][0]["reuseFitScore"])
         self.assertEqual(inspected["projects"][0]["analysisState"], "静态分析")
         self.assertEqual(len(inspected["projects"][0]["evidence"]), 3)
+        self.assertIn("不是运行可靠性", inspected["projects"][0]["scoreExplanations"]["engineeringReadiness"]["limitations"][0])
 
     def test_stale_static_analysis_cannot_raise_reuse_confidence(self) -> None:
         item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")
@@ -295,7 +305,7 @@ class BuildCatalogTests(unittest.TestCase):
         )["projects"][0]
 
         self.assertEqual(project["analysisState"], "事实初筛")
-        self.assertLessEqual(project["reuseScore"], 72)
+        self.assertIsNone(project["engineeringReadiness"])
         self.assertIn("早于仓库最近推送", project["risk"])
         self.assertEqual(len(project["evidence"]), 2)
 
@@ -319,7 +329,7 @@ class BuildCatalogTests(unittest.TestCase):
         )["projects"][0]
 
         self.assertEqual(project["analysisState"], "事实初筛")
-        self.assertLessEqual(project["reuseScore"], 72)
+        self.assertIsNone(project["engineeringReadiness"])
 
     def test_codex_enrichment_replaces_copy_and_adds_task_terms(self) -> None:
         snapshot = {
@@ -362,9 +372,80 @@ class BuildCatalogTests(unittest.TestCase):
         self.assertEqual(project["analysisState"], "深度分析")
         self.assertIn("脚本生成", project["taskTerms"])
         self.assertEqual(project["reusePlan"], "优先复用流程定义层。")
+        self.assertEqual(project["fitHypothesis"], "适合需要减少重复编码的开发任务。")
+        self.assertIsNone(project["reuseFitScore"])
+        self.assertEqual(
+            project["scoreExplanations"]["reuseFit"]["score"],
+            project["reuseFitScore"],
+        )
+        self.assertEqual(project["evidenceCompleteness"], 80)
         self.assertEqual(len(project["evidence"]), 4)
         self.assertEqual(catalog["deepAnalysisCount"], 1)
         self.assertEqual(catalog["pendingDeepAnalysis"], [])
+
+    def test_score_explanations_match_every_published_score(self) -> None:
+        project = build_catalog(
+            {
+                "captured_at": "2026-07-10T12:00:00Z",
+                "count": 1,
+                "repositories": [repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")],
+            }
+        )["projects"][0]
+
+        expected = {
+            "attention": project["attentionScore"],
+            "endurance": project["enduranceScore"],
+            "engineeringReadiness": project["engineeringReadiness"],
+            "reuseFit": project["reuseFitScore"],
+            "evidenceCompleteness": project["evidenceCompleteness"],
+        }
+        self.assertEqual(set(project["scoreExplanations"]), set(expected))
+        for name, score in expected.items():
+            with self.subTest(name=name):
+                explanation = project["scoreExplanations"][name]
+                self.assertEqual(explanation["score"], score)
+                self.assertTrue(explanation["summary"])
+                self.assertEqual(
+                    set(explanation),
+                    {
+                        "score",
+                        "summary",
+                        "facts",
+                        "proxies",
+                        "limitations",
+                        "upgradeConditions",
+                    },
+                )
+
+    def test_recommendation_never_claims_reuse_without_task_or_runtime_evidence(self) -> None:
+        item = repository("demo/ready-tool", 8_000, "2026-07-01T00:00:00Z")
+        analysis = {
+            "schemaVersion": 1,
+            "repository": "demo/ready-tool",
+            "analyzed_at": "2026-07-10T10:00:00Z",
+            "scanned_files": 300,
+            "confidence": 95,
+            "indicators": {
+                "readme": True,
+                "license": True,
+                "tests": True,
+                "ci": True,
+                "docs": True,
+                "examples": True,
+                "package_manifest": True,
+                "dependency_lock": True,
+            },
+            "counts": {"test_files": 30},
+        }
+        project = build_catalog(
+            {"captured_at": "2026-07-10T12:00:00Z", "count": 1, "repositories": [item]},
+            analyses={"demo/ready-tool": analysis},
+        )["projects"][0]
+
+        self.assertEqual(project["recommendation"], "隔离试用")
+        self.assertNotIn(project["recommendation"], {"复用", "试用"})
+        self.assertIsNone(project["reuseFitScore"])
+        self.assertIn("未执行测试", project["scoreExplanations"]["engineeringReadiness"]["limitations"][0])
 
     def test_repository_push_after_static_analysis_invalidates_later_enrichment(self) -> None:
         item = repository("demo/new-tool", 900, "2026-07-07T12:00:00Z")

@@ -15,7 +15,7 @@ export default async function SearchPage() {
           <div className="search-hero-copy">
             <span className="eyebrow">Find projects · Task scout</span>
             <h1>站在已有成果上，<br />更快抵达目标。</h1>
-            <p>描述你想完成的任务。Rardar 会拆解能力、检索已有产品与模块，再用真实增长、静态分析和复用价值解释为什么匹配。</p>
+            <p>描述你想完成的任务。Rardar 会拆解能力、检索已有产品与模块，再用真实增长、静态分析和任务匹配证据解释为什么值得验证。</p>
           </div>
           <div className="radar-field" aria-hidden="true">
             <span className="radar-core">✦</span>

@@ -4,6 +4,25 @@ export type Evidence = {
   href: string;
 };
 
+export type ScoreModelVersion = "legacy-v1" | "evidence-v2";
+
+export type ScoreExplanation = {
+  score: number | null;
+  summary: string;
+  facts: string[];
+  proxies: string[];
+  limitations: string[];
+  upgradeConditions: string[];
+};
+
+export type ScoreExplanations = {
+  attention: ScoreExplanation;
+  endurance: ScoreExplanation;
+  engineeringReadiness: ScoreExplanation;
+  reuseFit: ScoreExplanation;
+  evidenceCompleteness: ScoreExplanation;
+};
+
 export type Project = {
   slug: string;
   repo: string;
@@ -16,10 +35,13 @@ export type Project = {
   growthValue: number;
   growthLabel: string;
   growthKind: "observed" | "velocity_proxy";
-  globalScore: number;
-  reuseScore: number;
-  momentumScore?: number;
-  enduranceScore?: number;
+  scoreModelVersion: ScoreModelVersion;
+  attentionScore: number;
+  enduranceScore: number | null;
+  engineeringReadiness: number | null;
+  reuseFitScore: number | null;
+  evidenceCompleteness: number | null;
+  scoreExplanations: ScoreExplanations;
   heatTrack?: "recent_momentum" | "long_term";
   heatLabel?: string;
   longTermEvidenceKind?: "structural_proxy" | "multi_snapshot" | null;
@@ -31,8 +53,8 @@ export type Project = {
   analysisAnalyzedAt?: string | null;
   enrichmentAnalyzedAt?: string | null;
   whyNow: string;
-  recommendation: "了解" | "收藏" | "试用" | "复用" | "观望";
-  fit: string;
+  recommendation: "了解" | "收藏" | "隔离试用" | "观望";
+  fitHypothesis: string;
   reusePlan: string;
   risk: string;
   capabilities: string[];
@@ -42,7 +64,8 @@ export type Project = {
 };
 
 export type CatalogSnapshot = {
-  schemaVersion: number;
+  schemaVersion: 1 | 2;
+  scoreModelVersion: ScoreModelVersion;
   capturedAt: string;
   sourceCount: number;
   queryFailureCount: number;

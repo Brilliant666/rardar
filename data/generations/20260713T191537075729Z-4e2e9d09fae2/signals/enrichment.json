@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-11T00:12:00Z",
+  "model": "local-codex",
+  "items": {
+    "https://github.blog/changelog/2026-07-09-openais-gpt-5-6-sol-terra-and-luna-are-now-available-in-github-copilot": {
+      "titleZh": "GPT-5.6 三种规格开始进入 GitHub Copilot",
+      "takeawayZh": "GitHub 正在逐步上线 GPT-5.6 Sol、Terra 和 Luna：分别面向大型代码库与长任务、日常均衡编码，以及低成本快速任务。",
+      "whyItMattersZh": "编程 Agent 的模型选择开始按任务复杂度和成本分层；以后不能只比较“最强模型”，还要记录任务类型、价格与延迟。",
+      "categoryZh": "模型与开发工具"
+    },
+    "https://openai.com/index/gpt-5-6-preferred-model-microsoft-365-copilot": {
+      "titleZh": "GPT-5.6 成为 Microsoft 365 Copilot 的首选模型",
+      "takeawayZh": "GPT-5.6 将进入 Word、Excel、PowerPoint、Copilot Chat 和 Cowork，重点改善文档生成、数据分析、演示制作与跨团队任务。",
+      "whyItMattersZh": "Office 类 Agent 从单独工具转向平台内原生模型能力；评估开源 Office 自动化项目时，需要区分本地可控性与平台原生体验。",
+      "categoryZh": "生产力平台"
+    },
+    "https://github.blog/changelog/2026-07-10-github-mobile-improved-filters-and-sorting-for-copilot-sessions": {
+      "titleZh": "GitHub Mobile 改进 Copilot 会话筛选和排序",
+      "takeawayZh": "GitHub Mobile 为不断增长的 Copilot 会话列表增加更易用的筛选与排序，帮助用户更快找到目标会话。",
+      "whyItMattersZh": "当 Agent 会话数量增加后，检索、状态管理和历史回溯会成为基础能力；Rardar 未来的分析任务也需要类似的信息组织。",
+      "categoryZh": "Agent 体验"
+    },
+    "https://openai.com/index/deutsche-telekom": {
+      "titleZh": "德国电信公开 AI 原生运营改造案例",
+      "takeawayZh": "德国电信把 AI 用于员工工作流、客服和网络运营，并探索实时翻译、通话助手与自动摘要；文章披露其 ChatGPT 与 API 工具月活超过五万。",
+      "whyItMattersZh": "这不是新模型发布，而是企业流程重构案例。更值得参考的是从高频任务切入、逐步重做工作流，而不是简单增加聊天入口。",
+      "categoryZh": "企业实践"
+    },
+    "https://huggingface.co/blog/torch-attention-profile": {
+      "titleZh": "Hugging Face 发布 PyTorch Attention 性能分析系列第三篇",
+      "takeawayZh": "文章聚焦如何分析 PyTorch Attention 工作负载的性能表现，属于模型训练和推理优化的工程信号。",
+      "whyItMattersZh": "对需要控制显存、吞吐与延迟的本地模型项目有参考价值；当前 Rardar 只确认官方文章发布，尚未复现实验结果。",
+      "categoryZh": "模型工程"
+    },
+    "https://github.com/MadsLorentzen/ai-job-search": {
+      "titleZh": "本地运行的 Claude Code 求职工作流登上外部日榜",
+      "takeawayZh": "该项目把候选人画像、职位抓取、匹配评分、定制简历与求职信、第二 Agent 审阅、面试准备和结果复盘串成完整流程；门户适配目前偏丹麦，但核心流程可替换为其他市场。",
+      "whyItMattersZh": "值得复用的不是“AI 写简历”，而是可追溯资料、分阶段命令、起草与审阅分离及结果回流的工作流设计。外部榜单报告的日增长仍需等待 Rardar 自有快照验证。",
+      "categoryZh": "Agent 工作流"
+    },
+    "https://www.pangram.com/blog/ai-in-your-feed": {
+      "titleZh": "Pangram 称社交平台长文中的 AI 内容比例显著上升",
+      "takeawayZh": "Pangram 基于其浏览器扩展用户自愿共享的约 100 万条扫描记录，报告社交平台长文中约四分之一被判为完全 AI 生成，LinkedIn 长文比例超过 40%。这些数字来自检测产品厂商及选择性样本，不等于全平台普查。",
+      "whyItMattersZh": "自媒体分析正在从流量指标扩展到内容来源与可信度判断；若 Rardar 或其他工作台接入 AI 内容检测，必须同时展示检测模型、样本范围、误判风险和原始证据。",
+      "categoryZh": "内容真实性"
+    },
+    "https://github.blog/changelog/2026-07-09-ask-copilot-for-a-repository-overview": {
+      "titleZh": "GitHub Copilot 可直接生成陌生仓库概览",
+      "takeawayZh": "GitHub 在仓库首页提供 Copilot 概览入口，可汇总项目用途、主要技术和贡献指南；即使仓库没有 README，也可以临时生成介绍。该能力面向全部 Copilot 套餐。",
+      "whyItMattersZh": "“快速理解陌生仓库”正在变成平台基础能力。Rardar 需要继续强化差异化：不仅概括 README，还要给出增长证据、静态实现证据、风险和针对具体任务的复用决策。",
+      "categoryZh": "代码理解"
+    },
+    "https://github.blog/changelog/2026-07-08-github-copilot-in-visual-studio-code-june-2026-releases": {
+      "titleZh": "VS Code 集中升级长时间 Agent 工作流",
+      "takeawayZh": "VS Code 1.123 至 1.127 为 Copilot 增加正式可用的浏览器工具、并行会话与多聊天、会话及子 Agent 成本可见性、模型市场入口、Autopilot 完成判断和跨设备会话同步。",
+      "whyItMattersZh": "长时间 Agent 的竞争点从单次生成转向任务编排、费用透明、历史检索、权限边界和完成审计；这些正是 Rardar 24 小时自治迭代需要持续验证的系统能力。",
+      "categoryZh": "Agent 工程化"
+    },
+    "https://github.com/addyosmani/agent-skills": {
+      "titleZh": "Addy Osmani 发布跨编程 Agent 的工程技能库",
+      "takeawayZh": "仓库把需求澄清、计划、增量构建、测试、评审、性能检查和发布组织为可复用技能与命令，并提供 Codex、Claude、Gemini 等多种集成及评测、Hook 和插件结构。",
+      "whyItMattersZh": "它适合作为 Rardar 自治开发流程的参考：任务要原子化、每步有证据、评审先于发布。应优先复用技能结构和质量门禁，不因外部日榜数字直接判断成熟度。",
+      "categoryZh": "开发方法"
+    },
+    "https://github.blog/changelog/2026-07-10-codeql-2-26-0-adds-kotlin-2-4-0-support-and-ai-prompt-injection-detection": {
+      "analyzedAt": "2026-07-11T00:12:00Z",
+      "sourcePublishedAt": "2026-07-10T20:40:56+00:00",
+      "titleZh": "CodeQL 2.26.0 新增系统提示词注入检测",
+      "takeawayZh": "GitHub 发布 CodeQL 2.26.0：支持 Kotlin 2.4.0，并为 JavaScript/TypeScript 新增系统提示词注入查询，扩大 OpenAI、Anthropic 和 Google GenAI SDK 的提示词注入汇点覆盖，同时改进多语言分析准确性。",
+      "whyItMattersZh": "AI 应用的系统提示词已成为可静态追踪的安全边界。开发 Agent、MCP 或内容工作台时，应把不可信输入到系统指令的传播纳入代码扫描，而不只依赖运行时过滤。",
+      "categoryZh": "AI 安全"
+    },
+    "https://github.blog/changelog/2026-07-10-clearer-names-for-secret-scanning-detector-types": {
+      "analyzedAt": "2026-07-11T00:12:00Z",
+      "sourcePublishedAt": "2026-07-10T20:06:10+00:00",
+      "titleZh": "GitHub 重命名密钥扫描检测器类型",
+      "takeawayZh": "GitHub 将“非供应商模式”改称“通用模式”，将“Copilot 密钥扫描”改称“AI 检测密钥”；这只是命名调整，检测行为、Webhook、审计日志和 REST API 均未改变。",
+      "whyItMattersZh": "团队无需因这次更新改造自动化，但文档和告警说明应同步新术语；同时要区分确定性模式与读取上下文的 AI 检测，避免把命名变化误判为能力升级。",
+      "categoryZh": "供应链安全"
+    },
+    "https://github.blog/changelog/2026-07-10-per-user-states-for-multi-user-budgets-in-the-rest-api": {
+      "analyzedAt": "2026-07-11T00:12:00Z",
+      "sourcePublishedAt": "2026-07-10T15:07:23+00:00",
+      "titleZh": "GitHub 预算 API 可批量查看逐用户消耗",
+      "takeawayZh": "GitHub Enterprise Cloud 的企业所有者和账单管理员现在可通过单个 REST API 分页获取多用户预算下每位用户的消耗与限额，并按使用比例筛选、排序或查看个人覆盖值。",
+      "whyItMattersZh": "长时间 Agent 和多模型工具的治理越来越依赖逐用户成本可见性。相关平台可直接构建临近额度预警和异常消耗看板，减少逐用户轮询脚本。",
+      "categoryZh": "成本治理"
+    },
+    "https://github.blog/changelog/2026-07-09-new-pull-requests-dashboard-is-now-generally-available": {
+      "analyzedAt": "2026-07-11T00:12:00Z",
+      "sourcePublishedAt": "2026-07-09T20:48:29+00:00",
+      "titleZh": "GitHub 新版 Pull Requests 总览正式可用",
+      "takeawayZh": "github.com/pulls 的新版总览已正式可用，提供待审、需修复、可合并等收件箱分区、自定义保存视图、跨仓库高级搜索、键盘导航，以及对 Agent 创建 PR 的筛选支持。",
+      "whyItMattersZh": "跨仓库协作入口正在从列表变成可配置工作队列。Rardar 未来若管理多项目复用任务，可参考其收件箱分区、保存视图和动作状态，而不只是展示候选卡片。",
+      "categoryZh": "开发协作"
+    }
+  }
+}

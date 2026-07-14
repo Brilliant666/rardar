@@ -43,6 +43,13 @@ function parseLastJsonLine(output) {
   return JSON.parse(line);
 }
 
+function visibleServerHtml(html) {
+  return html
+    .replaceAll(/<script\b[\s\S]*?<\/script>/gi, "")
+    .replaceAll(/<style\b[\s\S]*?<\/style>/gi, "")
+    .replaceAll(/<!--[\s\S]*?-->/g, "");
+}
+
 function loopbackEnvironment(temporaryRoot, dataDirectory, port) {
   const bypass = [process.env.NO_PROXY, process.env.no_proxy, "127.0.0.1", "localhost"]
     .filter(Boolean)
@@ -390,11 +397,18 @@ test(
         fixture.catalogMarkerB,
         fixture.signalMarkerB,
       );
+      assert.match(homeAText, /关注优先级/);
+      assert.match(homeAText, /静态工程就绪度/);
+      assert.doesNotMatch(homeAText, /全球影响力|复用价值|建议：复用/);
 
       const signals = await request(baseUrl, "/signals", "text/html");
       assert.equal(signals.status, 200);
       const search = await request(baseUrl, "/search", "text/html");
       assert.equal(search.status, 200);
+      const searchText = await search.text();
+      assert.match(searchText, /任务匹配/);
+      assert.match(searchText, /\/100/);
+      assert.doesNotMatch(searchText, /复用价值/);
 
       const d1Response = await request(
         baseUrl,
@@ -410,6 +424,8 @@ test(
       const recommendationsBeforeResponse = await request(baseUrl, recommendationPath);
       assert.equal(recommendationsBeforeResponse.status, 200);
       const recommendationsBefore = await recommendationsBeforeResponse.json();
+      assert.ok(recommendationsBefore.recommendations.every((item) => Number.isFinite(item.baseScore)));
+      assert.doesNotMatch(JSON.stringify(recommendationsBefore), /复用价值|全球影响力/);
       const sharedAttempt = {
         deviceId: actionDeviceId,
         projectSlug: fixture.projectSlug,
@@ -490,8 +506,47 @@ test(
       );
       const homeB = await request(baseUrl, "/", "text/html");
       assert.equal(homeB.status, 200);
+      const homeBText = await homeB.text();
       assertGenerationMarkers(
-        await homeB.text(),
+        homeBText,
+        fixture.catalogMarkerB,
+        fixture.signalMarkerB,
+        fixture.catalogMarkerA,
+        fixture.signalMarkerA,
+      );
+      assert.equal(runtime.child.pid, originalPid);
+      assert.equal(runtime.child.exitCode, null);
+
+      rollback(dataDirectory, fixture.legacyGeneration);
+      const legacyHealth = await waitForHealthyGeneration(
+        runtime,
+        baseUrl,
+        fixture.legacyGeneration,
+      );
+      const legacyHome = await request(baseUrl, "/", "text/html");
+      assert.equal(legacyHome.status, 200);
+      const legacyHomeText = await legacyHome.text();
+      const legacyRenderedText = visibleServerHtml(legacyHomeText);
+      assert.match(legacyRenderedText, /关注优先级/);
+      assert.match(legacyRenderedText, /静态工程就绪度/);
+      assert.match(legacyRenderedText, /建议：隔离试用/);
+      assert.doesNotMatch(
+        legacyRenderedText,
+        /全球影响力|复用价值|建议：复用|建议：试用/,
+      );
+      assert.doesNotMatch(
+        legacyHomeText,
+        new RegExp(`${fixture.catalogMarkerA}|${fixture.catalogMarkerB}`),
+      );
+      assert.equal(runtime.child.pid, originalPid);
+      assert.equal(runtime.child.exitCode, null);
+
+      rollback(dataDirectory, fixture.generationB);
+      await waitForHealthyGeneration(runtime, baseUrl, fixture.generationB);
+      const restoredV2Home = await request(baseUrl, "/", "text/html");
+      assert.equal(restoredV2Home.status, 200);
+      assertGenerationMarkers(
+        await restoredV2Home.text(),
         fixture.catalogMarkerB,
         fixture.signalMarkerB,
         fixture.catalogMarkerA,
@@ -536,6 +591,7 @@ test(
           `GET /search: ${search.status}`,
           `current generation: ${initialHealth.payload.generationId}`,
           `generation after pointer switch: ${switchedHealth.payload.generationId}`,
+          `retained v1 generation: ${legacyHealth.payload.generationId}`,
           `damaged current status: health ${unhealthy.response.status}, home ${failedHome.status}`,
           `rollback status: health ${recoveredHealth.response.status}, home ${recoveredHome.status}`,
           `D1 API acceptance: ${d1Response.status}`,

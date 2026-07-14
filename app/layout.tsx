@@ -19,7 +19,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const metadataBase = new URL(`${protocol}://${host}`);
   const title = "Rardar · 开源情报与项目复用雷达";
-  const description = "发现真正值得关注的开源项目，按能力、证据和复用价值理解技术热点。";
+  const description = "发现真正值得关注的开源项目，按关注优先级、工程证据和任务匹配理解技术热点。";
 
   return {
     metadataBase,

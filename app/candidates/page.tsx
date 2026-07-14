@@ -19,15 +19,15 @@ export default async function CandidatesPage() {
         </header>
         <section className="candidate-table" aria-label="项目候选列表">
           <div className="candidate-header">
-            <span>项目</span><span>类型</span><span>趋势</span><span>影响</span><span>复用</span><span>建议</span>
+            <span>项目</span><span>类型</span><span>趋势</span><span>关注</span><span>静态就绪</span><span>建议</span>
           </div>
           {projects.map((project) => (
             <Link href={`/projects/${project.slug}`} key={project.slug} className="candidate-row">
               <div><strong>{project.repo}</strong><small>★ {formatNumber(project.stars)} · {project.language}</small></div>
               <span>{project.category}<small>{project.heatLabel ?? "近期动量"}</small></span>
               <span className={project.growthValue < 0 ? "trend-down" : "trend-up"}>{project.trend}</span>
-              <b>{project.globalScore}</b>
-              <b>{project.reuseScore}</b>
+              <b>{project.attentionScore}</b>
+              <b>{project.engineeringReadiness ?? "—"}</b>
               <span>{project.recommendation}</span>
             </Link>
           ))}

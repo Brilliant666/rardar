@@ -300,7 +300,7 @@ def _score(
     analysis: dict[str, Any] | None,
     observation_count: int,
     observation_window: int,
-) -> tuple[int, int, int, int, bool, bool]:
+) -> tuple[int, int, int, int | None, bool, bool]:
     content = _text(repository)
     stars = int(repository.get("stars") or 0)
     age_days = float(growth["age_days"])
@@ -356,70 +356,99 @@ def _score(
         - low_actionability_penalty
         - risk_penalty
     )
-    global_score = max(momentum_score, round(endurance_score * 0.92))
+    attention_score = max(momentum_score, round(endurance_score * 0.92))
 
     if analysis:
         indicators = analysis.get("indicators") or {}
         counts = analysis.get("counts") or {}
-        completeness = 30
-        completeness += 10 if indicators.get("readme") else 0
-        completeness += 12 if indicators.get("license") else 0
-        completeness += 14 if indicators.get("tests") else 0
-        completeness += 9 if indicators.get("ci") else 0
-        completeness += 7 if indicators.get("docs") else 0
-        completeness += 6 if indicators.get("examples") else 0
-        completeness += 5 if indicators.get("package_manifest") else 0
-        completeness += 4 if indicators.get("dependency_lock") else 0
-        completeness += min(4, math.log10(max(int(counts.get("test_files") or 0), 1)) * 2)
-        completeness -= risk_penalty
-        reuse_score = _clamp(completeness, maximum=96)
+        readiness = 0
+        readiness += 15 if indicators.get("readme") else 0
+        readiness += 15 if indicators.get("license") else 0
+        readiness += 20 if indicators.get("tests") else 0
+        readiness += 15 if indicators.get("ci") else 0
+        readiness += 10 if indicators.get("docs") else 0
+        readiness += 8 if indicators.get("examples") else 0
+        readiness += 7 if indicators.get("package_manifest") else 0
+        readiness += 5 if indicators.get("dependency_lock") else 0
+        readiness += min(5, math.log10(max(int(counts.get("test_files") or 0), 1)) * 2.5)
+        engineering_readiness: int | None = _clamp(readiness - risk_penalty)
     else:
-        # Metadata alone cannot prove implementation completeness. Keep its
-        # reuse ceiling below a statically inspected repository.
-        completeness = 24
-        completeness += 10 if repository.get("description") else 0
-        completeness += 10 if repository.get("license") not in (None, "NOASSERTION") else 0
-        completeness += 8 if repository.get("language") else 0
-        completeness += min(8, len(repository.get("topics") or []) * 2)
-        completeness += 6 if push_age_days <= 7 else 2 if push_age_days <= 30 else 0
-        completeness += min(4, math.log10(max(int(repository.get("forks") or 0), 1)) * 1.5)
-        completeness -= risk_penalty
-        reuse_score = _clamp(completeness, maximum=72)
+        # Repository metadata cannot establish engineering readiness. Keep the
+        # value unknown until a current read-only static inspection exists.
+        engineering_readiness = None
     if risk_penalty:
         # Keep risky repositories visible for awareness, but never allow viral
         # growth or polished documentation to promote them into the Daily Five.
-        global_score = min(global_score, 49)
+        attention_score = min(attention_score, 49)
         momentum_score = min(momentum_score, 49)
         endurance_score = min(endurance_score, 35)
-        reuse_score = min(reuse_score, 35)
-    if repository.get("license") in (None, "NOASSERTION"):
-        detected_license = str((analysis or {}).get("license_hint") or "")
-        recognized_license = detected_license in {"Apache-2.0", "MIT", "GPL", "BSD"}
-        # A static text signature is useful evidence but not equivalent to the
-        # repository API declaring a machine-readable license.
-        reuse_score = min(reuse_score, 78 if recognized_license else 59)
+        if engineering_readiness is not None:
+            engineering_readiness = min(engineering_readiness, 35)
     return (
-        global_score,
-        reuse_score,
+        attention_score,
         momentum_score,
         endurance_score,
+        engineering_readiness,
         long_term_eligible,
         persistence_verified,
     )
 
 
-def _recommendation(global_score: int, reuse_score: int, risk_detected: bool) -> str:
+def _recommendation(
+    attention_score: int,
+    engineering_readiness: int | None,
+    api_license_confirmed: bool,
+    risk_detected: bool,
+) -> str:
     if risk_detected:
         return "观望"
-    if reuse_score >= 88 and global_score >= 78:
-        return "复用"
-    if reuse_score >= 78 and global_score >= 75:
-        return "试用"
-    if reuse_score >= 70:
+    if (
+        engineering_readiness is not None
+        and engineering_readiness >= 75
+        and attention_score >= 55
+        and api_license_confirmed
+    ):
+        return "隔离试用"
+    if engineering_readiness is not None and engineering_readiness >= 60:
         return "收藏"
-    if global_score >= 78:
+    if attention_score >= 60 or engineering_readiness is not None:
         return "了解"
     return "观望"
+
+
+def _score_explanation(
+    score: int | None,
+    summary: str,
+    *,
+    facts: list[str] | None = None,
+    proxies: list[str] | None = None,
+    limitations: list[str] | None = None,
+    upgrade_conditions: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "score": score,
+        "summary": summary,
+        "facts": list(dict.fromkeys(facts or [])),
+        "proxies": list(dict.fromkeys(proxies or [])),
+        "limitations": list(dict.fromkeys(limitations or [])),
+        "upgradeConditions": list(dict.fromkeys(upgrade_conditions or [])),
+    }
+
+
+def _evidence_completeness(
+    growth_kind: str,
+    analysis: dict[str, Any] | None,
+    enrichment: dict[str, Any] | None,
+    persistence_verified: bool,
+) -> int:
+    # This is evidence coverage, not a quality or reuse verdict.
+    return _clamp(
+        25
+        + (15 if growth_kind == "observed" else 5)
+        + (30 if analysis else 0)
+        + (20 if enrichment else 0)
+        + (10 if persistence_verified else 0)
+    )
 
 
 def _project(
@@ -438,10 +467,10 @@ def _project(
     analysis_current = _analysis_is_current(analysis_payload, repository.get("pushed_at"))
     analysis = analysis_payload if analysis_current else None
     (
-        global_score,
-        reuse_score,
+        attention_score,
         momentum_score,
         endurance_score,
+        engineering_readiness,
         long_term_eligible,
         persistence_verified,
     ) = _score(
@@ -506,9 +535,9 @@ def _project(
 
     analysis_state = "事实初筛"
     risk = (
-        "已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，复用评分已受限制。"
+        "已有静态报告缺少可核验时间，或早于仓库最近推送；本轮不将它作为当前实现证据，工程就绪度保持未知。"
         if analysis_payload and not analysis_current
-        else "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，复用评分上限已受限制。"
+        else "目前只完成 GitHub 元数据初筛，尚未浅克隆检查代码、测试和文档，工程就绪度保持未知。"
     )
     if analysis:
         analysis_state = "静态分析"
@@ -548,7 +577,7 @@ def _project(
     description = repository.get("description") or "仓库尚未提供公开描述，需进入静态分析阶段后再判断具体能力。"
     capabilities = _capabilities(repository, category)
     task_terms = _task_terms(repository, category)
-    fit = f"当前被归入“{category}”，命中 {len(_matched_terms(repository))} 个生产力相关信号；下一步需结合具体任务做能力匹配。"
+    fit_hypothesis = f"当前被归入“{category}”，命中 {len(_matched_terms(repository))} 个生产力相关信号；下一步需结合具体任务做能力匹配。"
     reuse_plan = "先阅读 README 和静态证据，再决定是否进入隔离环境试用。"
     if enrichment:
         title = str(enrichment.get("titleZh") or title)
@@ -556,7 +585,7 @@ def _project(
         category = str(enrichment.get("category") or category)
         capabilities = list(enrichment.get("capabilities") or capabilities)[:6]
         task_terms = list(dict.fromkeys([*task_terms, *(enrichment.get("taskTerms") or [])]))[:32]
-        fit = str(enrichment.get("bestFor") or fit)
+        fit_hypothesis = str(enrichment.get("bestFor") or fit_hypothesis)
         reuse_plan = str(enrichment.get("reusePlan") or reuse_plan)
         limitation = str(enrichment.get("limitation") or "").strip()
         if limitation:
@@ -567,6 +596,153 @@ def _project(
             if not analysis_current
             else "现有中文画像绑定的仓库推送或静态分析版本与当前证据不一致，能力与复用判断需要重新核对。 "
         ) + risk
+
+    evidence_completeness = _evidence_completeness(
+        str(growth["kind"]),
+        analysis,
+        enrichment,
+        persistence_verified,
+    )
+    repository_facts = [
+        f"GitHub API 快照记录 {int(repository.get('stars') or 0):,} Star、{int(repository.get('forks') or 0):,} Fork。",
+        f"仓库最近推送日期为 {pushed_label}。",
+    ]
+    attention_facts = [*repository_facts]
+    attention_proxies = [
+        f"近期动量分为 {momentum_score}/100；持久热度按 92% 折算后与其取较高值。",
+        f"命中 {len(_matched_terms(repository))} 个生产力相关词和 {query_count} 条候选查询。",
+    ]
+    attention_limitations = ["关注优先级只回答是否值得先看，不代表工程质量或任务适配。"]
+    attention_upgrade_conditions: list[str] = []
+    if growth["kind"] == "observed":
+        attention_facts.append(f"两次事实快照之间观测到 {growth['label']}。")
+    else:
+        attention_proxies.append(str(growth["label"]))
+        attention_limitations.append("尚无第二次快照，增长使用创建以来速度代理。")
+        attention_upgrade_conditions.append("获得下一次事实快照后改用精确区间 Star 增量。")
+    if risk_detected:
+        attention_limitations.append("仓库文本触发安全或滥用风险关键词，关注分上限为 49。")
+        attention_upgrade_conditions.append("先完成人工安全审查；默认雷达仍不会执行第三方代码。")
+
+    endurance_facts = [*repository_facts, f"仓库创建日期为 {created_label}。"]
+    endurance_proxies = ["总 Star、仓库年龄、近期维护和 Fork 生态用于估计持久热度。"]
+    endurance_limitations = ["持久热度不等于代码质量或当前任务适配。"]
+    endurance_upgrade_conditions: list[str] = []
+    if persistence_verified:
+        endurance_facts.append(
+            f"最近 {observation_window} 次候选快照中出现 {observation_count} 次。"
+        )
+    else:
+        endurance_limitations.append("尚未达到多周期持续性验证阈值，当前含结构代理。")
+        endurance_upgrade_conditions.append(
+            f"积累至少 {MIN_PERSISTENCE_OBSERVATIONS} 次快照并达到持续出现阈值。"
+        )
+    if risk_detected:
+        endurance_limitations.append("仓库文本触发安全或滥用风险关键词，持久热度上限为 35。")
+
+    if analysis:
+        indicators = analysis.get("indicators") or {}
+        counts = analysis.get("counts") or {}
+        present = [
+            label
+            for key, label in (
+                ("readme", "README"),
+                ("license", "许可证文件"),
+                ("tests", "测试"),
+                ("ci", "CI"),
+                ("docs", "文档"),
+                ("examples", "示例"),
+                ("package_manifest", "包清单"),
+                ("dependency_lock", "依赖锁"),
+            )
+            if indicators.get(key)
+        ]
+        engineering_limitations = ["未安装依赖、未启动服务、未执行测试；本分数不是运行可靠性。"]
+        if risk_detected:
+            engineering_limitations.append("仓库文本触发安全或滥用风险关键词，工程就绪度上限为 35。")
+        engineering_explanation = _score_explanation(
+            engineering_readiness,
+            f"{engineering_readiness}/100；仅依据当前只读静态检查衡量工程材料就绪度。",
+            facts=[
+                f"只读扫描 {int(analysis.get('scanned_files') or 0):,} 个文件，测试文件 {int(counts.get('test_files') or 0)} 个。",
+                f"检测到：{'、'.join(present) if present else '未检测到主要工程材料'}。",
+            ],
+            proxies=["文件与目录存在性是工程就绪的静态代理。"],
+            limitations=engineering_limitations,
+            upgrade_conditions=["在隔离环境完成安装、测试与关键路径验收后记录独立运行证据。"],
+        )
+    else:
+        engineering_explanation = _score_explanation(
+            None,
+            "未评分：没有与仓库最新推送匹配的只读静态检查。",
+            limitations=["GitHub 元数据不能证明代码、测试、文档或依赖是否完整。"],
+            upgrade_conditions=["对当前推送执行只读浅克隆静态检查。"],
+        )
+
+    reuse_fit_explanation = _score_explanation(
+        None,
+        "未评分：通用目录没有你的具体任务、约束和验收标准。",
+        facts=(
+            ["当前中文能力画像已绑定最新仓库推送与静态证据。"]
+            if enrichment
+            else []
+        ),
+        proxies=["页面中的适用场景仅为检索假设，不换算成复用匹配分。"],
+        limitations=["没有任务上下文时，不能推断该项目适合直接复用。"],
+        upgrade_conditions=["提供目标任务、必需能力、技术约束与验收标准，再做能力映射和隔离验证。"],
+    )
+
+    evidence_sources = ["GitHub API 事实快照"]
+    evidence_limitations: list[str] = []
+    evidence_upgrade_conditions: list[str] = []
+    if growth["kind"] == "observed":
+        evidence_sources.append("精确区间增长")
+    else:
+        evidence_limitations.append("缺少第二次快照，增长仍为速度代理。")
+        evidence_upgrade_conditions.append("采集下一次事实快照。")
+    if analysis:
+        evidence_sources.append("当前只读静态检查")
+    else:
+        evidence_limitations.append("缺少当前只读静态检查。")
+        evidence_upgrade_conditions.append("完成只读浅克隆静态检查。")
+    if enrichment:
+        evidence_sources.append("版本绑定的中文能力画像")
+    else:
+        evidence_limitations.append("缺少与当前静态证据绑定的中文能力画像。")
+        evidence_upgrade_conditions.append("基于当前静态证据生成并发布中文能力画像。")
+    if persistence_verified:
+        evidence_sources.append("多周期持续性证据")
+    else:
+        evidence_limitations.append("缺少达到阈值的多周期持续性证据。")
+        evidence_upgrade_conditions.append("积累满足持续性阈值的候选快照。")
+
+    score_explanations = {
+        "attention": _score_explanation(
+            attention_score,
+            f"{attention_score}/100；综合近期动量与长期关注价值，决定是否值得先看。",
+            facts=attention_facts,
+            proxies=attention_proxies,
+            limitations=attention_limitations,
+            upgrade_conditions=attention_upgrade_conditions,
+        ),
+        "endurance": _score_explanation(
+            endurance_score,
+            f"{endurance_score}/100；衡量长期高热与持续维护线索。",
+            facts=endurance_facts,
+            proxies=endurance_proxies,
+            limitations=endurance_limitations,
+            upgrade_conditions=endurance_upgrade_conditions,
+        ),
+        "engineeringReadiness": engineering_explanation,
+        "reuseFit": reuse_fit_explanation,
+        "evidenceCompleteness": _score_explanation(
+            evidence_completeness,
+            f"{evidence_completeness}/100；只表示证据覆盖范围，不表示项目质量。",
+            facts=[f"当前覆盖：{'、'.join(evidence_sources)}。"],
+            limitations=evidence_limitations,
+            upgrade_conditions=evidence_upgrade_conditions,
+        ),
+    }
 
     return {
         "slug": re.sub(r"[^a-z0-9-]+", "-", repo.lower().replace("/", "--")).strip("-"),
@@ -586,10 +762,12 @@ def _project(
         "growthValue": int(growth["value"]),
         "growthLabel": growth["label"],
         "growthKind": growth["kind"],
-        "globalScore": global_score,
-        "reuseScore": reuse_score,
-        "momentumScore": momentum_score,
+        "attentionScore": attention_score,
         "enduranceScore": endurance_score,
+        "engineeringReadiness": engineering_readiness,
+        "reuseFitScore": None,
+        "evidenceCompleteness": evidence_completeness,
+        "scoreExplanations": score_explanations,
         "heatTrack": heat_track,
         "heatLabel": heat_label,
         "longTermEvidenceKind": (
@@ -607,8 +785,13 @@ def _project(
         "analysisAnalyzedAt": analysis_payload.get("analyzed_at") if analysis_payload else None,
         "enrichmentAnalyzedAt": enrichment_payload.get("analyzedAt") if enrichment_payload else None,
         "whyNow": why_now,
-        "recommendation": _recommendation(global_score, reuse_score, risk_detected),
-        "fit": fit,
+        "recommendation": _recommendation(
+            attention_score,
+            engineering_readiness,
+            api_license not in (None, "NOASSERTION", ""),
+            risk_detected,
+        ),
+        "fitHypothesis": fit_hypothesis,
         "reusePlan": reuse_plan,
         "risk": risk,
         "capabilities": capabilities,
@@ -672,7 +855,13 @@ def _project(
 def _balanced_project_order(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ranked = sorted(
         projects,
-        key=lambda item: (item["globalScore"], item["reuseScore"], item["stars"]),
+        key=lambda item: (
+            item["attentionScore"],
+            item["engineeringReadiness"]
+            if item["engineeringReadiness"] is not None
+            else -1,
+            item["stars"],
+        ),
         reverse=True,
     )
     long_term = sorted(
@@ -680,13 +869,15 @@ def _balanced_project_order(projects: list[dict[str, Any]]) -> list[dict[str, An
             item
             for item in ranked
             if item["heatTrack"] == "long_term"
-            and item["globalScore"] >= 60
+            and item["attentionScore"] >= 60
             and item["recommendation"] != "观望"
         ),
         key=lambda item: (
             item["enduranceScore"],
-            item["globalScore"],
-            item["reuseScore"],
+            item["attentionScore"],
+            item["engineeringReadiness"]
+            if item["engineeringReadiness"] is not None
+            else -1,
             item["stars"],
         ),
         reverse=True,
@@ -742,7 +933,8 @@ def build_catalog(
         item["repo"] for item in bounded[:5] if item["analysisState"] != "深度分析"
     ]
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
+        "scoreModelVersion": "evidence-v2",
         "capturedAt": captured_at.isoformat(),
         "sourceCount": int(snapshot.get("count") or len(snapshot.get("repositories", []))),
         "queryFailureCount": query_failure_count,

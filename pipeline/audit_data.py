@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from pipeline.build_catalog import (
     MAX_HEAT_OBSERVATIONS,
     MIN_PERSISTENCE_OBSERVATIONS,
+    build_catalog,
     heat_observation_counts,
     persistence_is_verified,
 )
@@ -150,14 +151,22 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     history_snapshots = [
         _load(path, issues, ArtifactKind.GITHUB_SNAPSHOT) for path in history_paths
     ]
+    analyses: dict[str, dict[str, Any]] = {}
     analysis_dir = data_dir / "analysis"
     if analysis_dir.exists():
         for path in sorted(analysis_dir.glob("*.json")):
-            _load(path, issues, ArtifactKind.STATIC_EVIDENCE)
+            analysis = _load(path, issues, ArtifactKind.STATIC_EVIDENCE)
+            repository = analysis.get("repository")
+            if isinstance(repository, str) and repository:
+                analyses[repository] = analysis
+    enrichments: dict[str, dict[str, Any]] = {}
     enrichment_dir = data_dir / "enrichment"
     if enrichment_dir.exists():
         for path in sorted(enrichment_dir.glob("*.json")):
-            _load(path, issues, ArtifactKind.PROJECT_ENRICHMENT)
+            enrichment = _load(path, issues, ArtifactKind.PROJECT_ENRICHMENT)
+            repository = enrichment.get("repository")
+            if isinstance(repository, str) and repository:
+                enrichments[repository] = enrichment
     signal_enrichment_path = data_dir / "signals" / "enrichment.json"
     if signal_enrichment_path.exists():
         _load(signal_enrichment_path, issues, ArtifactKind.SIGNAL_ENRICHMENT)
@@ -381,16 +390,31 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         isinstance(item, dict) and "heatTrack" in item for item in projects
     )
     if track_metadata_present:
-        invalid_track_rows = sum(
-            1
-            for item in projects
-            if not isinstance(item, dict)
-            or item.get("heatTrack") not in {"recent_momentum", "long_term"}
-            or not isinstance(item.get("heatLabel"), str)
-            or not item.get("heatLabel")
-            or _integer(item.get("momentumScore")) not in range(101)
-            or _integer(item.get("enduranceScore")) not in range(101)
-        )
+        if catalog.get("schemaVersion") == 2:
+            invalid_track_rows = sum(
+                1
+                for item in projects
+                if not isinstance(item, dict)
+                or item.get("heatTrack") not in {"recent_momentum", "long_term"}
+                or not isinstance(item.get("heatLabel"), str)
+                or not item.get("heatLabel")
+                or _integer(item.get("attentionScore")) not in range(101)
+                or _integer(item.get("enduranceScore")) not in range(101)
+            )
+        else:
+            # Catalog v1 is retained history.  Keep its original score-field
+            # checks byte-for-byte equivalent so old generation summaries do
+            # not acquire new findings under the v2 scoring contract.
+            invalid_track_rows = sum(
+                1
+                for item in projects
+                if not isinstance(item, dict)
+                or item.get("heatTrack") not in {"recent_momentum", "long_term"}
+                or not isinstance(item.get("heatLabel"), str)
+                or not item.get("heatLabel")
+                or _integer(item.get("momentumScore")) not in range(101)
+                or _integer(item.get("enduranceScore")) not in range(101)
+            )
         _add_if(issues, invalid_track_rows > 0, "invalid_heat_track", f"{invalid_track_rows} projects have invalid heat-track metadata")
         daily = [item for item in projects[:5] if isinstance(item, dict)]
         actual_long_term = sum(item.get("heatTrack") == "long_term" for item in daily)
@@ -403,14 +427,24 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             and actual_long_term + actual_recent_momentum == len(daily)
         )
         _add_if(issues, not track_counts_match, "daily_track_count_mismatch", "dailyTrackCounts differs from the Daily Five")
-        eligible_long_term = sum(
-            item.get("heatTrack") == "long_term"
-            and _integer(item.get("globalScore")) is not None
-            and int(item["globalScore"]) >= 60
-            and item.get("recommendation") != "观望"
-            for item in projects
-            if isinstance(item, dict)
-        )
+        if catalog.get("schemaVersion") == 2:
+            eligible_long_term = sum(
+                item.get("heatTrack") == "long_term"
+                and _integer(item.get("attentionScore")) is not None
+                and int(item["attentionScore"]) >= 60
+                and item.get("recommendation") != "观望"
+                for item in projects
+                if isinstance(item, dict)
+            )
+        else:
+            eligible_long_term = sum(
+                item.get("heatTrack") == "long_term"
+                and _integer(item.get("globalScore")) is not None
+                and int(item["globalScore"]) >= 60
+                and item.get("recommendation") != "观望"
+                for item in projects
+                if isinstance(item, dict)
+            )
         available_recent_momentum = sum(
             item.get("heatTrack") == "recent_momentum"
             for item in projects
@@ -670,6 +704,33 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
                 history_matches += 1
                 previous_snapshot = payload
     _add_if(issues, bool(previous_at and history_matches != 1), "missing_previous_snapshot", "catalog previousCapturedAt must match exactly one history snapshot")
+    if catalog.get("schemaVersion") == 2:
+        project_limit = _integer(catalog.get("projectCount"))
+        try:
+            rebuilt_catalog = build_catalog(
+                snapshot,
+                previous_snapshot,
+                project_limit if project_limit is not None else len(projects),
+                analyses,
+                enrichments,
+                history_snapshots,
+            )
+        except (ArtifactValidationError, KeyError, OverflowError, TypeError, ValueError) as error:
+            issues.append(
+                {
+                    "severity": "error",
+                    "code": "score_semantics_mismatch",
+                    "detail": f"Catalog v2 scoring semantics cannot be rebuilt from validated evidence: {error}",
+                }
+            )
+        else:
+            _add_if(
+                issues,
+                catalog.get("scoreModelVersion") != rebuilt_catalog.get("scoreModelVersion")
+                or projects != rebuilt_catalog.get("projects"),
+                "score_semantics_mismatch",
+                "Catalog v2 scoreModelVersion or ordered project scoring semantics differ from a read-only production rebuild",
+            )
     observed_count = sum(isinstance(item, dict) and item.get("growthKind") == "observed" for item in projects)
     observed_values = [
         int(item["growthValue"])
