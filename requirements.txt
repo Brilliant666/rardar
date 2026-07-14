@@ -1,1 +1,2 @@
+# Runtime dependency range; Verify/CI installs the exact set in requirements.lock.
 jsonschema>=4.17,<5
