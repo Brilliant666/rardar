@@ -18,11 +18,11 @@
 | P1-1 审计通过后发布 generation | 已完成 | PR #4，提交 `bf35575` |
 | P1-2 严格数据 Schema | 已完成 | PR #2，提交 `048a2d9` |
 | P1-3 行动事件 | 已由 PR #5、提交 `238b572` 完成 | Event、State、幂等与近 7 天指标已进入 main |
-| P1-4 评分语义 | 由当前评分语义分支实现；仅在对应 PR 合并到 main 后视为完成 | evidence-v2、审计与旧 generation 兼容在合并前继续审查 |
-| P1-5 verify/CI | 当前评分语义 PR 合并后的下一工程目标 | 合并后按 `CODEX_MASTER_INSTRUCTION.md` 开始独立工程轮 |
-| P1-6 稳定项目 ID | 待处理 | 尚未开始独立工程轮 |
+| P1-4 评分语义 | 已完成 | PR #6，提交 `ab34119` |
+| P1-5 verify/CI | 当前 PR 已交付，待审查与合并 | 单一 Verify、GitHub Actions 与数据/Runtime 隔离门禁 |
+| P1-6 稳定项目 ID | 下一工程目标 | 尚未开始独立工程轮 |
 
-当前评分语义 PR 合并前不得开始 P1-5 verify/CI 或其他后续工程目标。
+当前 Verify/CI PR 合并前不得开始 P1-6 稳定项目 ID 或其他后续工程目标。
 
 以下章节保留 `fa2e064` 时点的原始审查内容，不重写历史事实。
 

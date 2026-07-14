@@ -1,0 +1,9 @@
+# Exact Python dependency set for repeatable Verify/CI installs.
+# Regenerate intentionally from requirements.txt and validate on Python 3.10+.
+attrs==26.1.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+referencing==0.37.0
+rpds-py==0.30.0
+tzdata==2026.3
+typing-extensions==4.16.0
