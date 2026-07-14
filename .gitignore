@@ -15,6 +15,11 @@
 __pycache__/
 *.py[cod]
 
+# Python virtual environments
+/.venv/
+/.venv-ci/
+/venv/
+
 # next.js
 /.next/
 /.vinext/
