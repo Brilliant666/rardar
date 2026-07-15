@@ -57,6 +57,14 @@ def _write(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _tree_bytes(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
 def _enrichment(repository: str) -> dict[str, object]:
     return {
         "schemaVersion": 1,
@@ -484,6 +492,95 @@ class ProjectArtifactTests(unittest.TestCase):
             finally:
                 if os.path.lexists(linked):
                     os.rmdir(linked)
+
+    def test_candidate_ancestor_symlink_to_same_shaped_tree_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            external_data = root / "external/data"
+            external_candidate = external_data / "generations/.candidates/test"
+            repository = "owner/external-ancestor-symlink"
+            _write(
+                external_candidate
+                / "analysis"
+                / f"{legacy_slug_for_repository(repository)}.json",
+                _evidence(repository),
+            )
+            (external_candidate / "sentinel.txt").write_bytes(b"external sentinel\n")
+            linked_data = root / "data"
+            try:
+                linked_data.symlink_to(external_data, target_is_directory=True)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"directory symlinks are unavailable: {error}")
+            before = _tree_bytes(external_data)
+            candidate = linked_data / "generations/.candidates/test"
+
+            with patch(
+                "pipeline.project_artifacts.atomic_write_validated_json"
+            ) as writer, patch(
+                "pipeline.project_artifacts._remove_legacy_source"
+            ) as remover:
+                with self.assertRaises(ProjectArtifactError) as raised:
+                    adopt_candidate_project_identities(candidate)
+
+            self.assertEqual(raised.exception.code, "unsafe_candidate_root")
+            writer.assert_not_called()
+            remover.assert_not_called()
+            self.assertEqual(_tree_bytes(external_data), before)
+
+    @unittest.skipUnless(os.name == "nt", "Windows junctions require Windows")
+    def test_candidate_ancestor_junction_to_same_shaped_tree_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            external_data = root / "external/data"
+            external_candidate = external_data / "generations/.candidates/test"
+            repository = "owner/external-ancestor-junction"
+            _write(
+                external_candidate
+                / "analysis"
+                / f"{legacy_slug_for_repository(repository)}.json",
+                _evidence(repository),
+            )
+            (external_candidate / "sentinel.txt").write_bytes(b"external sentinel\n")
+            linked_data = root / "data"
+            created = subprocess.run(
+                [
+                    "cmd.exe",
+                    "/d",
+                    "/c",
+                    "mklink",
+                    "/J",
+                    str(linked_data),
+                    str(external_data),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if created.returncode != 0 or not os.path.lexists(linked_data):
+                if os.path.lexists(linked_data):
+                    os.rmdir(linked_data)
+                self.skipTest(
+                    "Windows directory junctions are unavailable: "
+                    f"{created.stderr or created.stdout}"
+                )
+            before = _tree_bytes(external_data)
+            candidate = linked_data / "generations/.candidates/test"
+            try:
+                with patch(
+                    "pipeline.project_artifacts.atomic_write_validated_json"
+                ) as writer, patch(
+                    "pipeline.project_artifacts._remove_legacy_source"
+                ) as remover:
+                    with self.assertRaises(ProjectArtifactError) as raised:
+                        adopt_candidate_project_identities(candidate)
+
+                self.assertEqual(raised.exception.code, "unsafe_candidate_root")
+                writer.assert_not_called()
+                remover.assert_not_called()
+                self.assertEqual(_tree_bytes(external_data), before)
+            finally:
+                if os.path.lexists(linked_data):
+                    os.rmdir(linked_data)
 
     def test_candidate_artifact_symlink_is_rejected_without_external_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

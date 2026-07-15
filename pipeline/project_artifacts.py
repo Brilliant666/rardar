@@ -189,27 +189,41 @@ def load_project_artifacts(
 _CANDIDATE_ARTIFACT_DIRECTORIES = frozenset({"analysis", "enrichment"})
 
 
+def _has_candidate_scope(path: Path) -> bool:
+    parts = [part.casefold() for part in path.parts]
+    return (
+        len(parts) >= 3
+        and parts[-2] == ".candidates"
+        and parts[-3] == "generations"
+    )
+
+
+def _assert_no_candidate_link_ancestors(path: Path) -> None:
+    current = path
+    while True:
+        if os.path.lexists(current) and _is_filesystem_link(current):
+            raise ProjectArtifactError(
+                "unsafe_candidate_root",
+                "candidate generation path cannot traverse a filesystem link: "
+                f"{current}",
+            )
+        if current == current.parent:
+            break
+        current = current.parent
+
+
 def _canonical_candidate_root(generation_root: Path) -> Path:
     lexical = Path(os.path.abspath(os.fspath(generation_root.expanduser())))
-    lexical_parts = [part.casefold() for part in lexical.parts]
-    if (
-        len(lexical_parts) < 3
-        or lexical_parts[-2] != ".candidates"
-        or lexical_parts[-3] != "generations"
-    ):
+    if not _has_candidate_scope(lexical):
         raise ProjectArtifactError(
             "identity_adoption_scope_violation",
             "identity adoption is restricted to data/generations/.candidates/<id>",
         )
+    _assert_no_candidate_link_ancestors(lexical)
     if not os.path.lexists(lexical) or not lexical.is_dir():
         raise ProjectArtifactError(
             "invalid_candidate_root",
             f"candidate generation root is unavailable: {lexical}",
-        )
-    if _is_filesystem_link(lexical):
-        raise ProjectArtifactError(
-            "unsafe_candidate_root",
-            f"candidate generation root cannot be a filesystem link: {lexical}",
         )
     try:
         resolved = lexical.resolve(strict=True)
@@ -218,8 +232,7 @@ def _canonical_candidate_root(generation_root: Path) -> Path:
             "unsafe_candidate_root",
             f"candidate generation root cannot be resolved safely: {lexical}: {error}",
         ) from None
-    parts = [part.casefold() for part in resolved.parts]
-    if len(parts) < 3 or parts[-2] != ".candidates" or parts[-3] != "generations":
+    if not _has_candidate_scope(resolved):
         raise ProjectArtifactError(
             "identity_adoption_scope_violation",
             "identity adoption is restricted to data/generations/.candidates/<id>",
@@ -228,9 +241,9 @@ def _canonical_candidate_root(generation_root: Path) -> Path:
 
 
 def _assert_candidate_root_unchanged(root: Path) -> None:
+    _assert_no_candidate_link_ancestors(root)
     if (
         not os.path.lexists(root)
-        or _is_filesystem_link(root)
         or not root.is_dir()
     ):
         raise ProjectArtifactError(
