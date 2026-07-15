@@ -1,13 +1,15 @@
 """Identity-aware project artifact loading and candidate adoption.
 
 Legacy evidence remains readable, but new generations use identity v1 in both
-the payload and filename.  Selection is explicit: v2 wins over v1/v0 for the
-same normalized repository; duplicate artifacts at the same version and
-ambiguous legacy slugs fail closed.
+the payload and filename. Read selection is version-aware; candidate cleanup
+is stricter and removes a legacy v1 artifact only when its mechanical v2
+conversion is exactly equal to the existing stable artifact.
 """
 
 from __future__ import annotations
 
+import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,7 @@ from pipeline.schema_validation import (
     ArtifactKind,
     atomic_write_validated_json,
     load_validated_json,
+    require_valid,
 )
 
 
@@ -34,6 +37,13 @@ PROJECT_ARTIFACT_KINDS = {
 class ProjectArtifactError(ValueError):
     """A project artifact cannot be assigned to exactly one identity."""
 
+    def __init__(self, code: str, message: str | None = None) -> None:
+        if message is None:
+            message = code
+            code = "invalid_project_artifact"
+        self.code = code
+        super().__init__(f"{code}: {message}")
+
 
 @dataclass(frozen=True)
 class ProjectArtifactRecord:
@@ -41,6 +51,32 @@ class ProjectArtifactRecord:
     payload: dict[str, Any]
     repository_key: str
     schema_version: int
+    kind: ArtifactKind
+    source_bytes: bytes
+
+
+@dataclass(frozen=True)
+class _AdoptionPlan:
+    source: ProjectArtifactRecord
+    target: Path
+    expected_payload: dict[str, Any]
+    existing_target: ProjectArtifactRecord | None
+
+
+def _is_filesystem_link(path: Path) -> bool:
+    """Return true for symbolic links and Windows reparse-point junctions."""
+
+    try:
+        metadata = path.lstat()
+    except OSError:
+        return False
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    attributes = int(getattr(metadata, "st_file_attributes", 0))
+    return stat.S_ISLNK(metadata.st_mode) or bool(attributes & reparse_flag)
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    return os.path.normcase(str(left)) == os.path.normcase(str(right))
 
 
 def _repository_key(repository: object) -> str:
@@ -60,14 +96,25 @@ def _artifact_timestamp_field(kind: ArtifactKind) -> str:
 def _records(directory: Path, kind: ArtifactKind) -> list[ProjectArtifactRecord]:
     if kind not in PROJECT_ARTIFACT_KINDS:
         raise ValueError(f"unsupported project artifact kind: {kind.value}")
-    if not directory.exists():
+    if not os.path.lexists(directory):
         return []
-    if directory.is_symlink():
-        raise ProjectArtifactError(f"project artifact directory cannot be a symlink: {directory}")
+    if _is_filesystem_link(directory):
+        raise ProjectArtifactError(
+            "unsafe_project_artifact_directory",
+            f"project artifact directory cannot be a filesystem link: {directory}",
+        )
+    if not directory.is_dir():
+        raise ProjectArtifactError(
+            "invalid_project_artifact_directory",
+            f"project artifact directory must be a directory: {directory}",
+        )
     records: list[ProjectArtifactRecord] = []
     for path in sorted(directory.glob("*.json")):
-        if path.is_symlink():
-            raise ProjectArtifactError(f"project artifact cannot be a symlink: {path}")
+        if _is_filesystem_link(path):
+            raise ProjectArtifactError(
+                "unsafe_project_artifact_entry",
+                f"project artifact cannot be a filesystem link: {path}",
+            )
         payload = load_validated_json(path, kind)
         version = payload.get("schemaVersion")
         if not isinstance(version, int) or isinstance(version, bool):
@@ -78,6 +125,8 @@ def _records(directory: Path, kind: ArtifactKind) -> list[ProjectArtifactRecord]
                 payload=payload,
                 repository_key=_repository_key(payload.get("repository")),
                 schema_version=version,
+                kind=kind,
+                source_bytes=path.read_bytes(),
             )
         )
     return records
@@ -137,97 +186,337 @@ def load_project_artifacts(
     }
 
 
+_CANDIDATE_ARTIFACT_DIRECTORIES = frozenset({"analysis", "enrichment"})
+
+
+def _canonical_candidate_root(generation_root: Path) -> Path:
+    lexical = Path(os.path.abspath(os.fspath(generation_root.expanduser())))
+    lexical_parts = [part.casefold() for part in lexical.parts]
+    if (
+        len(lexical_parts) < 3
+        or lexical_parts[-2] != ".candidates"
+        or lexical_parts[-3] != "generations"
+    ):
+        raise ProjectArtifactError(
+            "identity_adoption_scope_violation",
+            "identity adoption is restricted to data/generations/.candidates/<id>",
+        )
+    if not os.path.lexists(lexical) or not lexical.is_dir():
+        raise ProjectArtifactError(
+            "invalid_candidate_root",
+            f"candidate generation root is unavailable: {lexical}",
+        )
+    if _is_filesystem_link(lexical):
+        raise ProjectArtifactError(
+            "unsafe_candidate_root",
+            f"candidate generation root cannot be a filesystem link: {lexical}",
+        )
+    try:
+        resolved = lexical.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise ProjectArtifactError(
+            "unsafe_candidate_root",
+            f"candidate generation root cannot be resolved safely: {lexical}: {error}",
+        ) from None
+    parts = [part.casefold() for part in resolved.parts]
+    if len(parts) < 3 or parts[-2] != ".candidates" or parts[-3] != "generations":
+        raise ProjectArtifactError(
+            "identity_adoption_scope_violation",
+            "identity adoption is restricted to data/generations/.candidates/<id>",
+        )
+    return resolved
+
+
+def _assert_candidate_root_unchanged(root: Path) -> None:
+    if (
+        not os.path.lexists(root)
+        or _is_filesystem_link(root)
+        or not root.is_dir()
+    ):
+        raise ProjectArtifactError(
+            "unsafe_candidate_root",
+            f"candidate generation root changed or became unsafe: {root}",
+        )
+    try:
+        resolved = root.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise ProjectArtifactError(
+            "unsafe_candidate_root",
+            f"candidate generation root cannot be revalidated: {root}: {error}",
+        ) from None
+    if not _same_path(root, resolved):
+        raise ProjectArtifactError(
+            "unsafe_candidate_root",
+            f"candidate generation root resolved to an unexpected path: {root}",
+        )
+
+
+def _candidate_artifact_directory(root: Path, name: str) -> Path:
+    _assert_candidate_root_unchanged(root)
+    normalized_name = name.casefold()
+    if normalized_name not in _CANDIDATE_ARTIFACT_DIRECTORIES:
+        raise ProjectArtifactError(
+            "candidate_path_escape",
+            f"candidate project artifact directory is not allowed: {name!r}",
+        )
+    directory = root / normalized_name
+    if not os.path.lexists(directory):
+        return directory
+    if _is_filesystem_link(directory) or not directory.is_dir():
+        raise ProjectArtifactError(
+            "unsafe_project_artifact_directory",
+            f"candidate project artifact directory is unsafe: {directory}",
+        )
+    try:
+        resolved = directory.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise ProjectArtifactError(
+            "unsafe_project_artifact_directory",
+            f"candidate project artifact directory cannot be resolved: {directory}: {error}",
+        ) from None
+    if not _same_path(resolved, directory) or not _same_path(resolved.parent, root):
+        raise ProjectArtifactError(
+            "candidate_path_escape",
+            f"candidate project artifact directory escapes its root: {directory}",
+        )
+    return resolved
+
+
+def _assert_safe_candidate_entry(
+    path: Path,
+    root: Path,
+    *,
+    must_exist: bool,
+) -> None:
+    directory = _candidate_artifact_directory(root, path.parent.name)
+    if not _same_path(path.parent, directory):
+        raise ProjectArtifactError(
+            "candidate_path_escape",
+            f"candidate project artifact escapes its direct directory: {path}",
+        )
+    if not os.path.lexists(path):
+        if must_exist:
+            raise ProjectArtifactError(
+                "project_artifact_changed_during_adoption",
+                f"candidate project artifact became unavailable: {path}",
+            )
+        return
+    if _is_filesystem_link(path) or not path.is_file():
+        raise ProjectArtifactError(
+            "unsafe_project_artifact_entry",
+            f"candidate project artifact entry is unsafe: {path}",
+        )
+    try:
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise ProjectArtifactError(
+            "unsafe_project_artifact_entry",
+            f"candidate project artifact entry cannot be resolved: {path}: {error}",
+        ) from None
+    if not _same_path(resolved, path) or not _same_path(resolved.parent, directory):
+        raise ProjectArtifactError(
+            "candidate_path_escape",
+            f"candidate project artifact entry escapes its directory: {path}",
+        )
+
+
+def _verify_record_unchanged(
+    record: ProjectArtifactRecord,
+    candidate_root: Path,
+) -> None:
+    _assert_safe_candidate_entry(record.path, candidate_root, must_exist=True)
+    if not record.path.is_file():
+        raise ProjectArtifactError(
+            "project_artifact_changed_during_adoption",
+            f"project artifact became unavailable or unsafe: {record.path}",
+        )
+    try:
+        current_bytes = record.path.read_bytes()
+        current_payload = load_validated_json(record.path, record.kind)
+    except (OSError, TypeError, ValueError) as error:
+        raise ProjectArtifactError(
+            "project_artifact_changed_during_adoption",
+            f"project artifact changed after preflight: {record.path}: {error}",
+        ) from None
+    if current_bytes != record.source_bytes or current_payload != record.payload:
+        raise ProjectArtifactError(
+            "project_artifact_changed_during_adoption",
+            f"project artifact changed after preflight: {record.path}",
+        )
+
+
+def _verify_adoption_target(plan: _AdoptionPlan, candidate_root: Path) -> None:
+    _assert_safe_candidate_entry(plan.target, candidate_root, must_exist=True)
+    if not plan.target.is_file():
+        raise ProjectArtifactError(
+            "project_artifact_target_changed",
+            f"stable identity target became unavailable or unsafe: {plan.target}",
+        )
+    try:
+        payload = load_validated_json(
+            plan.target,
+            plan.source.kind,
+            expected_repository=str(plan.expected_payload["repository"]),
+        )
+    except (OSError, TypeError, ValueError) as error:
+        raise ProjectArtifactError(
+            "project_artifact_target_changed",
+            f"stable identity target failed verification: {plan.target}: {error}",
+        ) from None
+    if payload != plan.expected_payload:
+        raise ProjectArtifactError(
+            "project_artifact_target_changed",
+            f"stable identity target differs from the preflight payload: {plan.target}",
+        )
+
+
+def _remove_legacy_source(plan: _AdoptionPlan, candidate_root: Path) -> None:
+    _verify_record_unchanged(plan.source, candidate_root)
+    plan.source.path.unlink()
+
+
 def adopt_candidate_project_identities(generation_root: Path) -> dict[str, int]:
     """Convert v1 project artifacts inside one private candidate to v2.
 
     The full conversion is preflighted before any write. Existing equivalent
     targets are treated as completed retry work; conflicting targets abort.
+    All missing targets are durable and verified before any source is removed.
     Retained generations and flat staging are never accepted by this helper.
     """
 
-    root = generation_root.expanduser().resolve()
-    parts = [part.casefold() for part in root.parts]
-    if len(parts) < 3 or parts[-2] != ".candidates" or parts[-3] != "generations":
-        raise ProjectArtifactError(
-            "identity adoption is restricted to data/generations/.candidates/<id>"
-        )
+    root = _canonical_candidate_root(generation_root)
 
-    plans: list[tuple[ProjectArtifactRecord, Path, dict[str, Any], bool]] = []
-    all_repositories: dict[str, str] = {}
-    legacy_owners: dict[str, set[str]] = {}
+    records: list[ProjectArtifactRecord] = []
     for directory_name, kind in (
         ("analysis", ArtifactKind.STATIC_EVIDENCE),
         ("enrichment", ArtifactKind.PROJECT_ENRICHMENT),
     ):
-        directory = root / directory_name
-        for record in _records(directory, kind):
-            repository = str(record.payload["repository"])
-            identity = identity_for_repository(repository)
-            all_repositories.setdefault(identity.canonical_repository, repository)
-            if record.schema_version in {0, 1}:
-                legacy_owners.setdefault(
-                    legacy_slug_for_repository(repository), set()
-                ).add(identity.canonical_repository)
-            if record.schema_version == 0:
-                continue
-            if record.schema_version == 2:
-                continue
-            if record.schema_version != 1:
+        directory = _candidate_artifact_directory(root, directory_name)
+        records.extend(_records(directory, kind))
+
+    records_by_path = {record.path: record for record in records}
+    plans: list[_AdoptionPlan] = []
+    all_repositories: dict[str, str] = {}
+    legacy_owners: dict[str, set[str]] = {}
+    for record in records:
+        repository = str(record.payload["repository"])
+        identity = identity_for_repository(repository)
+        all_repositories.setdefault(identity.canonical_repository, repository)
+        if record.schema_version in {0, 1}:
+            legacy_owners.setdefault(
+                legacy_slug_for_repository(repository), set()
+            ).add(identity.canonical_repository)
+        if record.schema_version in {0, 2}:
+            continue
+        if record.schema_version != 1:
+            raise ProjectArtifactError(
+                "unsupported_project_artifact_version",
+                f"unsupported project artifact Schema version {record.schema_version}: {record.path}",
+            )
+        converted = {
+            **record.payload,
+            "schemaVersion": 2,
+            "projectIdVersion": identity.project_id_version,
+            "projectId": identity.project_id,
+        }
+        target = record.path.parent / f"{identity.project_id}.json"
+        try:
+            converted = require_valid(
+                record.kind,
+                converted,
+                source_path=target,
+                expected_repository=repository,
+            )
+        except (TypeError, ValueError) as error:
+            raise ProjectArtifactError(
+                "invalid_mechanical_project_artifact_conversion",
+                f"mechanical v2 conversion failed validation for {record.path}: {error}",
+            ) from None
+        existing_target = records_by_path.get(target)
+        if existing_target is not None:
+            if (
+                existing_target.schema_version != 2
+                or existing_target.payload != converted
+            ):
                 raise ProjectArtifactError(
-                    f"unsupported project artifact Schema version {record.schema_version}: {record.path}"
+                    "conflicting_project_artifact_versions",
+                    "legacy v1 and stable v2 project artifacts are not exactly "
+                    f"equivalent for {repository!r}: {record.path.name} and {target.name}",
                 )
-            converted = {
-                **record.payload,
-                "schemaVersion": 2,
-                "projectIdVersion": identity.project_id_version,
-                "projectId": identity.project_id,
-            }
-            target = directory / f"{identity.project_id}.json"
-            target_exists = target.exists()
-            if target_exists:
-                if target.is_symlink():
-                    raise ProjectArtifactError(f"identity target cannot be a symlink: {target}")
-                existing = load_validated_json(target, kind, expected_repository=repository)
-                # Explicit Schema precedence is the selection rule inside a
-                # candidate: a validated v2 artifact for the same repository
-                # and recomputed ID is authoritative even when its content is
-                # newer than the mechanical v1 conversion. Schema validation
-                # above rejects ownership, filename, or forged-ID conflicts.
-                if existing.get("schemaVersion") != 2:
-                    raise ProjectArtifactError(
-                        f"stable identity target is not project artifact v2: {target}"
-                    )
-            plans.append((record, target, converted, target_exists))
+        elif os.path.lexists(target):
+            raise ProjectArtifactError(
+                "unsafe_project_artifact_target",
+                f"stable identity target exists outside the validated preflight set: {target}",
+            )
+        plans.append(
+            _AdoptionPlan(
+                source=record,
+                target=target,
+                expected_payload=converted,
+                existing_target=existing_target,
+            )
+        )
 
     for slug, repositories in legacy_owners.items():
         if len(repositories) > 1:
             raise ProjectArtifactError(
+                "unresolved_legacy_collision",
                 "unresolved legacy slug collision for "
-                f"{slug!r}: {', '.join(sorted(repositories))}"
+                f"{slug!r}: {', '.join(sorted(repositories))}",
             )
 
     try:
         ensure_unique_project_identities(all_repositories.values())
     except ProjectIdentityError as error:
-        raise ProjectArtifactError(f"{error.code}: {error}") from None
+        raise ProjectArtifactError(error.code, str(error)) from None
+
+    # Recheck every assumption before the first target write. No legacy source
+    # is removed until every missing target is durable and verified.
+    for plan in plans:
+        _verify_record_unchanged(plan.source, root)
+        if plan.existing_target is not None:
+            _verify_record_unchanged(plan.existing_target, root)
+            _verify_adoption_target(plan, root)
+        elif os.path.lexists(plan.target):
+            raise ProjectArtifactError(
+                "project_artifact_target_changed",
+                f"stable identity target appeared after preflight: {plan.target}",
+            )
 
     written = 0
-    removed = 0
-    for record, target, converted, target_exists in plans:
-        if not target_exists:
-            kind = (
-                ArtifactKind.STATIC_EVIDENCE
-                if target.parent.name.casefold() == "analysis"
-                else ArtifactKind.PROJECT_ENRICHMENT
-            )
+    for plan in plans:
+        if plan.existing_target is not None:
+            continue
+        _assert_safe_candidate_entry(plan.target, root, must_exist=False)
+        try:
             atomic_write_validated_json(
-                target,
-                kind,
-                converted,
-                expected_repository=str(converted["repository"]),
+                plan.target,
+                plan.source.kind,
+                plan.expected_payload,
+                expected_repository=str(plan.expected_payload["repository"]),
             )
-            written += 1
-        record.path.unlink()
+        except (OSError, TypeError, ValueError) as error:
+            raise ProjectArtifactError(
+                "project_artifact_target_write_failed",
+                f"stable identity target could not be written atomically: {plan.target}: {error}",
+            ) from None
+        written += 1
+
+    for plan in plans:
+        _verify_adoption_target(plan, root)
+    for plan in plans:
+        _verify_record_unchanged(plan.source, root)
+
+    removed = 0
+    for plan in plans:
+        try:
+            _remove_legacy_source(plan, root)
+        except OSError as error:
+            raise ProjectArtifactError(
+                "project_artifact_source_cleanup_failed",
+                "stable identity targets are durable but legacy cleanup was "
+                f"interrupted at {plan.source.path}: {error}",
+            ) from None
         removed += 1
     return {"converted": written, "removedLegacy": removed}
 

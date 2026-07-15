@@ -108,14 +108,18 @@ python -m pipeline.ingest_enrichment --kind signal --input tmp/signal-draft.json
 
 入口会从项目画像中的 `repository` 计算唯一目标文件名；草稿解析真实路径后必须位于整个 `data/` 目录之外，不能用 `..` 或符号链接绕过，也不能用一种产物覆盖另一种正式路径。
 
-具有可信 v1 身份来源的旧 flat staging 文件可通过显式迁移工具转换为 `projectId.json`；无法机械升级的 legacy v0 保留并明确报告。默认只做完整预检和 dry-run；只有显式 `--apply` 才会原子写入，且只处理 `data/analysis` 与 `data/enrichment`，不会修改 `data/current.json`、retained generations 或发布新 generation：
+具有可信 v1 身份来源的旧 flat staging 文件可通过显式迁移工具转换为 `projectId.json`；无法机械升级的 legacy v0 保留并明确报告。应用代码回滚前，同一工具的 `--to-legacy-v1` 模式可把可机械降级的 v2 staging 恢复为旧代码能读取的 v1 文件。两个方向默认都只做完整预检和 dry-run，只有额外显式 `--apply` 才会写入；它们只处理 flat `data/analysis` 与 `data/enrichment`，不会读取或修改 `data/current.json`、retained generations、candidates、manifest，也不会发布 generation：
 
 ```bash
 python -m pipeline.migrate_project_identity --data-dir data
 python -m pipeline.migrate_project_identity --data-dir data --apply
+python -m pipeline.migrate_project_identity --data-dir data --to-legacy-v1
+python -m pipeline.migrate_project_identity --data-dir data --to-legacy-v1 --apply
 ```
 
-等价目标不会被重写；若它来自上次中断的原子写入，apply 只完成遗留源清理，正常完成后再次 apply 为 no-op。目标内容冲突、符号链接或路径逃逸、同一旧 slug 无法唯一归属时会 fail closed，并保留原文件供人工解决；工具不会猜测 collision 的归属。
+正向迁移和逆向降级都先对全部 analysis/enrichment 文件完成路径、Schema、身份、目标内容和碰撞 preflight，再开始任何写入或删除。逆向模式只执行 `schemaVersion: 2 → 1`、移除 `projectIdVersion` 与 `projectId`、改回 legacy slug 文件名，其他事实、时间和内容原样保留；多个 projectId 降级到同一 slug、已有非等价目标、符号链接、junction 或路径逃逸都会使整批操作 fail closed。apply 先原子写入并验证全部目标，再删除源；等价目标不重写，中断后可安全重试，完整执行后的第二次 apply 为 no-op。
+
+refresh/derive 的 candidate adoption 也遵循同一无损原则：同一 repository 的 legacy v1 与 stable v2 共存时，先在内存中把 v1 机械转换为预期 v2 payload；只有结果与现有 v2 完全相等，才保留 v2 并清理 v1。任何字段不同都返回 `conflicting_project_artifact_versions`；所有项目完成全量 preflight 前不写入或删除，因此一个项目冲突会使整批 adoption 保持零写入、零删除，不能按 Schema 版本、时间、文件顺序或排名猜测权威版本。
 
 generation 管理命令：
 
@@ -132,6 +136,8 @@ npm run data:generation:rollback -- <generation-id>
 候选目录位于 `data/generations/.candidates/`，构建、Schema 或审计失败会留下 failed manifest，但不会进入 Git；已经 ready 的候选在发布冲突时保持不可变，指针中断后的 orphan generation 也会保留，稳定错误码和 candidate ID 记录在命令输出与 scheduler 状态中。首次迁移机械复制既有事实和画像，只重建 Codex 队列的证据路径并生成 manifest/current，不补造采集或分析时间。`current.json` 一旦存在，普通页面、调度、`data:validate`、`data:audit` 和正常 publish 遇到损坏指针、缺失目录或哈希不一致都会直接失败，不会静默退回 flat 数据。唯一例外是用户明确指定目标 generation 的 rollback：它先在数据锁内完整验证 retained target，再允许原子替换损坏的 current；恢复过程仍不读取 flat 数据。
 
 兼容规则不会伪造历史事实：GitHub snapshot v1 保留既有 `schema_version` 字段和早期 history 形状；两份因对应静态证据缺少可信 `analyzed_at` 而无法绑定的画像，以及一份早于当前静态证据的历史画像，显式保留为 `schemaVersion: 0`，永远不视为当前证据；signal enrichment v1 继续允许旧条目使用顶层 `generatedAt` 作为分析时间回退。Catalog v1/v2、静态证据 v0/v1、项目画像 v0/v1 和 Queue v1 generation 保持原字节与原 Schema，仍可严格验证、审计和显式 rollback；只有新生成的 Catalog v3、静态证据 v2、项目画像 v2 与 Queue v2 采用 Stable ID。网页对旧评分继续保守归一化，未知版本 fail closed。旧 flat 树只在 `current.json` 尚不存在时用于一次迁移或作为受控 staging，网页和增长基线不会绕过 current 指针。详细模型见 `docs/DATA_MODEL.md`。
+
+回滚 Stable ID 应用代码前必须先让 flat staging 回到旧代码可读状态，顺序固定为：停止写入任务 → 备份 flat staging → 执行 `--to-legacy-v1` dry-run → 显式 `--to-legacy-v1 --apply` → 验证全部 staging 均为旧代码可读取的 v0/v1 → 回滚应用代码 → 显式 rollback 到健康的 Catalog v1/v2 retained generation → 运行 Schema/Audit → 恢复 Runtime。存在 v2 staging 时不能只恢复代码；不得跳过备份、降级预检或 generation 验证。
 
 Windows 上可以直接双击项目根目录的 `打开 Rardar.cmd`。它会启动一个隐藏的本地管理器，同时看护网站和每日刷新任务，并打开本地首页。管理器会在任一子服务异常退出后自动重启它；调度器即使进程仍存在，只要心跳持续过期，也会在启动宽限期后被自动恢复。运行心跳、PID 和日志保存在 Windows 本地应用数据目录，不会因频繁写入而触发网站热更新；每份日志超过 5 MB 后滚动，并保留最近两份历史。
 

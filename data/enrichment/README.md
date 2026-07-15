@@ -36,11 +36,15 @@ npm run data:derive
 
 两个来源时间必须是带时区 RFC3339，并与队列提供的字符串精确一致；`analyzedAt` 不能早于 `sourceAnalysisAt`。入口会核对类型、时间、URL、repository、重算后的 projectId 和 `<projectId>.json` 目标文件名，并与 refresh/derive 使用同一个数据目录锁。草稿的解析后路径必须在整个 `data/` 目录之外；验证或写入失败时保留已有 staging 画像。进入本目录不等于正式发布，只有后续 `data:derive` 通过 Schema、identity、audit、manifest/hash 和原子 pointer 门禁后才会成为网页数据。
 
-具有可信来源字段的 v1 slug 文件只能通过显式 staging 迁移入口处理；无法机械升级的 legacy v0 会保留并报告。默认命令只预检和 dry-run；`--apply` 只迁移 flat `analysis/` 与 `enrichment/`，不修改 current 或 retained generations：
+具有可信来源字段的 v1 slug 文件只能通过显式 staging 迁移入口处理；无法机械升级的 legacy v0 会保留并报告。应用代码回滚前，`--to-legacy-v1` 可把可机械降级的 v2 staging 恢复为旧代码可读取的 v1。两个方向默认都只预检和 dry-run，额外指定 `--apply` 才写入；工具只处理 flat `analysis/` 与 `enrichment/`，不读取或修改 current、retained generations、candidates 或 manifest：
 
 ```bash
 python -m pipeline.migrate_project_identity --data-dir data
 python -m pipeline.migrate_project_identity --data-dir data --apply
+python -m pipeline.migrate_project_identity --data-dir data --to-legacy-v1
+python -m pipeline.migrate_project_identity --data-dir data --to-legacy-v1 --apply
 ```
 
-同一 repository 已有内容等价的 Stable ID 文件时不会重写目标；若 legacy 源仍存在，apply 只完成可重试的源清理，正常完成后再次 apply 为 no-op。目标内容冲突、符号链接/路径逃逸或旧 slug 无法唯一映射时会失败并保留原文件，不得猜测归属。
+正向迁移与逆向降级都先对全部文件完成 preflight。逆向模式只把 `schemaVersion` 从 2 改为 1，移除 `projectIdVersion`/`projectId` 并恢复 legacy slug 文件名，其他事实、来源时间和内容原样保留。多个 projectId 降级到同一 slug、已有非等价目标、符号链接、junction 或路径逃逸会使整批零写入、零删除；apply 先原子写入并验证全部目标，再删除源。等价目标不重写，写入或源清理中断后可安全重试，完整执行后的第二次 apply 为 no-op。
+
+refresh/derive 候选中同一 repository 的 v1/v2 共存时，不得仅凭 v2 Schema 版本选择 v2：只有把 v1 机械转换成预期 v2 后与现有 v2 完全相等，才允许保留 v2 并清理 v1；否则返回 `conflicting_project_artifact_versions`。analysis/enrichment 全部完成 preflight 前不修改文件，一个项目冲突会使整批 adoption 零写入、零删除。
