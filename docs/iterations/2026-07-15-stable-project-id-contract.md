@@ -73,7 +73,7 @@ python -m pipeline.migrate_project_identity --data-dir data --to-legacy-v1 --app
 
 ## 回滚
 
-存在 v2 flat staging 时不能只恢复应用代码。回滚顺序固定为：停止写入任务 → 备份 flat staging → 执行 `--to-legacy-v1` dry-run → 显式 `--to-legacy-v1 --apply` → 验证全部 staging 均为旧代码可读取的 v0/v1 → 回滚应用代码 → 显式 rollback 到健康的 Catalog v1/v2 retained generation → 运行 Schema/Audit → 恢复 Runtime。既有 retained generation 不被迁移工具改写；generation rollback 仍必须完整验证目标，不能手改 current 或让网页回退 flat 数据。
+存在 v2 flat staging 时不能只恢复应用代码。回滚顺序固定为：停止写入任务 → 备份 flat staging 与 D1 → 执行 `--to-legacy-v1` dry-run → 显式 `--to-legacy-v1 --apply` → 验证全部 staging 均为旧代码可读取的 v0/v1 → 在 P1-6B 代码仍运行时显式 rollback 到健康的 Catalog v1/v2 retained generation → 在目标 Runtime 的实际 D1 上发起一次预期会执行 adoption 的受控 GET，并核验 `project_identity_runtime` → 运行 Schema/Audit → 停止 Runtime → 回滚应用代码 → 恢复 Runtime。既有 retained generation 不被迁移工具改写；generation rollback 仍必须完整验证目标，不能手改 current 或让网页回退 flat 数据。
 
 ## 验证边界
 
@@ -81,8 +81,8 @@ python -m pipeline.migrate_project_identity --data-dir data --to-legacy-v1 --app
 
 ## 治理状态与下一项
 
-PR #7 已通过提交 `3430e30` 完成 P1-5 Verify/CI。当前 P1-6 大阶段进行中，本轮只交付 P1-6A，且只有对应 PR 合并到 `main` 后 P1-6A 才视为完成。合并前不得开始 P1-6B；合并后第一个未完成项是 P1-6B D1/Action API，P1-6C UI/路由兼容在其后。任何单项完成都不能提前把整个 P1-6 标记完成。
+本文件记录的 P1-6A 已由 PR #8、提交 `d41033f` 合并到 `main` 并完成。P1-6 大阶段仍在进行；当前第一个未完成项是独立的 P1-6B D1/Action API 身份工程轮，P1-6C UI/路由兼容只能在 P1-6B 合并后开始。任何单项完成都不能提前把整个 P1-6 标记完成。
 
 ## 是否影响 North Star
 
-不改变 Weekly Acted Projects 的定义或数值。P1-6A 先消除 JSON 数据层的项目身份歧义；周指标从 `project_slug` 迁移到 `projectId` 属于 P1-6B。
+不改变 Weekly Acted Projects 的定义或数值。P1-6A 已消除 JSON 数据层的项目身份歧义；周指标从 `project_slug` 迁移到 `projectId` 由当前 P1-6B 独立工程轮交付。

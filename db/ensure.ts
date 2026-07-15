@@ -1,9 +1,28 @@
 import { env } from "cloudflare:workers";
+import stableProjectIdentityMigration from "../drizzle/0004_stable_project_identity.sql?raw";
 import { prepareProjectActionSchema } from "./project-actions.mjs";
+import {
+  adoptStableProjectIdentities,
+  type ProjectIdentityCatalog,
+} from "./stable-project-decisions.mjs";
 
 let schemaReady: Promise<void> | null = null;
+let adoptedIdentityKey: string | null = null;
+let identityAdoptionTail: Promise<void> = Promise.resolve();
 
-export function ensureDecisionSchema() {
+function identityCatalogKey(identityCatalog: ProjectIdentityCatalog) {
+  return JSON.stringify(identityCatalog);
+}
+
+function prepareStableProjectMigration() {
+  return stableProjectIdentityMigration
+    .split("--> statement-breakpoint")
+    .map((statement) => statement.trim())
+    .filter(Boolean)
+    .map((statement) => env.DB.prepare(statement));
+}
+
+function ensureBaseSchema() {
   if (schemaReady) return schemaReady;
   schemaReady = env.DB.batch([
     env.DB.prepare(`
@@ -33,29 +52,28 @@ export function ensureDecisionSchema() {
       CREATE INDEX IF NOT EXISTS decision_events_device_created_idx
       ON decision_events (device_id, created_at)
     `),
-    env.DB.prepare(`
-      CREATE TRIGGER IF NOT EXISTS feedback_insert_decision_event
-      AFTER INSERT ON feedback
-      BEGIN
-        INSERT INTO decision_events (device_id, project_slug, value)
-        VALUES (NEW.device_id, NEW.project_slug, NEW.value);
-      END
-    `),
-    env.DB.prepare(`
-      CREATE TRIGGER IF NOT EXISTS feedback_update_decision_event
-      AFTER UPDATE OF value ON feedback
-      WHEN OLD.value <> NEW.value
-      BEGIN
-        INSERT INTO decision_events (device_id, project_slug, value)
-        VALUES (NEW.device_id, NEW.project_slug, NEW.value);
-      END
-    `),
     ...prepareProjectActionSchema(env.DB),
+    ...prepareStableProjectMigration(),
   ])
     .then(() => undefined)
     .catch((error) => {
       schemaReady = null;
+      adoptedIdentityKey = null;
       throw error;
     });
   return schemaReady;
+}
+
+export async function ensureDecisionSchema(identityCatalog?: ProjectIdentityCatalog) {
+  await ensureBaseSchema();
+  if (!identityCatalog) return;
+
+  const key = identityCatalogKey(identityCatalog);
+  const adoption = identityAdoptionTail.then(async () => {
+    if (adoptedIdentityKey === key) return;
+    await adoptStableProjectIdentities(env.DB, identityCatalog);
+    adoptedIdentityKey = key;
+  });
+  identityAdoptionTail = adoption.catch(() => undefined);
+  return adoption;
 }

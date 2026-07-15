@@ -5,8 +5,14 @@ export const feedbackValues = ["有用", "无用", "复用", "待确定"] as con
 export type FeedbackValue = (typeof feedbackValues)[number];
 
 export type ProjectFeedback = {
-  projectSlug: string;
+  projectIdVersion: 1;
+  projectId: string;
   value: string;
+};
+
+export type StableIdentityProject = Project & {
+  projectIdVersion: 1;
+  projectId: string;
 };
 
 export type PreferenceFeature = {
@@ -15,6 +21,8 @@ export type PreferenceFeature = {
 };
 
 export type RankedProject = {
+  projectIdVersion: 1;
+  projectId: string;
   slug: string;
   personalizedScore: number;
   baseScore: number;
@@ -93,35 +101,39 @@ function clamp(value: number, minimum: number, maximum: number) {
 }
 
 function balanceHeatTracks<
-  T extends { slug: string; heatTrack: "recent_momentum" | "long_term"; personalizedScore: number },
+  T extends { projectId: string; heatTrack: "recent_momentum" | "long_term"; personalizedScore: number },
 >(items: T[]) {
   const longTerm = items
     .filter((item) => item.heatTrack === "long_term" && item.personalizedScore >= 60)
     .slice(0, 2);
   const recentMomentum = items.filter((item) => item.heatTrack === "recent_momentum").slice(0, 3);
-  const selected = new Set([...longTerm, ...recentMomentum].map((item) => item.slug));
+  const selected = new Set([...longTerm, ...recentMomentum].map((item) => item.projectId));
   if (selected.size < 5) {
     for (const item of items) {
-      selected.add(item.slug);
+      selected.add(item.projectId);
       if (selected.size === 5) break;
     }
   }
   return [
-    ...items.filter((item) => selected.has(item.slug)),
-    ...items.filter((item) => !selected.has(item.slug)),
+    ...items.filter((item) => selected.has(item.projectId)),
+    ...items.filter((item) => !selected.has(item.projectId)),
   ];
 }
 
 export function rankProjects(
-  projects: Project[],
+  projects: StableIdentityProject[],
   rawFeedback: ProjectFeedback[],
 ): PersonalizationResult {
-  const projectBySlug = new Map(projects.map((project) => [project.slug, project]));
+  const projectById = new Map(projects.map((project) => [project.projectId, project]));
   const currentFeedback = new Map<string, FeedbackValue>();
 
   rawFeedback.forEach((item) => {
-    if (projectBySlug.has(item.projectSlug) && isFeedbackValue(item.value)) {
-      currentFeedback.set(item.projectSlug, item.value);
+    if (
+      item.projectIdVersion === 1
+      && projectById.has(item.projectId)
+      && isFeedbackValue(item.value)
+    ) {
+      currentFeedback.set(item.projectId, item.value);
     }
   });
 
@@ -133,6 +145,8 @@ export function rankProjects(
       recommendations: projects.map((project) => {
         const baseScore = round(evidenceBaseScore(project));
         return {
+          projectIdVersion: 1,
+          projectId: project.projectId,
           slug: project.slug,
           personalizedScore: baseScore,
           baseScore,
@@ -146,8 +160,8 @@ export function rankProjects(
   }
 
   const featureScores = new Map<string, { label: string; score: number }>();
-  currentFeedback.forEach((value, slug) => {
-    const project = projectBySlug.get(slug);
+  currentFeedback.forEach((value, projectId) => {
+    const project = projectById.get(projectId);
     if (!project) return;
     const features = projectFeatures(project);
     if (!features.length) return;
@@ -169,7 +183,7 @@ export function rankProjects(
       -12,
       12,
     );
-    const directFeedback = currentFeedback.get(project.slug);
+    const directFeedback = currentFeedback.get(project.projectId);
     const directAdjustment = directFeedback ? directAdjustments[directFeedback] : 0;
     const adjustment = affinityAdjustment + directAdjustment;
     const positiveMatches = matches
@@ -194,6 +208,8 @@ export function rankProjects(
     }
 
     return {
+      projectIdVersion: 1,
+      projectId: project.projectId,
       slug: project.slug,
       heatTrack: project.heatTrack ?? "recent_momentum",
       personalizedScore: round(baseScore + adjustment),
@@ -220,6 +236,8 @@ export function rankProjects(
     feedbackCount: currentFeedback.size,
     profile,
     recommendations: balancedRecommendations.map((item) => ({
+      projectIdVersion: 1,
+      projectId: item.projectId,
       slug: item.slug,
       personalizedScore: item.personalizedScore,
       baseScore: item.baseScore,

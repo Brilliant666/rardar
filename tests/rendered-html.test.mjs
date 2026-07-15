@@ -36,11 +36,14 @@ test("contains the complete Rardar home experience", async () => {
     candidatesPage,
     watchlist,
     personalization,
+    projectIdentity,
     scoreSemantics,
     schema,
     ensure,
     actionStore,
+    stableDecisionStore,
     actionMigration,
+    stableIdentityMigration,
     build,
     viteConfig,
   ] = await Promise.all([
@@ -70,11 +73,14 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/candidates/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/WatchlistClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/personalization.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/project-identity.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/score-semantics.mjs", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/ensure.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/project-actions.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../db/stable-project-decisions.mjs", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0003_flaky_spacker_dave.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0004_stable_project_identity.sql", import.meta.url), "utf8"),
     access(new URL("../dist/server/index.js", import.meta.url)),
     readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
   ]);
@@ -114,21 +120,45 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(publishedBridge, /loadPublishedBundle\(dataDirectory\)/);
   assert.match(publishedBridge, /PUBLISHED_DATA_BRIDGE_PATH/);
   assert.match(publishedBridge, /Cache-Control", "no-store"/);
-  assert.match(metricsRoute, /effective_decisions/);
+  assert.match(metricsRoute, /feedbackDecisions: feedbackWeek\.effectiveDecisions/);
   assert.match(metricsRoute, /cache-control.*no-store/s);
-  assert.match(feedbackRoute, /projectSlugs/);
+  assert.match(feedbackRoute, /createProjectIdentityContext/);
+  assert.match(feedbackRoute, /resolveProjectSelector/);
+  assert.match(feedbackRoute, /upsertStableFeedback/);
+  assert.match(feedbackRoute, /readStableFeedback/);
+  assert.match(feedbackRoute, /projectIdVersion: 1/);
+  assert.match(feedbackRoute, /projectId: project\.projectId/);
+  assert.match(feedbackRoute, /projectSlug: project\.projectSlug/);
+  assert.match(feedbackRoute, /catalogGenerationId: published\.generationId/);
+  assert.match(feedbackRoute, /has\("repository"\).*has\("repo"\).*has\("occurredAt"\)/s);
   assert.match(feedbackRoute, /noStoreHeaders/);
-  assert.match(feedbackRoute, /setWhere: ne\(feedback\.value, value\)/);
-  assert.match(feedbackRoute, /changedRows\.length === 1/);
+  assert.doesNotMatch(feedbackRoute, /projectSlugs/);
+  assert.doesNotMatch(feedbackRoute, /setWhere: ne\(feedback\.value, value\)/);
   assert.doesNotMatch(feedbackRoute, /insert\(decisionEvents\)/);
-  assert.match(metricsRoute, /readWeeklyActionMetrics/);
+  assert.match(metricsRoute, /createProjectIdentityContext/);
+  assert.match(metricsRoute, /ensureDecisionSchema\(identityContext\.identityCatalog\)/);
+  assert.match(metricsRoute, /readStableWeeklyActionMetrics/);
+  assert.match(metricsRoute, /readStableWeeklyFeedbackMetrics/);
+  assert.match(metricsRoute, /validateStoredProjectIdentity/);
+  assert.match(actionsRoute, /withCurrentProjectIdentityIfPresent/);
+  assert.match(feedbackRoute, /withCurrentProjectIdentityIfPresent/);
+  assert.match(recommendationsRoute, /withCurrentProjectIdentityIfPresent/);
   assert.doesNotMatch(metricsRoute, /FROM project_actions/);
   assert.match(actionsRoute, /allowedActions/);
-  assert.match(actionsRoute, /unknown project/);
-  assert.match(actionsRoute, /appendProjectActionEvent/);
+  assert.match(actionsRoute, /createProjectIdentityContext/);
+  assert.match(actionsRoute, /resolveProjectSelector/);
+  assert.match(actionsRoute, /appendStableProjectActionEvent/);
   assert.match(actionsRoute, /idempotencyKey/);
   assert.match(actionsRoute, /status === "conflict"/);
-  assert.match(actionsRoute, /readProjectActionState/);
+  assert.match(actionsRoute, /readStableProjectActionState/);
+  assert.match(actionsRoute, /ensureDecisionSchema\(identityContext\.identityCatalog\)/);
+  assert.match(actionsRoute, /projectIdVersion: 1/);
+  assert.match(actionsRoute, /projectId: project\.projectId/);
+  assert.match(actionsRoute, /projectSlug: project\.projectSlug/);
+  assert.match(actionsRoute, /catalogGenerationId: published\.generationId/);
+  assert.match(actionsRoute, /has\("repository"\).*has\("repo"\).*has\("occurredAt"\)/s);
+  assert.doesNotMatch(actionsRoute, /appendProjectActionEvent\(/);
+  assert.doesNotMatch(actionsRoute, /readProjectActionState\(/);
   assert.match(validation, /request\.json\(\)/);
   assert.match(validation, /typeof value === "string"/);
   assert.match(projectActions, /确认复用/);
@@ -138,18 +168,50 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(projectActions, /inFlightActions/);
   assert.match(projectActions, /retryKeys/);
   assert.match(projectActions, /createProjectActionIdempotencyKey/);
+  assert.match(projectActions, /projectSlug=\$\{encodeURIComponent\(projectSlug\)\}/);
+  assert.match(projectActions, /recordProjectAction\(requestProjectSlug, action, idempotencyKey\)/);
   assert.match(projectPage, /<ProjectActions key=\{project\.slug\}/);
+  assert.match(projectPage, /projectSlug=\{project\.slug\}/);
   assert.doesNotMatch(projectActions, /if \(selected\.has\(action\)\) return/);
   assert.match(watchlist, /item\.action !== "saved"/);
+  assert.match(watchlist, /next\[item\.projectSlug\]/);
+  assert.match(watchlist, /statusBySlug\[project\.slug\]/);
   assert.match(watchlist, /已收藏/);
   assert.match(recommendationsRoute, /rankProjects/);
+  assert.match(recommendationsRoute, /createProjectIdentityContext/);
+  assert.match(recommendationsRoute, /identityContext\.stableProjects\(published\.projects\)/);
+  assert.match(recommendationsRoute, /readStableFeedback/);
+  assert.match(recommendationsRoute, /ensureDecisionSchema\(identityContext\.identityCatalog\)/);
   assert.match(dailyList, /rardar:feedback|feedbackEventName/);
   assert.match(dailyList, /currentRequestVersion = \+\+requestVersion\.current/);
   assert.match(dailyList, /currentRequestVersion !== requestVersion\.current/);
+  assert.match(dailyList, /projectBySlug/);
+  assert.match(dailyList, /key=\{project\.slug\}/);
+  assert.match(projectCard, /href=\{`\/projects\/\$\{project\.slug\}`\}/);
   assert.match(personalization, /降低重复曝光/);
   assert.match(personalization, /evidenceBaseScore\(project\)/);
   assert.doesNotMatch(personalization, /globalScore|reuseScore/);
   assert.match(personalization, /balanceHeatTracks/);
+  assert.match(personalization, /projectIdVersion: 1/);
+  assert.match(personalization, /projectById/);
+  assert.match(personalization, /currentFeedback\.set\(item\.projectId/);
+  assert.match(personalization, /slug: project\.slug/);
+  assert.doesNotMatch(personalization, /currentFeedback\.set\(item\.projectSlug/);
+  assert.match(projectIdentity, /globalThis\.crypto\?\.subtle/);
+  assert.match(projectIdentity, /subtle\.digest\("SHA-256"/);
+  assert.match(projectIdentity, /catalog\.schemaVersion === 3/);
+  assert.match(projectIdentity, /catalog\.projectIdVersion !== PROJECT_ID_VERSION/);
+  assert.match(projectIdentity, /project\.projectId !== identity\.projectId/);
+  assert.match(projectIdentity, /duplicate_normalized_repository/);
+  assert.match(projectIdentity, /project_id_collision/);
+  assert.match(projectIdentity, /ambiguous_project_slug/);
+  assert.match(projectIdentity, /project_identity_conflict/);
+  assert.match(projectIdentity, /unresolved_project_identity/);
+  assert.match(projectIdentity, /publishedAt must be a timezone-aware RFC3339 timestamp/);
+  assert.match(projectIdentity, /projectSlug: project\.projectSlug/);
+  assert.doesNotMatch(projectIdentity, /stored_project_identity_mismatch/);
+  assert.match(projectIdentity, /identityCatalog/);
+  assert.doesNotMatch(projectIdentity, /node:crypto|createHash/);
   assert.match(scoreSemantics, /schemaVersion === 1/);
   assert.match(scoreSemantics, /schemaVersion === 2/);
   assert.match(scoreSemantics, /engineeringReadiness: null/);
@@ -160,15 +222,32 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(schema, /projectActionEvents/);
   assert.match(schema, /projectActionState/);
   assert.match(ensure, /schemaReady/);
-  assert.match(ensure, /CREATE TRIGGER IF NOT EXISTS feedback_insert_decision_event/);
-  assert.match(ensure, /CREATE TRIGGER IF NOT EXISTS feedback_update_decision_event/);
-  assert.match(ensure, /WHEN OLD\.value <> NEW\.value/);
+  assert.match(ensure, /0004_stable_project_identity\.sql\?raw/);
+  assert.match(ensure, /split\("--> statement-breakpoint"\)/);
+  assert.match(stableIdentityMigration, /CREATE TRIGGER IF NOT EXISTS feedback_insert_decision_event/);
+  assert.match(stableIdentityMigration, /CREATE TRIGGER IF NOT EXISTS feedback_update_decision_event/);
+  assert.match(stableIdentityMigration, /WHEN OLD\.value <> NEW\.value/);
   assert.match(ensure, /prepareProjectActionSchema/);
   assert.match(actionStore, /project_action_events/);
   assert.match(actionStore, /project_action_state/);
   assert.match(actionStore, /project_action_events_reject_update/);
   assert.match(actionStore, /project_action_events_reject_identity_replacement/);
   assert.match(actionStore, /legacy-project-actions:/);
+  assert.match(stableDecisionStore, /project_identity_catalog/);
+  assert.match(stableDecisionStore, /project_action_events_v2/);
+  assert.match(stableDecisionStore, /project_action_state_v2/);
+  assert.match(stableDecisionStore, /feedback_v2/);
+  assert.match(stableDecisionStore, /decision_events_v2/);
+  assert.match(stableDecisionStore, /catalog_generation_id/);
+  assert.match(stableDecisionStore, /appendStableProjectActionEvent/);
+  assert.match(stableDecisionStore, /readStableProjectActionState/);
+  assert.match(stableDecisionStore, /readStableWeeklyActionMetrics/);
+  assert.match(stableDecisionStore, /upsertStableFeedback/);
+  assert.match(stableDecisionStore, /readStableFeedback/);
+  assert.match(stableDecisionStore, /readStableWeeklyFeedbackMetrics/);
+  assert.match(stableDecisionStore, /adoptStableProjectIdentities/);
+  assert.match(stableDecisionStore, /ambiguous_project_identity/);
+  assert.match(stableDecisionStore, /unresolved_project_identity/);
   assert.match(actionMigration, /project_action_events_sync_state/);
   assert.match(actionMigration, /project_action_events_reject_delete/);
   assert.match(viteConfig, /ignored: \["\*\*\/data\/generations\/\*\*"\]/);
