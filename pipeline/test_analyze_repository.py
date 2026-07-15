@@ -8,14 +8,33 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pipeline.analyze_repository import (
+    _evidence_payload,
     _extract_source_archive,
     _git_environment,
     _is_test_file,
+    _validate_repo,
     analyze_path,
 )
 
 
 class AnalyzeRepositoryTests(unittest.TestCase):
+    def test_local_payload_keeps_required_nullable_license_fact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = analyze_path(Path(directory), "local")
+
+        payload = _evidence_payload(evidence)
+        self.assertIn("license_hint", payload)
+        self.assertIsNone(payload["license_hint"])
+        self.assertNotIn("projectIdVersion", payload)
+        self.assertNotIn("projectId", payload)
+
+    def test_remote_repository_validation_preserves_literal_dot_git_name(self) -> None:
+        self.assertEqual(_validate_repo("owner/repo.git"), "owner/repo.git")
+
+    def test_remote_repository_validation_does_not_guess_from_url(self) -> None:
+        with self.assertRaises(ValueError):
+            _validate_repo("https://github.com/owner/repo.git")
+
     def test_symbolic_links_cannot_escape_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "repo"

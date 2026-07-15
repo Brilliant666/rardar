@@ -138,12 +138,23 @@ function normalizeLegacyProject(value) {
   };
 }
 
-function normalizeEvidenceProject(value) {
-  const project = requireObject(value, "Catalog v2 project");
+function normalizeEvidenceProject(value, source = "Catalog v2 project") {
+  const project = requireObject(value, source);
   return {
     ...project,
     scoreModelVersion: EVIDENCE_SCORE_MODEL_VERSION,
   };
+}
+
+function normalizeStableIdentityProject(value) {
+  const project = requireObject(value, "Catalog v3 project");
+  if (project.projectIdVersion !== 1) {
+    throw new Error("Catalog v3 project must use projectIdVersion 1");
+  }
+  if (typeof project.projectId !== "string" || project.projectId.length === 0) {
+    throw new TypeError("Catalog v3 project projectId must be a non-empty string");
+  }
+  return normalizeEvidenceProject(project, "Catalog v3 project");
 }
 
 export function normalizeCatalogSnapshot(value) {
@@ -165,6 +176,19 @@ export function normalizeCatalogSnapshot(value) {
     return {
       ...catalog,
       projects: catalog.projects.map(normalizeEvidenceProject),
+    };
+  }
+
+  if (catalog.schemaVersion === 3) {
+    if (catalog.projectIdVersion !== 1) {
+      throw new Error("Catalog v3 must use projectIdVersion 1");
+    }
+    if (catalog.scoreModelVersion !== EVIDENCE_SCORE_MODEL_VERSION) {
+      throw new Error(`unsupported Catalog v3 scoreModelVersion: ${String(catalog.scoreModelVersion)}`);
+    }
+    return {
+      ...catalog,
+      projects: catalog.projects.map(normalizeStableIdentityProject),
     };
   }
 

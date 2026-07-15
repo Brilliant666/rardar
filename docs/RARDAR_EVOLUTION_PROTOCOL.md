@@ -76,15 +76,18 @@ git remote -v
 2. audited generations——已由 PR #4（提交 `bf35575`）完成；
 3. 追加式行动事件模型——已由 PR #5、提交 `238b572` 完成；
 4. 评分语义修正——已由 PR #6、提交 `ab34119` 完成；
-5. 统一 verify 和 GitHub Actions——由当前 PR 交付，仅在对应 PR 合并到 `main` 后视为完成；
-6. 稳定项目 ID——下一工程目标，尚未开始；
+5. 统一 verify 和 GitHub Actions——已由 PR #7、提交 `3430e30` 完成；
+6. 稳定项目 ID——大阶段正在进行，必须依次拆成独立工程轮：
+   - P1-6A 身份契约与 JSON 数据层——当前工程轮，仅在对应 PR 合并到 `main` 后完成；
+   - P1-6B D1 与 Action API 采用 `projectId`——P1-6A 合并后的第一个未完成项；
+   - P1-6C UI、页面路由与 legacy URL 兼容——P1-6B 之后处理；
 7. 环境和开源治理文档；
 8. 静态能力识别升级；
 9. 任务到项目匹配；
 10. 用户项目上下文；
 11. 隔离验证闭环。
 
-当前 Verify/CI PR 合并前不得开始稳定项目 ID 或其他后续工程目标。合并后仍需从最新 `main` 和迭代记录重新确认状态，再按“选择列表中第一个尚未完成的目标”规则建立独立分支。
+P1-6A 合并前不得开始 P1-6B 或 P1-6C；P1-6A 合并不代表整个 P1-6 完成。每次合并后仍需从最新 `main` 和迭代记录重新确认状态，再按“选择列表中第一个尚未完成的目标”规则建立独立分支。
 
 不得跳过可信数据基线，直接构建复杂 Agent、向量检索或自动执行系统。
 
@@ -122,14 +125,10 @@ test/<scope>
 运行现有验证：
 
 ```bash
-npm run lint
-python -m unittest discover -s pipeline -p "test_*.py"
-npm run data:validate
-npm run data:audit
-npm run build
-npm test
-npm run security:audit:prod
+npm run verify
 ```
+
+本地 Verify 必须使用当前开发 worktree 自有 `.venv`，并通过绝对 `RARDAR_PYTHON` 指定解释器。它统一覆盖 lint、Python tests、Schema、Audit、build、Node tests、production security audit，以及正式 data、Git 和 Runtime 隔离门禁。
 
 某项不可运行时：
 

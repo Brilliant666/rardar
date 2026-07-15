@@ -10,6 +10,7 @@ from pathlib import Path
 from pipeline.audit_data import audit_data
 from pipeline.build_catalog import build_catalog
 from pipeline.codex_queue import build_codex_queue
+from pipeline.project_identity import project_id_for_repository
 
 
 def write_json(path: Path, payload: dict[str, object]) -> None:
@@ -293,7 +294,96 @@ def write_v2_audit_fixture(root: Path) -> dict[str, object]:
     return catalog
 
 
+def upgrade_audit_fixture_to_v3(root: Path) -> dict[str, object]:
+    write_v2_audit_fixture(root)
+    snapshot = json.loads(
+        (root / "snapshots/latest.json").read_text(encoding="utf-8")
+    )
+    signals = json.loads(
+        (root / "signals/latest.json").read_text(encoding="utf-8")
+    )
+    legacy_analysis_path = root / "analysis/demo--fast-tool.json"
+    legacy_enrichment_path = root / "enrichment/demo--fast-tool.json"
+    analysis = json.loads(legacy_analysis_path.read_text(encoding="utf-8"))
+    enrichment = json.loads(legacy_enrichment_path.read_text(encoding="utf-8"))
+    project_id = project_id_for_repository("demo/fast-tool")
+    analysis.update(
+        {"schemaVersion": 2, "projectIdVersion": 1, "projectId": project_id}
+    )
+    enrichment.update(
+        {"schemaVersion": 2, "projectIdVersion": 1, "projectId": project_id}
+    )
+    legacy_analysis_path.unlink()
+    legacy_enrichment_path.unlink()
+    write_json(root / f"analysis/{project_id}.json", analysis)
+    write_json(root / f"enrichment/{project_id}.json", enrichment)
+    catalog = build_catalog(
+        snapshot,
+        limit=2,
+        analyses={"demo/fast-tool": analysis},
+        enrichments={"demo/fast-tool": enrichment},
+        schema_version=3,
+    )
+    catalog["previousCapturedAt"] = None
+    queue = build_codex_queue(
+        catalog,
+        signals,
+        root / "enrichment",
+        root / "signals/enrichment.json",
+        datetime.fromisoformat(snapshot["captured_at"]),
+        project_limit=0,
+        signal_limit=0,
+    )
+    catalog["codexPendingCount"] = queue["pendingCount"]
+    write_json(root / "catalog/latest.json", catalog)
+    write_json(root / "queues/codex.json", queue)
+    return {"analysis": analysis, "enrichment": enrichment, "catalog": catalog}
+
+
 class AuditDataTests(unittest.TestCase):
+    def test_catalog_v3_rejects_legacy_collision_outside_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = upgrade_audit_fixture_to_v3(root)
+            healthy = audit_data(root)
+
+            legacy_analysis = deepcopy(fixture["analysis"])
+            legacy_analysis.update(
+                {
+                    "schemaVersion": 0,
+                    "repository": "owner/foo.bar",
+                    "source": "https://github.com/owner/foo.bar",
+                }
+            )
+            for field in ("projectIdVersion", "projectId", "analyzed_at"):
+                legacy_analysis.pop(field, None)
+            legacy_enrichment = deepcopy(fixture["enrichment"])
+            legacy_enrichment.update(
+                {
+                    "schemaVersion": 0,
+                    "repository": "owner/foo-bar",
+                    "sourceUrl": "https://github.com/owner/foo-bar#readme",
+                }
+            )
+            for field in (
+                "projectIdVersion",
+                "projectId",
+                "sourcePushedAt",
+                "sourceAnalysisAt",
+            ):
+                legacy_enrichment.pop(field, None)
+            write_json(root / "analysis/owner--foo-bar.json", legacy_analysis)
+            write_json(root / "enrichment/owner--foo-bar.json", legacy_enrichment)
+
+            collided = audit_data(root)
+
+        self.assertEqual(healthy["status"], "healthy", healthy["issues"])
+        self.assertEqual(collided["status"], "failed")
+        self.assertIn(
+            "unresolved_legacy_collision",
+            {item["code"] for item in collided["issues"]},
+        )
+
     def test_rebuilds_catalog_v2_scoring_semantics_and_rejects_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

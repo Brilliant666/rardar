@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rardar.local/contracts/codex-queue.schema.json",
-  "title": "Rardar Codex queue v1",
+  "title": "Rardar Codex queue v1 and v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,8 @@
     "items"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "enum": [1, 2] },
+    "projectIdVersion": { "const": 1 },
     "generatedAt": { "type": "string", "format": "date-time" },
     "scope": {
       "type": "object",
@@ -34,15 +35,49 @@
     "completedSignalCount": { "type": "integer", "minimum": 0 },
     "items": {
       "type": "array",
-      "maxItems": 100,
-      "items": {
-        "oneOf": [
-          { "$ref": "#/$defs/projectItem" },
-          { "$ref": "#/$defs/signalItem" }
-        ]
-      }
+      "maxItems": 100
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "required": ["schemaVersion"],
+        "properties": { "schemaVersion": { "const": 1 } }
+      },
+      "then": {
+        "not": { "required": ["projectIdVersion"] },
+        "properties": {
+          "items": {
+            "items": {
+              "oneOf": [
+                { "$ref": "#/$defs/projectItem" },
+                { "$ref": "#/$defs/signalItem" }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["schemaVersion"],
+        "properties": { "schemaVersion": { "const": 2 } }
+      },
+      "then": {
+        "required": ["projectIdVersion"],
+        "properties": {
+          "items": {
+            "items": {
+              "oneOf": [
+                { "$ref": "#/$defs/projectItemV2" },
+                { "$ref": "#/$defs/signalItem" }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "httpUrl": {
       "type": "string",
@@ -57,6 +92,12 @@
       "maxLength": 200,
       "format": "repository",
       "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 25,
+      "maxLength": 86,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*--[0-9a-f]{20}$"
     },
     "nullableDateTime": {
       "oneOf": [
@@ -124,6 +165,64 @@
         "id": { "type": "string", "pattern": "^project:[a-z0-9-]+$", "maxLength": 300 },
         "kind": { "const": "project" },
         "priority": { "$ref": "#/$defs/commonItemProperties/properties/priority" },
+        "repository": { "$ref": "#/$defs/repositoryName" },
+        "title": { "$ref": "#/$defs/commonItemProperties/properties/title" },
+        "reason": { "$ref": "#/$defs/commonItemProperties/properties/reason" },
+        "evidenceState": { "enum": ["ready", "static_analysis_required"] },
+        "sourcePushedAt": { "type": "string", "format": "date-time" },
+        "sourceAnalysisAt": { "$ref": "#/$defs/nullableDateTime" },
+        "previousAnalyzedAt": { "$ref": "#/$defs/nullableDateTime" },
+        "inputPaths": { "$ref": "#/$defs/commonItemProperties/properties/inputPaths" },
+        "outputPath": { "$ref": "#/$defs/commonItemProperties/properties/outputPath" },
+        "requiredFields": { "$ref": "#/$defs/commonItemProperties/properties/requiredFields" },
+        "safety": { "$ref": "#/$defs/commonItemProperties/properties/safety" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "evidenceState": { "const": "ready" } },
+            "required": ["evidenceState"]
+          },
+          "then": {
+            "properties": {
+              "sourcePushedAt": { "type": "string", "format": "date-time" },
+              "sourceAnalysisAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      ]
+    },
+    "projectItemV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "priority",
+        "projectIdVersion",
+        "projectId",
+        "repository",
+        "title",
+        "reason",
+        "evidenceState",
+        "sourcePushedAt",
+        "sourceAnalysisAt",
+        "previousAnalyzedAt",
+        "inputPaths",
+        "outputPath",
+        "requiredFields",
+        "safety"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^project:[a-z0-9]+(?:-[a-z0-9]+)*--[0-9a-f]{20}$",
+          "maxLength": 100
+        },
+        "kind": { "const": "project" },
+        "priority": { "$ref": "#/$defs/commonItemProperties/properties/priority" },
+        "projectIdVersion": { "const": 1 },
+        "projectId": { "$ref": "#/$defs/projectId" },
         "repository": { "$ref": "#/$defs/repositoryName" },
         "title": { "$ref": "#/$defs/commonItemProperties/properties/title" },
         "reason": { "$ref": "#/$defs/commonItemProperties/properties/reason" },

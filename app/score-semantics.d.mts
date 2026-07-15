@@ -27,11 +27,17 @@ export type CanonicalProjectScores = {
   scoreExplanations: Record<(typeof SCORE_DIMENSION_KEYS)[number], ScoreExplanation>;
 };
 
+export type StableProjectIdentity = {
+  projectIdVersion: 1;
+  projectId: string;
+};
+
 export function normalizeCatalogSnapshot(
   catalog: unknown,
 ): Record<string, unknown> & {
   scoreModelVersion: "legacy-v1" | "evidence-v2";
-  projects: Array<Record<string, unknown> & CanonicalProjectScores>;
+  projectIdVersion?: 1;
+  projects: Array<Record<string, unknown> & CanonicalProjectScores & Partial<StableProjectIdentity>>;
 };
 
 export function evidenceBaseScore(project: {

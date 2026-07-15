@@ -23,6 +23,7 @@ from pipeline.generations import (
     fail_candidate_generation,
     publish_candidate_generation,
 )
+from pipeline.project_artifacts import adopt_candidate_project_identities
 from pipeline.refresh import (
     _ensure_signal_enrichment,
     _load_analyses,
@@ -95,6 +96,7 @@ def _rebuild_derived_candidate(
     signals_path = data_dir / "signals" / "latest.json"
     queue_path = data_dir / "queues" / "codex.json"
     _ensure_signal_enrichment(data_dir, (now or datetime.now(timezone.utc)).astimezone(timezone.utc))
+    adopt_candidate_project_identities(data_dir)
     snapshot = _required_json(snapshot_path)
     existing_catalog = _required_json(catalog_path)
     signals = _required_json(signals_path)
@@ -113,6 +115,7 @@ def _rebuild_derived_candidate(
         _load_analyses(data_dir / "analysis"),
         _load_enrichments(data_dir / "enrichment"),
         history,
+        schema_version=3,
     )
     catalog["previousCapturedAt"] = previous.get("captured_at") if previous else None
     catalog["analysisFailures"] = existing_catalog.get("analysisFailures") or []

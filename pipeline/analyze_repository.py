@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+from pipeline.project_identity import canonicalize_repository, identity_for_repository
+
 from pipeline.schema_validation import (
     ArtifactKind,
     artifact_write_lock,
@@ -105,7 +107,24 @@ class StaticEvidence:
     license_hint: str | None
     confidence: int
     schemaVersion: int = 1
+    projectIdVersion: int | None = None
+    projectId: str | None = None
     warnings: list[str] = field(default_factory=list)
+
+
+def _evidence_payload(evidence: StaticEvidence) -> dict[str, object]:
+    """Serialize evidence without dropping required nullable facts.
+
+    Local scans intentionally remain Schema v1 and therefore omit only the
+    v2 identity fields. Values such as ``license_hint: null`` are part of the
+    evidence contract and must stay present.
+    """
+
+    payload = asdict(evidence)
+    if evidence.projectIdVersion is None and evidence.projectId is None:
+        payload.pop("projectIdVersion")
+        payload.pop("projectId")
+    return payload
 
 
 def _iter_files(root: Path) -> Iterable[Path]:
@@ -227,10 +246,11 @@ def analyze_path(root: Path, repository: str = "local") -> StaticEvidence:
 
 
 def _validate_repo(repo: str) -> str:
-    value = repo.removeprefix("https://github.com/").removesuffix(".git").strip("/")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
-        raise ValueError("repository must be a public GitHub owner/name")
-    return value
+    # Validate the exact identity input. URLs, whitespace, trailing slashes,
+    # and a guessed ``.git`` suffix are not normalized; ``repo.git`` can be a
+    # legitimate repository name and must retain its own stable identity.
+    canonicalize_repository(repo)
+    return repo
 
 
 def _git_environment() -> dict[str, str]:
@@ -338,6 +358,10 @@ def analyze_remote(repo: str) -> StaticEvidence:
                     f"{clone_error}; source archive fallback failed for {normalized}: {error}"
                 ) from None
         evidence = analyze_path(source_root, normalized)
+        identity = identity_for_repository(normalized)
+        evidence.schemaVersion = 2
+        evidence.projectIdVersion = identity.project_id_version
+        evidence.projectId = identity.project_id
         evidence.source = f"https://github.com/{normalized}"
         if clone_error:
             evidence.warnings.append(
@@ -355,7 +379,7 @@ def main() -> None:
     arguments = parser.parse_args()
 
     evidence = analyze_remote(arguments.repo) if arguments.repo else analyze_path(arguments.path)
-    payload = asdict(evidence)
+    payload = _evidence_payload(evidence)
     expected_repository = _validate_repo(arguments.repo) if arguments.repo else None
     validated = require_valid(
         ArtifactKind.STATIC_EVIDENCE,

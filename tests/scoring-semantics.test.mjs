@@ -121,10 +121,87 @@ test("maps evidence-v2 projects to canonical fields without reinterpreting score
   assert.equal(catalog.projects[0].risk, rawProject.risk, "v2 copy must not be rewritten");
 });
 
+test("preserves Catalog v3 stable identity without changing evidence-v2 scores", () => {
+  const scoreExplanations = {
+    attention: explanation(90, "attention"),
+    endurance: explanation(80, "endurance"),
+    engineeringReadiness: explanation(70, "readiness"),
+    reuseFit: explanation(null, "task context required"),
+    evidenceCompleteness: explanation(95, "evidence"),
+  };
+  const rawProject = {
+    projectIdVersion: 1,
+    projectId: "owner-repo--65e817eec8cd71edae74",
+    slug: "owner--repo",
+    attentionScore: 90,
+    enduranceScore: 80,
+    engineeringReadiness: 70,
+    reuseFitScore: null,
+    evidenceCompleteness: 95,
+    scoreExplanations,
+  };
+  const catalog = normalizeCatalogSnapshot({
+    schemaVersion: 3,
+    projectIdVersion: 1,
+    scoreModelVersion: "evidence-v2",
+    projects: [rawProject],
+  });
+
+  assert.equal(catalog.projectIdVersion, 1);
+  assert.deepEqual(catalog.projects[0], {
+    ...rawProject,
+    scoreModelVersion: "evidence-v2",
+  });
+  assert.equal(catalog.projects[0].projectId, rawProject.projectId);
+  assert.strictEqual(catalog.projects[0].scoreExplanations, scoreExplanations);
+});
+
+test("fails closed when Catalog v3 stable identity is missing or unsupported", () => {
+  const project = {
+    projectIdVersion: 1,
+    projectId: "owner-repo--65e817eec8cd71edae74",
+  };
+  assert.throws(
+    () => normalizeCatalogSnapshot({
+      schemaVersion: 3,
+      scoreModelVersion: "evidence-v2",
+      projects: [project],
+    }),
+    /Catalog v3 must use projectIdVersion 1/,
+  );
+  assert.throws(
+    () => normalizeCatalogSnapshot({
+      schemaVersion: 3,
+      projectIdVersion: 1,
+      scoreModelVersion: "evidence-v2",
+      projects: [{ projectIdVersion: 1 }],
+    }),
+    /projectId must be a non-empty string/,
+  );
+  assert.throws(
+    () => normalizeCatalogSnapshot({
+      schemaVersion: 3,
+      projectIdVersion: 1,
+      scoreModelVersion: "evidence-v2",
+      projects: [{ projectIdVersion: 2, projectId: project.projectId }],
+    }),
+    /Catalog v3 project must use projectIdVersion 1/,
+  );
+  assert.throws(
+    () => normalizeCatalogSnapshot({
+      schemaVersion: 3,
+      projectIdVersion: 1,
+      scoreModelVersion: "future-v4",
+      projects: [project],
+    }),
+    /unsupported Catalog v3 scoreModelVersion/,
+  );
+});
+
 test("fails closed for unknown catalog or score model versions", () => {
   assert.throws(
-    () => normalizeCatalogSnapshot({ schemaVersion: 3, projects: [] }),
-    /unsupported catalog schemaVersion: 3/,
+    () => normalizeCatalogSnapshot({ schemaVersion: 4, projects: [] }),
+    /unsupported catalog schemaVersion: 4/,
   );
   assert.throws(
     () => normalizeCatalogSnapshot({ schemaVersion: 2, scoreModelVersion: "future-v3", projects: [] }),

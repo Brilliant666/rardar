@@ -1,14 +1,26 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rardar.local/contracts/catalog.schema.json",
-  "title": "Rardar catalog v1 and v2",
+  "title": "Rardar catalog v1, v2, and v3",
   "type": "object",
-  "if": {
-    "required": ["schemaVersion"],
-    "properties": { "schemaVersion": { "const": 1 } }
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "enum": [1, 2, 3] }
   },
-  "then": { "$ref": "#/$defs/catalogV1" },
-  "else": { "$ref": "#/$defs/catalogV2" },
+  "allOf": [
+    {
+      "if": { "properties": { "schemaVersion": { "const": 1 } } },
+      "then": { "$ref": "#/$defs/catalogV1" }
+    },
+    {
+      "if": { "properties": { "schemaVersion": { "const": 2 } } },
+      "then": { "$ref": "#/$defs/catalogV2" }
+    },
+    {
+      "if": { "properties": { "schemaVersion": { "const": 3 } } },
+      "then": { "$ref": "#/$defs/catalogV3" }
+    }
+  ],
   "$defs": {
     "repositoryName": {
       "type": "string",
@@ -29,6 +41,12 @@
         { "type": "null" },
         { "type": "string", "format": "date-time" }
       ]
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 25,
+      "maxLength": 86,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*--[0-9a-f]{20}$"
     },
     "evidence": {
       "type": "object",
@@ -146,6 +164,25 @@
             "projects": {
               "type": "array",
               "items": { "$ref": "#/$defs/projectV2" }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "catalogV3": {
+      "allOf": [
+        { "$ref": "#/$defs/catalogCommon" },
+        {
+          "type": "object",
+          "required": ["schemaVersion", "scoreModelVersion", "projectIdVersion"],
+          "properties": {
+            "schemaVersion": { "const": 3 },
+            "scoreModelVersion": { "const": "evidence-v2" },
+            "projectIdVersion": { "const": 1 },
+            "projects": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/projectV3" }
             }
           }
         }
@@ -328,6 +365,37 @@
             "fitHypothesis"
           ],
           "properties": {
+            "attentionScore": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "engineeringReadiness": { "$ref": "#/$defs/nullableScore" },
+            "reuseFitScore": { "$ref": "#/$defs/nullableScore" },
+            "evidenceCompleteness": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "scoreExplanations": { "$ref": "#/$defs/scoreExplanations" },
+            "recommendation": { "enum": ["了解", "收藏", "隔离试用", "观望"] },
+            "fitHypothesis": { "type": "string", "minLength": 1, "maxLength": 5000 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "projectV3": {
+      "allOf": [
+        { "$ref": "#/$defs/projectCommon" },
+        {
+          "type": "object",
+          "required": [
+            "projectIdVersion",
+            "projectId",
+            "attentionScore",
+            "engineeringReadiness",
+            "reuseFitScore",
+            "evidenceCompleteness",
+            "scoreExplanations",
+            "recommendation",
+            "fitHypothesis"
+          ],
+          "properties": {
+            "projectIdVersion": { "const": 1 },
+            "projectId": { "$ref": "#/$defs/projectId" },
             "attentionScore": { "type": "integer", "minimum": 0, "maximum": 100 },
             "engineeringReadiness": { "$ref": "#/$defs/nullableScore" },
             "reuseFitScore": { "$ref": "#/$defs/nullableScore" },

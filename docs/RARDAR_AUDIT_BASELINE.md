@@ -19,10 +19,10 @@
 | P1-2 严格数据 Schema | 已完成 | PR #2，提交 `048a2d9` |
 | P1-3 行动事件 | 已由 PR #5、提交 `238b572` 完成 | Event、State、幂等与近 7 天指标已进入 main |
 | P1-4 评分语义 | 已完成 | PR #6，提交 `ab34119` |
-| P1-5 verify/CI | 当前 PR 已交付，待审查与合并 | 单一 Verify、GitHub Actions 与数据/Runtime 隔离门禁 |
-| P1-6 稳定项目 ID | 下一工程目标 | 尚未开始独立工程轮 |
+| P1-5 verify/CI | 已完成 | PR #7，提交 `3430e30`；单一 Verify、GitHub Actions 与数据/Runtime 隔离门禁已进入 main |
+| P1-6 稳定项目 ID | 大阶段进行中 | 当前只实施 P1-6A 身份契约与 JSON 数据层；对应 PR 合并后再开始 P1-6B D1/Action API，之后为 P1-6C UI/路由兼容 |
 
-当前 Verify/CI PR 合并前不得开始 P1-6 稳定项目 ID 或其他后续工程目标。
+P1-6A 只有在对应 PR 合并到 `main` 后才视为完成；该合并不代表整个 P1-6 完成，也不得在合并前开始 P1-6B 或 P1-6C。
 
 以下章节保留 `fa2e064` 时点的原始审查内容，不重写历史事实。
 

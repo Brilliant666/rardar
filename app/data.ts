@@ -24,6 +24,9 @@ export type ScoreExplanations = {
 };
 
 export type Project = {
+  /** Present for Catalog v3 projects; absent on retained Catalog v1/v2 data. */
+  projectIdVersion?: 1;
+  projectId?: string;
   slug: string;
   repo: string;
   title: string;
@@ -64,7 +67,9 @@ export type Project = {
 };
 
 export type CatalogSnapshot = {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
+  /** Catalog v3 explicitly binds every project to identity protocol v1. */
+  projectIdVersion?: 1;
   scoreModelVersion: ScoreModelVersion;
   capturedAt: string;
   sourceCount: number;
