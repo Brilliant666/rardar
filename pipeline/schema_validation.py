@@ -25,6 +25,13 @@ from urllib.parse import urlsplit
 from jsonschema import Draft202012Validator, FormatChecker
 
 from pipeline.data_lock import data_dir_lock
+from pipeline.project_identity import (
+    ProjectIdentityError,
+    canonicalize_repository,
+    ensure_unique_project_identities,
+    is_project_id,
+    validate_project_identity,
+)
 
 
 CONTRACTS_DIR = Path(__file__).resolve().parent.parent / "contracts"
@@ -59,6 +66,9 @@ FORMAT_CHECKER = FormatChecker()
 REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 RFC3339_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+)
+QUEUE_DATA_PREFIX_PATTERN = re.compile(
+    r"data(?:/generations/[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?)?"
 )
 
 
@@ -104,6 +114,11 @@ def _is_http_url(value: object) -> bool:
 @FORMAT_CHECKER.checks("repository")
 def _is_repository(value: object) -> bool:
     return not isinstance(value, str) or bool(REPOSITORY_PATTERN.fullmatch(value))
+
+
+@FORMAT_CHECKER.checks("project-id")
+def _is_project_id(value: object) -> bool:
+    return not isinstance(value, str) or is_project_id(value)
 
 
 @dataclass(frozen=True)
@@ -231,7 +246,21 @@ def validate_payload(
     )
 
     repository = payload.get("repository") if isinstance(payload, dict) else None
-    if expected_repository is not None and repository != expected_repository:
+    repository_matches_expected = repository == expected_repository
+    if (
+        not repository_matches_expected
+        and expected_repository is not None
+        and isinstance(payload, dict)
+        and payload.get("schemaVersion") == 2
+    ):
+        try:
+            repository_matches_expected = (
+                canonicalize_repository(repository)
+                == canonicalize_repository(expected_repository)
+            )
+        except ProjectIdentityError:
+            repository_matches_expected = False
+    if expected_repository is not None and not repository_matches_expected:
         issues.append(
             ValidationIssue(
                 message=(
@@ -249,19 +278,151 @@ def validate_payload(
         and source_path.parent.name.lower() in {"analysis", "enrichment"}
         and isinstance(repository, str)
         and repository != "local"
-        and source_path.stem != _safe_repository_filename(repository)
     ):
-        issues.append(
-            ValidationIssue(
-                message=(
-                    f"repository {repository!r} maps to "
-                    f"{_safe_repository_filename(repository)!r}, not file {source_path.stem!r}"
-                ),
-                instance_path="/repository",
-                schema_path="/identity/file-name",
-                source_path=str(source_path),
-            )
+        schema_version = payload.get("schemaVersion") if isinstance(payload, dict) else None
+        expected_stem = (
+            payload.get("projectId")
+            if schema_version == 2 and isinstance(payload, dict)
+            else _safe_repository_filename(repository)
         )
+        if source_path.stem != expected_stem:
+            issues.append(
+                ValidationIssue(
+                    message=(
+                        f"repository {repository!r} maps to "
+                        f"{expected_stem!r}, not file {source_path.stem!r}"
+                    ),
+                    instance_path="/projectId" if schema_version == 2 else "/repository",
+                    schema_path="/identity/file-name",
+                    source_path=str(source_path),
+                )
+            )
+    if (
+        artifact_kind in {ArtifactKind.STATIC_EVIDENCE, ArtifactKind.PROJECT_ENRICHMENT}
+        and isinstance(payload, dict)
+        and payload.get("schemaVersion") == 2
+    ):
+        try:
+            validate_project_identity(
+                repository,
+                payload.get("projectId"),
+                payload.get("projectIdVersion"),
+            )
+        except ProjectIdentityError as error:
+            issues.append(
+                ValidationIssue(
+                    message=f"{error.code}: {error}",
+                    instance_path="/projectId",
+                    schema_path=f"/identity/{error.code}",
+                    source_path=str(source_path) if source_path else None,
+                )
+            )
+
+    if (
+        artifact_kind is ArtifactKind.CATALOG
+        and isinstance(payload, dict)
+        and payload.get("schemaVersion") == 3
+    ):
+        projects = payload.get("projects")
+        project_rows = projects if isinstance(projects, list) else []
+        repositories = [
+            item.get("repo")
+            for item in project_rows
+            if isinstance(item, dict)
+        ]
+        try:
+            ensure_unique_project_identities(repositories)
+        except ProjectIdentityError as error:
+            issues.append(
+                ValidationIssue(
+                    message=f"{error.code}: {error}",
+                    instance_path="/projects",
+                    schema_path=f"/identity/{error.code}",
+                    source_path=str(source_path) if source_path else None,
+                )
+            )
+        for index, item in enumerate(project_rows):
+            if not isinstance(item, dict):
+                continue
+            try:
+                validate_project_identity(
+                    item.get("repo"),
+                    item.get("projectId"),
+                    item.get("projectIdVersion"),
+                )
+            except ProjectIdentityError as error:
+                issues.append(
+                    ValidationIssue(
+                        message=f"{error.code}: {error}",
+                        instance_path=f"/projects/{index}/projectId",
+                        schema_path=f"/identity/{error.code}",
+                        source_path=str(source_path) if source_path else None,
+                    )
+                )
+
+    if (
+        artifact_kind is ArtifactKind.CODEX_QUEUE
+        and isinstance(payload, dict)
+        and payload.get("schemaVersion") == 2
+    ):
+        for index, item in enumerate(payload.get("items") or []):
+            if not isinstance(item, dict) or item.get("kind") != "project":
+                continue
+            project_id = item.get("projectId")
+            try:
+                validate_project_identity(
+                    item.get("repository"),
+                    project_id,
+                    item.get("projectIdVersion"),
+                )
+            except ProjectIdentityError as error:
+                issues.append(
+                    ValidationIssue(
+                        message=f"{error.code}: {error}",
+                        instance_path=f"/items/{index}/projectId",
+                        schema_path=f"/identity/{error.code}",
+                        source_path=str(source_path) if source_path else None,
+                    )
+                )
+                continue
+            expected_output = f"data/enrichment/{project_id}.json"
+            paths = item.get("inputPaths") or []
+            mismatches = []
+            if item.get("id") != f"project:{project_id}":
+                mismatches.append("id")
+            if item.get("outputPath") != expected_output:
+                mismatches.append("outputPath")
+            catalog_paths = [
+                path
+                for path in paths
+                if isinstance(path, str) and path.endswith("/catalog/latest.json")
+            ]
+            expected_paths: list[str] = []
+            if len(catalog_paths) == 1:
+                data_prefix = catalog_paths[0][: -len("/catalog/latest.json")]
+                if QUEUE_DATA_PREFIX_PATTERN.fullmatch(data_prefix):
+                    if item.get("evidenceState") == "ready":
+                        expected_paths.append(
+                            f"{data_prefix}/analysis/{project_id}.json"
+                        )
+                    expected_paths.append(catalog_paths[0])
+            if len(catalog_paths) != 1 or paths != expected_paths:
+                mismatches.append("inputPaths")
+            required_fields = item.get("requiredFields") or []
+            if not {"projectIdVersion", "projectId"}.issubset(required_fields):
+                mismatches.append("requiredFields")
+            if mismatches:
+                issues.append(
+                    ValidationIssue(
+                        message=(
+                            "project queue identity disagrees with "
+                            + ", ".join(mismatches)
+                        ),
+                        instance_path=f"/items/{index}",
+                        schema_path="/identity/queue-project",
+                        source_path=str(source_path) if source_path else None,
+                    )
+                )
     if (
         source_path is not None
         and artifact_kind is ArtifactKind.STATIC_EVIDENCE
@@ -589,7 +750,14 @@ def _reject_stale_or_conflicting_replacement(
     try:
         existing_raw = strict_json_loads(path.read_text(encoding="utf-8"))
         existing = require_valid(kind, existing_raw, source_path=path)
-    except (OSError, ValueError):
+    except (OSError, ValueError) as error:
+        if (
+            kind in {ArtifactKind.STATIC_EVIDENCE, ArtifactKind.PROJECT_ENRICHMENT}
+            and candidate.get("schemaVersion") == 2
+        ):
+            raise ValueError(
+                f"refusing to replace untrusted stable-identity artifact at {path}: {error}"
+            ) from None
         # A valid candidate may repair a corrupt current file. Semantic audit
         # remains responsible for deciding whether that repair is publishable.
         return
@@ -597,7 +765,31 @@ def _reject_stale_or_conflicting_replacement(
     if kind in {ArtifactKind.STATIC_EVIDENCE, ArtifactKind.PROJECT_ENRICHMENT}:
         existing_repository = existing.get("repository")
         candidate_repository = candidate.get("repository")
-        if existing_repository != candidate_repository:
+        same_repository = existing_repository == candidate_repository
+        if (
+            not same_repository
+            and existing.get("schemaVersion") == 2
+            and candidate.get("schemaVersion") == 2
+        ):
+            try:
+                existing_identity = validate_project_identity(
+                    existing_repository,
+                    existing.get("projectId"),
+                    existing.get("projectIdVersion"),
+                )
+                candidate_identity = validate_project_identity(
+                    candidate_repository,
+                    candidate.get("projectId"),
+                    candidate.get("projectIdVersion"),
+                )
+                same_repository = (
+                    existing_identity.canonical_repository
+                    == candidate_identity.canonical_repository
+                    and existing_identity.project_id == candidate_identity.project_id
+                )
+            except ProjectIdentityError:
+                same_repository = False
+        if not same_repository:
             raise ValueError(
                 f"output path {path} already belongs to repository "
                 f"{existing_repository!r}, not {candidate_repository!r}"

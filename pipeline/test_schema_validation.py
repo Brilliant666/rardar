@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from pipeline.generations import CurrentGenerationError
 from pipeline.audit_data import audit_data
+from pipeline.project_identity import project_id_for_repository
 from pipeline.refresh import _write_json_batch
 from pipeline.schema_validation import (
     ArtifactKind,
@@ -176,6 +177,58 @@ def valid_catalog_v2() -> dict[str, object]:
     return catalog
 
 
+def valid_queue_v2(
+    *,
+    evidence_state: str = "ready",
+    input_data_prefix: str = "data",
+) -> dict[str, object]:
+    repository = "demo/tool"
+    project_id = project_id_for_repository(repository)
+    input_paths = [
+        *(
+            [f"{input_data_prefix}/analysis/{project_id}.json"]
+            if evidence_state == "ready"
+            else []
+        ),
+        f"{input_data_prefix}/catalog/latest.json",
+    ]
+    return {
+        "schemaVersion": 2,
+        "projectIdVersion": 1,
+        "generatedAt": "2026-07-15T00:00:00Z",
+        "scope": {"projectLimit": 5, "signalLimit": 10},
+        "pendingCount": 1,
+        "projectPendingCount": 1,
+        "signalPendingCount": 0,
+        "completedProjectCount": 0,
+        "completedSignalCount": 0,
+        "items": [
+            {
+                "id": f"project:{project_id}",
+                "kind": "project",
+                "priority": 100,
+                "projectIdVersion": 1,
+                "projectId": project_id,
+                "repository": repository,
+                "title": "Demo tool",
+                "reason": "Identity contract test.",
+                "evidenceState": evidence_state,
+                "sourcePushedAt": "2026-07-14T00:00:00Z",
+                "sourceAnalysisAt": (
+                    "2026-07-14T01:00:00Z"
+                    if evidence_state == "ready"
+                    else None
+                ),
+                "previousAnalyzedAt": None,
+                "inputPaths": input_paths,
+                "outputPath": f"data/enrichment/{project_id}.json",
+                "requiredFields": ["projectId", "projectIdVersion"],
+                "safety": "Copy identity fields verbatim and publish through ingest.",
+            }
+        ],
+    }
+
+
 def valid_generation_manifest() -> dict[str, object]:
     artifacts = ["catalog/latest.json", "snapshots/latest.json"]
     return {
@@ -209,6 +262,24 @@ def valid_current_generation() -> dict[str, object]:
 
 
 class SchemaValidationTests(unittest.TestCase):
+    def test_queue_v2_requires_safe_current_or_generation_input_prefix(self) -> None:
+        current = valid_queue_v2()
+        retained = valid_queue_v2(
+            input_data_prefix="data/generations/gen-20260715-001"
+        )
+        forged = valid_queue_v2(input_data_prefix="data/evil")
+        missing_analysis = valid_queue_v2()
+        missing_analysis["items"][0]["inputPaths"] = [  # type: ignore[index]
+            "data/catalog/latest.json"
+        ]
+
+        self.assertTrue(validate_payload(ArtifactKind.CODEX_QUEUE, current).valid)
+        self.assertTrue(validate_payload(ArtifactKind.CODEX_QUEUE, retained).valid)
+        self.assertFalse(validate_payload(ArtifactKind.CODEX_QUEUE, forged).valid)
+        self.assertFalse(
+            validate_payload(ArtifactKind.CODEX_QUEUE, missing_analysis).valid
+        )
+
     def test_accepts_generation_manifest_and_current_pointer_contracts(self) -> None:
         self.assertTrue(
             validate_payload(

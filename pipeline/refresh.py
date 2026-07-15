@@ -24,7 +24,13 @@ from pipeline.generations import (
     fail_candidate_generation,
     publish_candidate_generation,
 )
+from pipeline.project_artifacts import (
+    adopt_candidate_project_identities,
+    load_project_artifacts,
+)
+from pipeline.project_identity import project_id_for_repository
 from pipeline.schema_validation import (
+    ArtifactKind,
     infer_artifact_kind,
     load_validated_json,
     require_valid_for_path,
@@ -122,25 +128,11 @@ def _history_name(snapshot: dict[str, Any]) -> str:
 
 
 def _load_analyses(directory: Path) -> dict[str, dict[str, Any]]:
-    analyses: dict[str, dict[str, Any]] = {}
-    if not directory.exists():
-        return analyses
-    for path in directory.glob("*.json"):
-        payload = _read_json(path)
-        if payload and payload.get("repository"):
-            analyses[str(payload["repository"])] = payload
-    return analyses
+    return load_project_artifacts(directory, ArtifactKind.STATIC_EVIDENCE)
 
 
 def _load_enrichments(directory: Path) -> dict[str, dict[str, Any]]:
-    enrichments: dict[str, dict[str, Any]] = {}
-    if not directory.exists():
-        return enrichments
-    for path in directory.glob("*.json"):
-        payload = _read_json(path)
-        if payload and payload.get("repository"):
-            enrichments[str(payload["repository"])] = payload
-    return enrichments
+    return load_project_artifacts(directory, ArtifactKind.PROJECT_ENRICHMENT)
 
 
 def _load_snapshot_history(
@@ -192,6 +184,7 @@ def _refresh_candidate_tree(
     enrichment_dir = generation_root / "enrichment"
     catalog_path = generation_root / "catalog" / "latest.json"
     _ensure_signal_enrichment(generation_root, now)
+    adopt_candidate_project_identities(generation_root)
 
     previous = _read_json(latest_snapshot_path)
     history = _load_snapshot_history(history_dir, previous)
@@ -200,11 +193,17 @@ def _refresh_candidate_tree(
     # mutation.  The final batch validates again at the publication boundary.
     require_valid_for_path(latest_snapshot_path, current)
 
-    preliminary = build_catalog(current, previous, limit, history=history)
+    preliminary = build_catalog(
+        current,
+        previous,
+        limit,
+        history=history,
+        schema_version=3,
+    )
     failures: list[dict[str, str]] = []
     for project in preliminary["projects"][: max(0, min(analyze_top, 10))]:
         repository = project["repo"]
-        output = analysis_dir / f"{_safe_name(repository)}.json"
+        output = analysis_dir / f"{project_id_for_repository(repository)}.json"
         try:
             _write_json(output, asdict(analyze_remote(repository)))
         except (RuntimeError, OSError, ValueError) as error:
@@ -217,6 +216,7 @@ def _refresh_candidate_tree(
         _load_analyses(analysis_dir),
         _load_enrichments(enrichment_dir),
         history,
+        schema_version=3,
     )
     catalog["previousCapturedAt"] = previous.get("captured_at") if previous else None
     catalog["analysisFailures"] = failures

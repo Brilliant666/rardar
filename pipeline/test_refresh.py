@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from pipeline.analyze_repository import StaticEvidence
+from pipeline.audit_data import audit_data
 from pipeline.generations import (
     CandidateGenerationError,
     create_candidate_generation,
@@ -14,6 +16,7 @@ from pipeline.generations import (
     resolve_current_generation,
 )
 from pipeline.refresh import _write_json_batch, refresh
+from pipeline.project_identity import identity_for_repository
 from pipeline.scheduler import committed_refresh_at
 from pipeline.schema_validation import ArtifactValidationError
 from pipeline.test_generations import _seed_legacy
@@ -75,6 +78,65 @@ class StubClient:
 
 
 class RefreshTests(unittest.TestCase):
+    def test_refresh_publishes_identity_v1_artifacts_catalog_and_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            _bootstrap(data_dir)
+            identity = identity_for_repository("demo/agent-tool")
+            evidence = StaticEvidence(
+                repository="demo/agent-tool",
+                source="https://github.com/demo/agent-tool",
+                analyzed_at=FIRST_REFRESH_AT.isoformat(),
+                scanned_files=10,
+                language_files={".py": 10},
+                indicators={
+                    "readme": True,
+                    "license": True,
+                    "tests": True,
+                    "ci": True,
+                    "docker": False,
+                    "dependency_lock": True,
+                    "package_manifest": True,
+                    "examples": False,
+                    "docs": True,
+                    "environment_example": False,
+                },
+                counts={"test_files": 2, "todo_markers": 0},
+                license_hint="MIT",
+                confidence=80,
+                schemaVersion=2,
+                projectIdVersion=1,
+                projectId=identity.project_id,
+                warnings=["static inspection only; code was not executed"],
+            )
+
+            with (
+                patch("pipeline.refresh.analyze_remote", return_value=evidence),
+                patch("pipeline.refresh.collect_signals", return_value=_signals(FIRST_REFRESH_AT)),
+            ):
+                refresh(
+                    data_dir,
+                    FIRST_REFRESH_AT,
+                    analyze_top=1,
+                    client=StubClient(100),
+                    collect_external_signals=True,
+                )
+
+            current = resolve_current_generation(data_dir)
+            catalog = json.loads(
+                (current.root / "catalog/latest.json").read_text(encoding="utf-8")
+            )
+            queue = json.loads(
+                (current.root / "queues/codex.json").read_text(encoding="utf-8")
+            )
+            analysis_path = current.root / "analysis" / f"{identity.project_id}.json"
+            self.assertTrue(analysis_path.is_file())
+            self.assertEqual(catalog["schemaVersion"], 3)
+            self.assertEqual(catalog["projects"][0]["projectId"], identity.project_id)
+            self.assertEqual(queue["schemaVersion"], 2)
+            self.assertEqual(queue["projectIdVersion"], 1)
+            self.assertEqual(audit_data(current.root)["errorCount"], 0)
+
     def test_successful_full_refresh_writes_a_consistent_commit_marker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory)

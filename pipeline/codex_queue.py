@@ -11,6 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from pipeline.data_lock import data_dir_lock
+from pipeline.project_identity import (
+    PROJECT_ID_VERSION,
+    ProjectIdentityError,
+    canonicalize_repository,
+    validate_project_identity,
+)
 from pipeline.schema_validation import (
     ArtifactKind,
     atomic_write_validated_json,
@@ -36,6 +42,11 @@ PROJECT_REQUIRED_FIELDS = {
     "limitation",
     "evidenceSummary",
     "sourceUrl",
+}
+PROJECT_V2_REQUIRED_FIELDS = {
+    *PROJECT_REQUIRED_FIELDS,
+    "projectIdVersion",
+    "projectId",
 }
 SIGNAL_CONTENT_FIELDS = {"titleZh", "takeawayZh", "whyItMattersZh", "categoryZh"}
 SIGNAL_REQUIRED_FIELDS = {*SIGNAL_CONTENT_FIELDS, "analyzedAt", "sourcePublishedAt"}
@@ -89,17 +100,47 @@ def _parse_time(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _repository_matches(
+    artifact_repository: object,
+    expected_repository: object,
+    artifact_schema_version: int,
+) -> bool:
+    if artifact_schema_version != 2:
+        return artifact_repository == expected_repository
+    try:
+        return canonicalize_repository(artifact_repository) == canonicalize_repository(
+            expected_repository
+        )
+    except ProjectIdentityError:
+        return False
+
+
 def _project_enrichment_is_current(
     payload: dict[str, Any] | None,
     project: dict[str, Any],
     analysis: dict[str, Any] | None,
+    artifact_schema_version: int = 1,
 ) -> bool:
     if (
-        not _is_complete(payload, PROJECT_REQUIRED_FIELDS)
-        or payload.get("repository") != project.get("repo")
+        not _is_complete(
+            payload,
+            PROJECT_V2_REQUIRED_FIELDS
+            if artifact_schema_version == 2
+            else PROJECT_REQUIRED_FIELDS,
+        )
+        or payload.get("schemaVersion") != artifact_schema_version
+        or not _repository_matches(
+            payload.get("repository"),
+            project.get("repo"),
+            artifact_schema_version,
+        )
         or not analysis
-        or analysis.get("schemaVersion") != 1
-        or analysis.get("repository") != project.get("repo")
+        or analysis.get("schemaVersion") != artifact_schema_version
+        or not _repository_matches(
+            analysis.get("repository"),
+            project.get("repo"),
+            artifact_schema_version,
+        )
     ):
         return False
     pushed_at = project.get("sourcePushedAt")
@@ -119,11 +160,19 @@ def _project_enrichment_is_current(
     )
 
 
-def _project_analysis_is_current(payload: dict[str, Any] | None, project: dict[str, Any]) -> bool:
+def _project_analysis_is_current(
+    payload: dict[str, Any] | None,
+    project: dict[str, Any],
+    artifact_schema_version: int = 1,
+) -> bool:
     if (
         not payload
-        or payload.get("schemaVersion") != 1
-        or payload.get("repository") != project.get("repo")
+        or payload.get("schemaVersion") != artifact_schema_version
+        or not _repository_matches(
+            payload.get("repository"),
+            project.get("repo"),
+            artifact_schema_version,
+        )
     ):
         return False
     analyzed_at = _parse_time(payload.get("analyzed_at"))
@@ -161,12 +210,33 @@ def build_codex_queue(
     items: list[dict[str, Any]] = []
     completed_projects = 0
     completed_signals = 0
+    catalog_version = catalog.get("schemaVersion")
+    if catalog_version in {None, 1, 2}:
+        queue_version = 1
+        artifact_schema_version = 1
+    elif catalog_version == 3 and catalog.get("projectIdVersion") == PROJECT_ID_VERSION:
+        queue_version = 2
+        artifact_schema_version = 2
+    else:
+        raise ValueError(
+            f"unsupported Catalog identity version for Codex queue: {catalog_version!r}"
+        )
 
     for index, project in enumerate(catalog.get("projects", [])[: max(0, project_limit)]):
         repository = str(project.get("repo") or "").strip()
         if not repository:
             continue
-        safe_name = _safe_name(repository)
+        if queue_version == 2:
+            identity = validate_project_identity(
+                repository,
+                project.get("projectId"),
+                project.get("projectIdVersion"),
+            )
+            safe_name = identity.project_id
+            required_fields = PROJECT_V2_REQUIRED_FIELDS
+        else:
+            safe_name = _safe_name(repository)
+            required_fields = PROJECT_REQUIRED_FIELDS
         enrichment_path = project_enrichment_dir / f"{safe_name}.json"
         analysis_path = project_enrichment_dir.parent / "analysis" / f"{safe_name}.json"
         enrichment = _read_json(
@@ -179,16 +249,33 @@ def build_codex_queue(
             ArtifactKind.STATIC_EVIDENCE,
             expected_repository=repository,
         )
-        analysis_ready = _project_analysis_is_current(analysis, project)
-        if analysis_ready and _project_enrichment_is_current(enrichment, project, analysis):
+        analysis_ready = _project_analysis_is_current(
+            analysis,
+            project,
+            artifact_schema_version,
+        )
+        if analysis_ready and _project_enrichment_is_current(
+            enrichment,
+            project,
+            analysis,
+            artifact_schema_version,
+        ):
             completed_projects += 1
             continue
-        complete_but_stale = _is_complete(enrichment, PROJECT_REQUIRED_FIELDS)
+        complete_but_stale = _is_complete(enrichment, required_fields)
         items.append(
             {
                 "id": f"project:{safe_name}",
                 "kind": "project",
                 "priority": 100 - index * 4,
+                **(
+                    {
+                        "projectIdVersion": PROJECT_ID_VERSION,
+                        "projectId": safe_name,
+                    }
+                    if queue_version == 2
+                    else {}
+                ),
                 "repository": repository,
                 "title": project.get("title") or repository,
                 "reason": (
@@ -212,7 +299,7 @@ def build_codex_queue(
                     f"{input_data_prefix}/catalog/latest.json",
                 ],
                 "outputPath": f"data/enrichment/{safe_name}.json",
-                "requiredFields": sorted(PROJECT_REQUIRED_FIELDS),
+                "requiredFields": sorted(required_fields),
                 "safety": (
                     "只阅读 README 与静态分析证据，不执行仓库代码；必须将本项队列中的 "
                     "sourcePushedAt 与 sourceAnalysisAt 原样复制到草稿，不能自行生成、推算或改写；"
@@ -225,6 +312,11 @@ def build_codex_queue(
                 + "outputPath 只是最终归属，不能直接覆盖。",
             }
         )
+        if queue_version == 2:
+            items[-1]["safety"] += (
+                " projectIdVersion and projectId must also be copied verbatim "
+                "from this queue item; never generate or rewrite them."
+            )
 
     signal_enrichment = (
         _read_json(signal_enrichment_path, ArtifactKind.SIGNAL_ENRICHMENT) or {}
@@ -270,8 +362,8 @@ def build_codex_queue(
     items.sort(key=lambda item: (-int(item["priority"]), str(item["id"])))
     project_pending = sum(item["kind"] == "project" for item in items)
     signal_pending = sum(item["kind"] == "signal" for item in items)
-    return {
-        "schemaVersion": 1,
+    queue = {
+        "schemaVersion": queue_version,
         "generatedAt": generated_at.astimezone(timezone.utc).isoformat(),
         "scope": {"projectLimit": project_limit, "signalLimit": signal_limit},
         "pendingCount": len(items),
@@ -281,6 +373,9 @@ def build_codex_queue(
         "completedSignalCount": completed_signals,
         "items": items,
     }
+    if queue_version == 2:
+        queue = {"projectIdVersion": PROJECT_ID_VERSION, **queue}
+    return queue
 
 
 def _artifact_data_root(path: Path) -> Path | None:

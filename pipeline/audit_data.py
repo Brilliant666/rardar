@@ -19,6 +19,13 @@ from pipeline.build_catalog import (
 )
 from pipeline.codex_queue import build_codex_queue
 from pipeline.generations import GenerationProtocolError, resolve_current_generation
+from pipeline.project_identity import (
+    ProjectIdentityError,
+    canonicalize_repository,
+    ensure_unique_project_identities,
+    legacy_slug_for_repository,
+    validate_project_identity,
+)
 from pipeline.schema_validation import (
     ArtifactKind,
     ArtifactValidationError,
@@ -151,14 +158,35 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     history_snapshots = [
         _load(path, issues, ArtifactKind.GITHUB_SNAPSHOT) for path in history_paths
     ]
+    identity_catalog = catalog.get("schemaVersion") == 3
     analyses: dict[str, dict[str, Any]] = {}
+    project_artifacts_for_collision: list[tuple[str, dict[str, Any]]] = []
     analysis_dir = data_dir / "analysis"
     if analysis_dir.exists():
         for path in sorted(analysis_dir.glob("*.json")):
             analysis = _load(path, issues, ArtifactKind.STATIC_EVIDENCE)
             repository = analysis.get("repository")
             if isinstance(repository, str) and repository:
-                analyses[repository] = analysis
+                project_artifacts_for_collision.append(("analysis", analysis))
+                key = repository.casefold() if identity_catalog else repository
+                existing = analyses.get(key)
+                if (
+                    existing is not None
+                    and existing.get("schemaVersion") == analysis.get("schemaVersion")
+                ):
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "code": "duplicate_analysis_repository",
+                            "detail": f"multiple static evidence files claim {repository!r}",
+                        }
+                    )
+                elif (
+                    existing is None
+                    or int(analysis.get("schemaVersion") or -1)
+                    > int(existing.get("schemaVersion") or -1)
+                ):
+                    analyses[key] = analysis
     enrichments: dict[str, dict[str, Any]] = {}
     enrichment_dir = data_dir / "enrichment"
     if enrichment_dir.exists():
@@ -166,7 +194,26 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             enrichment = _load(path, issues, ArtifactKind.PROJECT_ENRICHMENT)
             repository = enrichment.get("repository")
             if isinstance(repository, str) and repository:
-                enrichments[repository] = enrichment
+                project_artifacts_for_collision.append(("enrichment", enrichment))
+                key = repository.casefold() if identity_catalog else repository
+                existing = enrichments.get(key)
+                if (
+                    existing is not None
+                    and existing.get("schemaVersion") == enrichment.get("schemaVersion")
+                ):
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "code": "duplicate_enrichment_repository",
+                            "detail": f"multiple project enrichment files claim {repository!r}",
+                        }
+                    )
+                elif (
+                    existing is None
+                    or int(enrichment.get("schemaVersion") or -1)
+                    > int(existing.get("schemaVersion") or -1)
+                ):
+                    enrichments[key] = enrichment
     signal_enrichment_path = data_dir / "signals" / "enrichment.json"
     if signal_enrichment_path.exists():
         _load(signal_enrichment_path, issues, ArtifactKind.SIGNAL_ENRICHMENT)
@@ -213,8 +260,139 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     _check_count(issues, catalog.get("sourceCount"), len(repositories), "catalog_source_count_mismatch", "catalog sourceCount differs from the snapshot")
     _check_count(issues, catalog.get("projectCount"), len(projects), "catalog_project_count_mismatch", "catalog projectCount differs from project rows")
     _add_if(issues, len(project_repositories) != len(set(project_repositories)) or "" in project_repositories, "duplicate_catalog_repository", "catalog repositories must be non-empty and unique")
-    _add_if(issues, len(project_slugs) != len(set(project_slugs)) or "" in project_slugs, "duplicate_catalog_slug", "catalog slugs must be non-empty and unique")
+    _add_if(
+        issues,
+        "" in project_slugs or len(project_slugs) != len(set(project_slugs)),
+        "duplicate_catalog_slug",
+        (
+            "Catalog slugs must remain non-empty and unique until all legacy "
+            "slug consumers migrate to projectId"
+        ),
+    )
     _add_if(issues, not set(project_repositories).issubset(set(repository_names)), "catalog_repository_missing_from_snapshot", "catalog contains a repository absent from the snapshot")
+    if identity_catalog:
+        legacy_groups: dict[str, set[str]] = {}
+        for repository_name in repository_names:
+            try:
+                legacy_groups.setdefault(
+                    legacy_slug_for_repository(repository_name), set()
+                ).add(canonicalize_repository(repository_name))
+            except ProjectIdentityError:
+                continue
+        for _label, artifact in project_artifacts_for_collision:
+            if artifact.get("schemaVersion") not in {0, 1}:
+                continue
+            try:
+                slug = legacy_slug_for_repository(artifact.get("repository"))
+                canonical_repository = canonicalize_repository(
+                    artifact.get("repository")
+                )
+            except ProjectIdentityError:
+                continue
+            legacy_groups.setdefault(slug, set()).add(canonical_repository)
+        for slug, candidates in sorted(legacy_groups.items()):
+            _add_if(
+                issues,
+                len(candidates) > 1,
+                "unresolved_legacy_collision",
+                (
+                    f"legacy slug {slug!r} could refer to "
+                    f"{', '.join(sorted(candidates))}"
+                ),
+            )
+        try:
+            ensure_unique_project_identities(repository_names)
+        except ProjectIdentityError as error:
+            issues.append(
+                {
+                    "severity": "error",
+                    "code": error.code,
+                    "detail": str(error),
+                }
+            )
+        project_ids: list[str] = []
+        project_identity_by_repository: dict[str, str] = {}
+        for project in projects:
+            if not isinstance(project, dict):
+                continue
+            try:
+                identity = validate_project_identity(
+                    project.get("repo"),
+                    project.get("projectId"),
+                    project.get("projectIdVersion"),
+                )
+            except ProjectIdentityError as error:
+                issues.append(
+                    {
+                        "severity": "error",
+                        "code": error.code,
+                        "detail": f"catalog project identity: {error}",
+                    }
+                )
+                continue
+            project_ids.append(identity.project_id)
+            project_identity_by_repository[identity.canonical_repository] = identity.project_id
+        _add_if(
+            issues,
+            len(project_ids) != len(set(project_ids)),
+            "duplicate_catalog_project_id",
+            "Catalog v3 projectId values must be unique",
+        )
+        for label, artifacts in (("analysis", analyses), ("enrichment", enrichments)):
+            for repository_key, artifact in artifacts.items():
+                if artifact.get("schemaVersion") == 0:
+                    # Explicit v0 remains a readable, non-current legacy input.
+                    # It carries no source-version evidence and therefore can
+                    # never influence a Catalog v3 project or queue task.
+                    continue
+                if artifact.get("schemaVersion") != 2:
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "code": "legacy_artifact_in_identity_generation",
+                            "detail": f"{label} artifact for {repository_key!r} is not Schema v2",
+                        }
+                    )
+                    continue
+                try:
+                    artifact_identity = validate_project_identity(
+                        artifact.get("repository"),
+                        artifact.get("projectId"),
+                        artifact.get("projectIdVersion"),
+                    )
+                except ProjectIdentityError as error:
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "code": error.code,
+                            "detail": f"{label} identity: {error}",
+                        }
+                    )
+                    continue
+                catalog_project_id = project_identity_by_repository.get(
+                    artifact_identity.canonical_repository
+                )
+                _add_if(
+                    issues,
+                    catalog_project_id is not None
+                    and catalog_project_id != artifact_identity.project_id,
+                    "project_identity_cross_file_mismatch",
+                    f"{label} and catalog disagree for {artifact_identity.canonical_repository}",
+                )
+        _add_if(
+            issues,
+            queue.get("schemaVersion") != 2
+            or queue.get("projectIdVersion") != 1,
+            "catalog_queue_identity_version_mismatch",
+            "Catalog v3 requires Codex queue v2 with projectIdVersion 1",
+        )
+    else:
+        _add_if(
+            issues,
+            queue.get("schemaVersion") != 1,
+            "catalog_queue_identity_version_mismatch",
+            "Catalog v1/v2 requires the legacy Codex queue v1",
+        )
     analysis_failure_value = catalog.get("analysisFailures")
     analysis_failures = analysis_failure_value if isinstance(analysis_failure_value, list) else []
     if "analysisFailures" in catalog:
@@ -246,7 +424,11 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             severity="warning",
         )
     repository_by_name = {
-        str(item.get("repo")): item
+        (
+            canonicalize_repository(item.get("repo"))
+            if identity_catalog
+            else str(item.get("repo"))
+        ): item
         for item in repositories
         if isinstance(item, dict) and item.get("repo")
     }
@@ -255,7 +437,13 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         for project in projects
         if isinstance(project, dict)
         and (
-            not (source := repository_by_name.get(str(project.get("repo") or "")))
+            not (
+                source := repository_by_name.get(
+                    canonicalize_repository(project.get("repo"))
+                    if identity_catalog
+                    else str(project.get("repo") or "")
+                )
+            )
             or _integer(project.get("stars")) is None
             or _integer(source.get("stars")) is None
             or _integer(project.get("stars")) != _integer(source.get("stars"))
@@ -390,7 +578,7 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         isinstance(item, dict) and "heatTrack" in item for item in projects
     )
     if track_metadata_present:
-        if catalog.get("schemaVersion") == 2:
+        if catalog.get("schemaVersion") in {2, 3}:
             invalid_track_rows = sum(
                 1
                 for item in projects
@@ -427,7 +615,7 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             and actual_long_term + actual_recent_momentum == len(daily)
         )
         _add_if(issues, not track_counts_match, "daily_track_count_mismatch", "dailyTrackCounts differs from the Daily Five")
-        if catalog.get("schemaVersion") == 2:
+        if catalog.get("schemaVersion") in {2, 3}:
             eligible_long_term = sum(
                 item.get("heatTrack") == "long_term"
                 and _integer(item.get("attentionScore")) is not None
@@ -467,13 +655,19 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         observation_window, observation_counts = heat_observation_counts(
             snapshot,
             history_snapshots,
+            normalize_repositories=identity_catalog,
         )
         declared_heat_history = catalog.get("heatHistory")
         verified_long_term_count = sum(
             isinstance(item, dict)
             and item.get("heatTrack") == "long_term"
             and persistence_is_verified(
-                observation_counts.get(str(item.get("repo") or ""), 0),
+                observation_counts.get(
+                    canonicalize_repository(item.get("repo"))
+                    if identity_catalog
+                    else str(item.get("repo") or ""),
+                    0,
+                ),
                 observation_window,
             )
             for item in projects
@@ -498,7 +692,12 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             if not isinstance(item, dict):
                 continue
             repository = str(item.get("repo") or "")
-            observation_count = observation_counts.get(repository, 0)
+            observation_count = observation_counts.get(
+                canonicalize_repository(repository)
+                if identity_catalog
+                else repository,
+                0,
+            )
             expected_kind = (
                 "multi_snapshot"
                 if item.get("heatTrack") == "long_term"
@@ -704,7 +903,7 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
                 history_matches += 1
                 previous_snapshot = payload
     _add_if(issues, bool(previous_at and history_matches != 1), "missing_previous_snapshot", "catalog previousCapturedAt must match exactly one history snapshot")
-    if catalog.get("schemaVersion") == 2:
+    if catalog.get("schemaVersion") in {2, 3}:
         project_limit = _integer(catalog.get("projectCount"))
         try:
             rebuilt_catalog = build_catalog(
@@ -714,13 +913,14 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
                 analyses,
                 enrichments,
                 history_snapshots,
+                schema_version=int(catalog["schemaVersion"]),
             )
         except (ArtifactValidationError, KeyError, OverflowError, TypeError, ValueError) as error:
             issues.append(
                 {
                     "severity": "error",
                     "code": "score_semantics_mismatch",
-                    "detail": f"Catalog v2 scoring semantics cannot be rebuilt from validated evidence: {error}",
+                    "detail": f"Catalog scoring semantics cannot be rebuilt from validated evidence: {error}",
                 }
             )
         else:
@@ -729,7 +929,7 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
                 catalog.get("scoreModelVersion") != rebuilt_catalog.get("scoreModelVersion")
                 or projects != rebuilt_catalog.get("projects"),
                 "score_semantics_mismatch",
-                "Catalog v2 scoreModelVersion or ordered project scoring semantics differ from a read-only production rebuild",
+                "Catalog scoreModelVersion or ordered project scoring semantics differ from a read-only production rebuild",
             )
     observed_count = sum(isinstance(item, dict) and item.get("growthKind") == "observed" for item in projects)
     observed_values = [
@@ -743,14 +943,22 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     growth_value_mismatches = 0
     if previous_snapshot:
         previous_by_name = {
-            str(item.get("repo")): item
+            (
+                canonicalize_repository(item.get("repo"))
+                if identity_catalog
+                else str(item.get("repo"))
+            ): item
             for item in previous_snapshot.get("repositories", [])
             if isinstance(item, dict) and item.get("repo")
         }
         for project in projects:
             if not isinstance(project, dict):
                 continue
-            repository = str(project.get("repo") or "")
+            repository = (
+                canonicalize_repository(project.get("repo"))
+                if identity_catalog
+                else str(project.get("repo") or "")
+            )
             current_source = repository_by_name.get(repository)
             previous_source = previous_by_name.get(repository)
             if not previous_source:

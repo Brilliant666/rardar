@@ -17,6 +17,16 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from pipeline.project_artifacts import load_project_artifacts
+from pipeline.project_identity import (
+    PROJECT_ID_VERSION,
+    ProjectIdentityError,
+    canonicalize_repository,
+    ensure_unique_project_identities,
+    identity_for_repository,
+    legacy_slug_for_repository,
+    validate_project_identity,
+)
 from pipeline.schema_validation import (
     ArtifactKind,
     artifact_write_lock,
@@ -95,19 +105,39 @@ def _parse_time(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _repository_matches(
+    artifact_repository: object,
+    expected_repository: object,
+    artifact_schema_version: int,
+) -> bool:
+    if artifact_schema_version != 2:
+        return artifact_repository == expected_repository
+    try:
+        return canonicalize_repository(artifact_repository) == canonicalize_repository(
+            expected_repository
+        )
+    except ProjectIdentityError:
+        return False
+
+
 def _enrichment_is_current(
     enrichment: dict[str, Any] | None,
     repository: str,
     pushed_at: object,
     analysis: dict[str, Any] | None,
+    artifact_schema_version: int = 1,
 ) -> bool:
     if (
         not enrichment
-        or enrichment.get("schemaVersion") != 1
-        or enrichment.get("repository") != repository
+        or enrichment.get("schemaVersion") != artifact_schema_version
+        or not _repository_matches(
+            enrichment.get("repository"), repository, artifact_schema_version
+        )
         or not analysis
-        or analysis.get("schemaVersion") != 1
-        or analysis.get("repository") != repository
+        or analysis.get("schemaVersion") != artifact_schema_version
+        or not _repository_matches(
+            analysis.get("repository"), repository, artifact_schema_version
+        )
     ):
         return False
     source_pushed_at = enrichment.get("sourcePushedAt")
@@ -128,8 +158,22 @@ def _enrichment_is_current(
     )
 
 
-def _analysis_is_current(analysis: dict[str, Any] | None, pushed_at: str | None) -> bool:
-    if not analysis or analysis.get("schemaVersion") != 1:
+def _analysis_is_current(
+    analysis: dict[str, Any] | None,
+    pushed_at: str | None,
+    artifact_schema_version: int = 1,
+    repository: str | None = None,
+) -> bool:
+    if (
+        not analysis
+        or analysis.get("schemaVersion") != artifact_schema_version
+        or (
+            repository is not None
+            and not _repository_matches(
+                analysis.get("repository"), repository, artifact_schema_version
+            )
+        )
+    ):
         return False
     analyzed_at = _parse_time(str(analysis.get("analyzed_at") or ""))
     source_pushed_at = _parse_time(pushed_at)
@@ -223,6 +267,8 @@ def _previous_index(previous: dict[str, Any] | None) -> dict[str, dict[str, Any]
 def heat_observation_counts(
     snapshot: dict[str, Any],
     history: list[dict[str, Any]] | None = None,
+    *,
+    normalize_repositories: bool = False,
 ) -> tuple[int, dict[str, int]]:
     """Count candidate presence across a bounded, de-duplicated snapshot window."""
     by_capture: dict[str, dict[str, Any]] = {}
@@ -240,11 +286,14 @@ def heat_observation_counts(
     )[-MAX_HEAT_OBSERVATIONS:]
     counts: dict[str, int] = {}
     for item in ordered:
-        repositories = {
-            str(repository.get("repo"))
-            for repository in item.get("repositories", [])
-            if isinstance(repository, dict) and repository.get("repo")
-        }
+        repositories: set[str] = set()
+        for repository in item.get("repositories", []):
+            if not isinstance(repository, dict) or not repository.get("repo"):
+                continue
+            value = str(repository["repo"])
+            if normalize_repositories:
+                value = canonicalize_repository(value)
+            repositories.add(value)
         for repository in repositories:
             counts[repository] = counts.get(repository, 0) + 1
     return len(ordered), counts
@@ -460,11 +509,39 @@ def _project(
     enrichment: dict[str, Any] | None,
     observation_count: int,
     observation_window: int,
+    catalog_schema_version: int = 2,
 ) -> dict[str, Any]:
     repo = str(repository["repo"])
+    artifact_schema_version = 2 if catalog_schema_version == 3 else 1
+    identity = identity_for_repository(repo) if catalog_schema_version == 3 else None
+    if (
+        catalog_schema_version == 3
+        and analysis is not None
+        and analysis.get("schemaVersion") == 2
+    ):
+        validate_project_identity(
+            analysis.get("repository"),
+            analysis.get("projectId"),
+            analysis.get("projectIdVersion"),
+        )
+    if (
+        catalog_schema_version == 3
+        and enrichment is not None
+        and enrichment.get("schemaVersion") == 2
+    ):
+        validate_project_identity(
+            enrichment.get("repository"),
+            enrichment.get("projectId"),
+            enrichment.get("projectIdVersion"),
+        )
     growth = _growth(repository, captured_at, previous_repository, previous_captured_at)
     analysis_payload = analysis
-    analysis_current = _analysis_is_current(analysis_payload, repository.get("pushed_at"))
+    analysis_current = _analysis_is_current(
+        analysis_payload,
+        repository.get("pushed_at"),
+        artifact_schema_version,
+        repo,
+    )
     analysis = analysis_payload if analysis_current else None
     (
         attention_score,
@@ -495,6 +572,7 @@ def _project(
         repo,
         repository.get("pushed_at"),
         analysis,
+        artifact_schema_version,
     )
     enrichment = enrichment_payload if enrichment_current else None
     api_license = repository.get("license")
@@ -744,7 +822,7 @@ def _project(
         ),
     }
 
-    return {
+    project = {
         "slug": re.sub(r"[^a-z0-9-]+", "-", repo.lower().replace("/", "--")).strip("-"),
         "repo": repo,
         "title": title,
@@ -850,6 +928,13 @@ def _project(
         ],
         "capturedAt": captured_label,
     }
+    if identity is not None:
+        project = {
+            "projectIdVersion": identity.project_id_version,
+            "projectId": identity.project_id,
+            **project,
+        }
+    return project
 
 
 def _balanced_project_order(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -901,24 +986,97 @@ def build_catalog(
     analyses: dict[str, dict[str, Any]] | None = None,
     enrichments: dict[str, dict[str, Any]] | None = None,
     history: list[dict[str, Any]] | None = None,
+    schema_version: int = 2,
 ) -> dict[str, Any]:
+    if schema_version not in {2, 3}:
+        raise ValueError(f"unsupported generated Catalog Schema version: {schema_version}")
+    repository_rows = [
+        item
+        for item in snapshot.get("repositories", [])
+        if isinstance(item, dict) and item.get("repo")
+    ]
+    repository_names = [item["repo"] for item in repository_rows]
+    if schema_version == 3:
+        try:
+            ensure_unique_project_identities(repository_names)
+        except ProjectIdentityError as error:
+            raise ValueError(f"{error.code}: {error}") from None
+        legacy_repositories: dict[str, set[str]] = {}
+        for repository_name in repository_names:
+            canonical_repository = canonicalize_repository(repository_name)
+            legacy_repositories.setdefault(
+                legacy_slug_for_repository(repository_name), set()
+            ).add(canonical_repository)
+        unresolved = {
+            slug: repositories
+            for slug, repositories in legacy_repositories.items()
+            if len(repositories) > 1
+        }
+        if unresolved:
+            slug, repositories = sorted(unresolved.items())[0]
+            raise ValueError(
+                "unresolved_legacy_collision: "
+                f"legacy slug {slug!r} maps to {', '.join(sorted(repositories))}"
+            )
+    def identity_map(
+        payloads: dict[str, dict[str, Any]] | None,
+    ) -> dict[str, dict[str, Any]]:
+        if schema_version == 2:
+            return dict(payloads or {})
+        normalized: dict[str, dict[str, Any]] = {}
+        for payload in (payloads or {}).values():
+            repository_name = payload.get("repository")
+            key = canonicalize_repository(repository_name)
+            if key in normalized:
+                raise ValueError(f"duplicate normalized project artifact repository: {key}")
+            normalized[key] = payload
+        return normalized
+
+    analysis_map = identity_map(analyses)
+    enrichment_map = identity_map(enrichments)
     captured_at = _parse_time(snapshot.get("captured_at")) or datetime.now(timezone.utc)
     previous_captured_at = _parse_time(previous.get("captured_at")) if previous else None
     previous_repositories = _previous_index(previous)
-    observation_window, observation_counts = heat_observation_counts(snapshot, history)
+    if schema_version == 3:
+        previous_repositories = {
+            canonicalize_repository(key): value
+            for key, value in previous_repositories.items()
+        }
+    observation_window, observation_counts = heat_observation_counts(
+        snapshot,
+        history,
+        normalize_repositories=schema_version == 3,
+    )
     projects = [
         _project(
             repository,
             captured_at,
-            previous_repositories.get(repository.get("repo")),
+            previous_repositories.get(
+                canonicalize_repository(repository.get("repo"))
+                if schema_version == 3
+                else repository.get("repo")
+            ),
             previous_captured_at,
-            (analyses or {}).get(repository.get("repo")),
-            (enrichments or {}).get(repository.get("repo")),
-            observation_counts.get(str(repository.get("repo")), 0),
+            analysis_map.get(
+                canonicalize_repository(repository.get("repo"))
+                if schema_version == 3
+                else repository.get("repo")
+            ),
+            enrichment_map.get(
+                canonicalize_repository(repository.get("repo"))
+                if schema_version == 3
+                else repository.get("repo")
+            ),
+            observation_counts.get(
+                canonicalize_repository(repository.get("repo"))
+                if schema_version == 3
+                else str(repository.get("repo")),
+                0,
+            ),
             observation_window,
+            schema_version,
         )
-        for repository in snapshot.get("repositories", [])
-        if repository.get("repo")
+        for repository in repository_rows
     ]
     bounded = _balanced_project_order(projects)[: max(5, min(limit, 100))]
     observed_count = sum(1 for item in bounded if item["growthKind"] == "observed")
@@ -932,8 +1090,8 @@ def build_catalog(
     pending_deep_analysis = [
         item["repo"] for item in bounded[:5] if item["analysisState"] != "深度分析"
     ]
-    return {
-        "schemaVersion": 2,
+    catalog = {
+        "schemaVersion": schema_version,
         "scoreModelVersion": "evidence-v2",
         "capturedAt": captured_at.isoformat(),
         "sourceCount": int(snapshot.get("count") or len(snapshot.get("repositories", []))),
@@ -985,6 +1143,9 @@ def build_catalog(
         ),
         "projects": bounded,
     }
+    if schema_version == 3:
+        catalog = {"projectIdVersion": PROJECT_ID_VERSION, **catalog}
+    return catalog
 
 
 def main() -> None:
@@ -1004,19 +1165,37 @@ def main() -> None:
             if arguments.previous and arguments.previous.exists()
             else None
         )
-        analyses: dict[str, dict[str, Any]] = {}
-        if arguments.analysis_dir and arguments.analysis_dir.exists():
-            for path in arguments.analysis_dir.glob("*.json"):
-                analysis = load_validated_json(path, ArtifactKind.STATIC_EVIDENCE)
-                if analysis.get("repository"):
-                    analyses[analysis["repository"]] = analysis
-        enrichments: dict[str, dict[str, Any]] = {}
-        if arguments.enrichment_dir and arguments.enrichment_dir.exists():
-            for path in arguments.enrichment_dir.glob("*.json"):
-                enrichment = load_validated_json(path, ArtifactKind.PROJECT_ENRICHMENT)
-                if enrichment.get("repository"):
-                    enrichments[enrichment["repository"]] = enrichment
-        catalog = build_catalog(snapshot, previous, arguments.limit, analyses, enrichments)
+        expected_repositories = [
+            item.get("repo")
+            for item in snapshot.get("repositories", [])
+            if isinstance(item, dict) and item.get("repo")
+        ]
+        analyses = (
+            load_project_artifacts(
+                arguments.analysis_dir,
+                ArtifactKind.STATIC_EVIDENCE,
+                expected_repositories=expected_repositories,
+            )
+            if arguments.analysis_dir
+            else {}
+        )
+        enrichments = (
+            load_project_artifacts(
+                arguments.enrichment_dir,
+                ArtifactKind.PROJECT_ENRICHMENT,
+                expected_repositories=expected_repositories,
+            )
+            if arguments.enrichment_dir
+            else {}
+        )
+        catalog = build_catalog(
+            snapshot,
+            previous,
+            arguments.limit,
+            analyses,
+            enrichments,
+            schema_version=3,
+        )
         atomic_write_validated_json(arguments.out, ArtifactKind.CATALOG, catalog)
     print(f"saved {catalog['projectCount']} ranked projects to {arguments.out}")
 

@@ -7,12 +7,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pipeline.ingest_enrichment import ingest_enrichment
+from pipeline.project_identity import identity_for_repository, project_id_for_repository
 from pipeline.schema_validation import ArtifactValidationError, load_validated_json
 
 
 def project_enrichment(repository: str = "demo/tool") -> dict[str, object]:
+    identity = identity_for_repository(repository)
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
+        "projectIdVersion": identity.project_id_version,
+        "projectId": identity.project_id,
         "repository": repository,
         "sourcePushedAt": "2026-07-10T23:00:00Z",
         "sourceAnalysisAt": "2026-07-10T23:30:00Z",
@@ -41,7 +45,10 @@ class EnrichmentIngestTests(unittest.TestCase):
 
             target = ingest_enrichment(data_dir, "project", draft)
 
-            self.assertEqual(target, (data_dir / "enrichment/demo--tool.json").resolve())
+            self.assertEqual(
+                target,
+                (data_dir / "enrichment" / f"{project_id_for_repository('demo/tool')}.json").resolve(),
+            )
             self.assertEqual(load_validated_json(target), payload)
             self.assertTrue(draft.exists())
 
@@ -76,7 +83,7 @@ class EnrichmentIngestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             data_dir = root / "data"
-            official = data_dir / "enrichment/demo--tool.json"
+            official = data_dir / "enrichment" / f"{project_id_for_repository('demo/tool')}.json"
             official.parent.mkdir(parents=True)
             existing = project_enrichment()
             official.write_text(json.dumps(existing), encoding="utf-8")
@@ -94,7 +101,7 @@ class EnrichmentIngestTests(unittest.TestCase):
     def test_official_path_cannot_be_used_as_its_own_draft(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory) / "data"
-            official = data_dir / "enrichment/demo--tool.json"
+            official = data_dir / "enrichment" / f"{project_id_for_repository('demo/tool')}.json"
             official.parent.mkdir(parents=True)
             official.write_text(json.dumps(project_enrichment()), encoding="utf-8")
 
@@ -112,7 +119,7 @@ class EnrichmentIngestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "outside the official data directory"):
                 ingest_enrichment(data_dir, "project", draft)
 
-            self.assertFalse((data_dir / "enrichment/demo--tool.json").exists())
+            self.assertFalse((data_dir / "enrichment" / f"{project_id_for_repository('demo/tool')}.json").exists())
 
     def test_other_enrichment_file_inside_data_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -125,7 +132,7 @@ class EnrichmentIngestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "outside the official data directory"):
                 ingest_enrichment(data_dir, "project", draft)
 
-            self.assertFalse((data_dir / "enrichment/demo--tool.json").exists())
+            self.assertFalse((data_dir / "enrichment" / f"{project_id_for_repository('demo/tool')}.json").exists())
 
     def test_resolved_parent_traversal_into_data_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -199,12 +206,14 @@ class EnrichmentIngestTests(unittest.TestCase):
             payload["schemaVersion"] = 0
             payload.pop("sourcePushedAt")
             payload.pop("sourceAnalysisAt")
+            payload.pop("projectIdVersion")
+            payload.pop("projectId")
             draft.write_text(json.dumps(payload), encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "legacy v0 is read-only"):
+            with self.assertRaisesRegex(ValueError, "legacy v0/v1"):
                 ingest_enrichment(data_dir, "project", draft)
 
-            self.assertFalse((data_dir / "enrichment/demo--tool.json").exists())
+            self.assertFalse((data_dir / "enrichment" / f"{project_id_for_repository('demo/tool')}.json").exists())
 
     def test_project_draft_cannot_bind_future_static_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -222,7 +231,7 @@ class EnrichmentIngestTests(unittest.TestCase):
             ):
                 ingest_enrichment(data_dir, "project", draft)
 
-            self.assertFalse((data_dir / "enrichment/demo--tool.json").exists())
+            self.assertFalse((data_dir / "enrichment" / f"{project_id_for_repository('demo/tool')}.json").exists())
 
 
 if __name__ == "__main__":

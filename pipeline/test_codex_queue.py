@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from pipeline.codex_queue import build_codex_queue
+from pipeline.project_identity import identity_for_repository
 from pipeline.schema_validation import ArtifactKind, validate_payload
 
 
@@ -354,6 +355,70 @@ class CodexQueueTests(unittest.TestCase):
         )
         self.assertEqual(project["outputPath"], "data/enrichment/owner--project.json")
         self.assertTrue(validate_payload(ArtifactKind.CODEX_QUEUE, queue).valid)
+
+    def test_queue_v2_uses_stable_identity_paths_and_canonical_case(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            enrichment_dir = root / "enrichment"
+            analysis_dir = root / "analysis"
+            enrichment_dir.mkdir()
+            analysis_dir.mkdir()
+            identity = identity_for_repository("Owner/Repo")
+            evidence = static_evidence("owner/repo", "2026-07-15T00:00:00Z")
+            evidence.update(
+                schemaVersion=2,
+                projectIdVersion=1,
+                projectId=identity.project_id,
+            )
+            (analysis_dir / f"{identity.project_id}.json").write_text(
+                json.dumps(evidence),
+                encoding="utf-8",
+            )
+
+            queue = build_codex_queue(
+                {
+                    "schemaVersion": 3,
+                    "projectIdVersion": 1,
+                    "projects": [
+                        {
+                            "repo": "Owner/Repo",
+                            "projectIdVersion": 1,
+                            "projectId": identity.project_id,
+                            "title": "Repo",
+                            "sourcePushedAt": "2026-07-14T00:00:00Z",
+                        }
+                    ],
+                },
+                {"signals": []},
+                enrichment_dir,
+                root / "signal-enrichment.json",
+                datetime(2026, 7, 15, 1, tzinfo=timezone.utc),
+                input_data_prefix="data/generations/stable-generation",
+            )
+
+            project = queue["items"][0]
+            self.assertEqual(queue["schemaVersion"], 2)
+            self.assertEqual(queue["projectIdVersion"], 1)
+            self.assertEqual(project["id"], f"project:{identity.project_id}")
+            self.assertEqual(project["projectId"], identity.project_id)
+            self.assertEqual(project["evidenceState"], "ready")
+            self.assertEqual(
+                project["inputPaths"],
+                [
+                    f"data/generations/stable-generation/analysis/{identity.project_id}.json",
+                    "data/generations/stable-generation/catalog/latest.json",
+                ],
+            )
+            self.assertEqual(
+                project["outputPath"],
+                f"data/enrichment/{identity.project_id}.json",
+            )
+            self.assertTrue(validate_payload(ArtifactKind.CODEX_QUEUE, queue).valid)
+
+            project["inputPaths"] = [
+                "data/generations/stable-generation/catalog/latest.json"
+            ]
+            self.assertFalse(validate_payload(ArtifactKind.CODEX_QUEUE, queue).valid)
 
 
 if __name__ == "__main__":

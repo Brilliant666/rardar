@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from pipeline.data_lock import locked_data_dir
+from pipeline.project_identity import validate_project_identity
 from pipeline.schema_validation import (
     ArtifactKind,
     atomic_write_validated_json,
@@ -18,14 +18,6 @@ from pipeline.schema_validation import (
 
 
 EnrichmentKind = Literal["project", "signal"]
-
-
-def _safe_name(repository: str) -> str:
-    return re.sub(
-        r"[^a-z0-9-]+",
-        "-",
-        repository.lower().replace("/", "--"),
-    ).strip("-")
 
 
 def _read_draft(path: Path) -> dict[str, Any]:
@@ -56,10 +48,10 @@ def ingest_enrichment(
 
     if kind == "project":
         require_valid(ArtifactKind.PROJECT_ENRICHMENT, payload)
-        if payload.get("schemaVersion") != 1:
+        if payload.get("schemaVersion") != 2:
             raise ValueError(
-                "only project enrichment v1 drafts may be published; "
-                "legacy v0 is read-only compatibility data"
+                "only project enrichment v2 drafts with stable identity may be "
+                "published; legacy v0/v1 are read-only compatibility data"
             )
         analyzed_at = datetime.fromisoformat(
             str(payload["analyzedAt"]).replace("Z", "+00:00")
@@ -74,7 +66,12 @@ def ingest_enrichment(
         repository = payload.get("repository")
         if not isinstance(repository, str):  # Kept explicit for type checkers.
             raise ValueError("project enrichment repository must be a string")
-        target = data_dir / "enrichment" / f"{_safe_name(repository)}.json"
+        identity = validate_project_identity(
+            repository,
+            payload.get("projectId"),
+            payload.get("projectIdVersion"),
+        )
+        target = data_dir / "enrichment" / f"{identity.project_id}.json"
         artifact_kind = ArtifactKind.PROJECT_ENRICHMENT
         expected_repository: str | None = repository
     elif kind == "signal":

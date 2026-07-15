@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "algorithm": "rardar-project-id-v1",
+  "projectIdVersion": 1,
+  "repositoryPattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}/(?!\\.{1,2}$)[A-Za-z0-9._-]{1,100}$",
+  "projectIdPattern": "^[a-z0-9]+(?:-[a-z0-9]+)*--[0-9a-f]{20}$",
+  "prefixMaxLength": 64,
+  "digestAlgorithm": "sha256",
+  "digestHexLength": 20,
+  "projectIdMinLength": 25,
+  "projectIdMaxLength": 86,
+  "valid": [
+    {
+      "name": "legacy-dot-collision",
+      "repository": "owner/foo.bar",
+      "canonicalRepository": "owner/foo.bar",
+      "humanPrefix": "owner-foo-bar",
+      "digest": "b09e17860cc39de87448",
+      "projectId": "owner-foo-bar--b09e17860cc39de87448",
+      "legacySlug": "owner--foo-bar",
+      "collisionGroup": "legacy-owner-foo-bar"
+    },
+    {
+      "name": "legacy-hyphen-collision",
+      "repository": "owner/foo-bar",
+      "canonicalRepository": "owner/foo-bar",
+      "humanPrefix": "owner-foo-bar",
+      "digest": "7f532759069890a01111",
+      "projectId": "owner-foo-bar--7f532759069890a01111",
+      "legacySlug": "owner--foo-bar",
+      "collisionGroup": "legacy-owner-foo-bar"
+    },
+    {
+      "name": "case-variant-mixed",
+      "repository": "Owner/Repo",
+      "canonicalRepository": "owner/repo",
+      "humanPrefix": "owner-repo",
+      "digest": "65e817eec8cd71edae74",
+      "projectId": "owner-repo--65e817eec8cd71edae74",
+      "legacySlug": "owner--repo",
+      "caseGroup": "owner-repo"
+    },
+    {
+      "name": "case-variant-lower",
+      "repository": "owner/repo",
+      "canonicalRepository": "owner/repo",
+      "humanPrefix": "owner-repo",
+      "digest": "65e817eec8cd71edae74",
+      "projectId": "owner-repo--65e817eec8cd71edae74",
+      "legacySlug": "owner--repo",
+      "caseGroup": "owner-repo"
+    },
+    {
+      "name": "legacy-underscore-collision",
+      "repository": "owner/foo_bar",
+      "canonicalRepository": "owner/foo_bar",
+      "humanPrefix": "owner-foo-bar",
+      "digest": "1a7589bd4a581b5dbcd8",
+      "projectId": "owner-foo-bar--1a7589bd4a581b5dbcd8",
+      "legacySlug": "owner--foo-bar",
+      "collisionGroup": "legacy-owner-foo-bar"
+    },
+    {
+      "name": "repeated-hyphen-repository",
+      "repository": "owner/foo--bar",
+      "canonicalRepository": "owner/foo--bar",
+      "humanPrefix": "owner-foo-bar",
+      "digest": "37e7fb90a3b119d92436",
+      "projectId": "owner-foo-bar--37e7fb90a3b119d92436",
+      "legacySlug": "owner--foo--bar"
+    },
+    {
+      "name": "minimum-readable-names",
+      "repository": "a/b",
+      "canonicalRepository": "a/b",
+      "humanPrefix": "a-b",
+      "digest": "c14cddc033f64b9dea80",
+      "projectId": "a-b--c14cddc033f64b9dea80",
+      "legacySlug": "a--b"
+    },
+    {
+      "name": "maximum-owner-and-repository",
+      "repository": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "canonicalRepository": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "humanPrefix": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "6b7f95d16ff87ec7a348",
+      "projectId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbbbbbbbbbb--6b7f95d16ff87ec7a348",
+      "legacySlug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa--bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "name": "leading-dot-repository",
+      "repository": "owner/.github",
+      "canonicalRepository": "owner/.github",
+      "humanPrefix": "owner-github",
+      "digest": "572917d25fcc54a43795",
+      "projectId": "owner-github--572917d25fcc54a43795",
+      "legacySlug": "owner---github"
+    },
+    {
+      "name": "mixed-safe-punctuation",
+      "repository": "Octo-Cat/Hello_World.v1",
+      "canonicalRepository": "octo-cat/hello_world.v1",
+      "humanPrefix": "octo-cat-hello-world-v1",
+      "digest": "51daa7f0471001e3efdb",
+      "projectId": "octo-cat-hello-world-v1--51daa7f0471001e3efdb",
+      "legacySlug": "octo-cat--hello-world-v1"
+    },
+    {
+      "name": "literal-dot-git-name",
+      "repository": "owner/repo.git",
+      "canonicalRepository": "owner/repo.git",
+      "humanPrefix": "owner-repo-git",
+      "digest": "5ce4e2b4d83c21243e58",
+      "projectId": "owner-repo-git--5ce4e2b4d83c21243e58",
+      "legacySlug": "owner--repo-git"
+    }
+  ],
+  "invalid": [
+    { "name": "non-string", "repository": null, "errorCode": "invalid_repository_type" },
+    { "name": "empty", "repository": "", "errorCode": "invalid_repository_format" },
+    { "name": "missing-owner", "repository": "/repo", "errorCode": "invalid_repository_format" },
+    { "name": "missing-repository", "repository": "owner/", "errorCode": "invalid_repository_format" },
+    { "name": "double-slash", "repository": "owner//repo", "errorCode": "invalid_repository_format" },
+    { "name": "extra-segment", "repository": "owner/repo/extra", "errorCode": "invalid_repository_format" },
+    { "name": "backslash", "repository": "owner\\repo", "errorCode": "invalid_repository_format" },
+    { "name": "dot-segment", "repository": "owner/.", "errorCode": "invalid_repository_format" },
+    { "name": "dot-dot-segment", "repository": "owner/..", "errorCode": "invalid_repository_format" },
+    { "name": "path-traversal", "repository": "owner/../repo", "errorCode": "invalid_repository_format" },
+    { "name": "leading-whitespace", "repository": " owner/repo", "errorCode": "invalid_repository_format" },
+    { "name": "trailing-whitespace", "repository": "owner/repo ", "errorCode": "invalid_repository_format" },
+    { "name": "control-character", "repository": "owner/repo\n", "errorCode": "invalid_repository_format" },
+    { "name": "url-not-repository", "repository": "https://github.com/owner/repo", "errorCode": "invalid_repository_format" },
+    { "name": "unicode-owner", "repository": "所有者/repo", "errorCode": "invalid_repository_format" },
+    { "name": "unicode-repository", "repository": "owner/项目", "errorCode": "invalid_repository_format" },
+    { "name": "owner-leading-hyphen", "repository": "-owner/repo", "errorCode": "invalid_repository_format" },
+    { "name": "owner-trailing-hyphen", "repository": "owner-/repo", "errorCode": "invalid_repository_format" },
+    { "name": "owner-consecutive-hyphens", "repository": "own--er/repo", "errorCode": "invalid_repository_format" },
+    { "name": "owner-underscore", "repository": "own_er/repo", "errorCode": "invalid_repository_format" },
+    { "name": "owner-too-long", "repository": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/repo", "errorCode": "invalid_repository_format" },
+    { "name": "repository-too-long", "repository": "owner/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "errorCode": "invalid_repository_format" },
+    { "name": "invalid-repository-character", "repository": "owner/repo@", "errorCode": "invalid_repository_format" }
+  ],
+  "identityValidation": [
+    {
+      "name": "matching-carried-identity",
+      "repository": "owner/repo",
+      "projectIdVersion": 1,
+      "projectId": "owner-repo--65e817eec8cd71edae74",
+      "valid": true
+    },
+    {
+      "name": "forged-well-formed-project-id",
+      "repository": "owner/repo",
+      "projectIdVersion": 1,
+      "projectId": "owner-repo--65e817eec8cd71edae75",
+      "valid": false,
+      "errorCode": "project_id_mismatch"
+    },
+    {
+      "name": "malformed-project-id",
+      "repository": "owner/repo",
+      "projectIdVersion": 1,
+      "projectId": "owner/repo",
+      "valid": false,
+      "errorCode": "invalid_project_id"
+    },
+    {
+      "name": "unsupported-identity-version",
+      "repository": "owner/repo",
+      "projectIdVersion": 2,
+      "projectId": "owner-repo--65e817eec8cd71edae74",
+      "valid": false,
+      "errorCode": "unsupported_project_id_version"
+    }
+  ],
+  "legacyCollisionGroups": [
+    {
+      "legacySlug": "owner--foo-bar",
+      "repositories": ["owner/foo.bar", "owner/foo-bar", "owner/foo_bar"],
+      "projectIds": [
+        "owner-foo-bar--b09e17860cc39de87448",
+        "owner-foo-bar--7f532759069890a01111",
+        "owner-foo-bar--1a7589bd4a581b5dbcd8"
+      ]
+    }
+  ]
+}

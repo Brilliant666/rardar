@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from pipeline.build_catalog import _enrichment_is_current, build_catalog
+from pipeline.project_identity import project_id_for_repository
 
 
 def repository(repo: str, stars: int, created_at: str, description: str = "AI developer tool"):
@@ -644,6 +646,97 @@ class BuildCatalogTests(unittest.TestCase):
         catalog = build_catalog(snapshot)
 
         self.assertEqual(catalog["projects"][0]["repo"], "demo/agent-workflow")
+
+    def test_catalog_v3_binds_every_project_to_recomputed_identity(self) -> None:
+        snapshot = {
+            "captured_at": "2026-07-15T00:00:00Z",
+            "count": 1,
+            "repositories": [
+                repository("Owner/Repo", 900, "2026-07-07T12:00:00Z")
+            ],
+        }
+
+        catalog = build_catalog(snapshot, schema_version=3)
+
+        project = catalog["projects"][0]
+        self.assertEqual(catalog["schemaVersion"], 3)
+        self.assertEqual(catalog["projectIdVersion"], 1)
+        self.assertEqual(project["projectIdVersion"], 1)
+        self.assertEqual(project["projectId"], project_id_for_repository("owner/repo"))
+        self.assertEqual(project["repo"], "Owner/Repo")
+        self.assertEqual(project["slug"], "owner--repo")
+
+    def test_catalog_v3_rejects_normalized_repository_duplicates(self) -> None:
+        snapshot = {
+            "captured_at": "2026-07-15T00:00:00Z",
+            "count": 2,
+            "repositories": [
+                repository("Owner/Repo", 900, "2026-07-07T12:00:00Z"),
+                repository("owner/repo", 800, "2026-07-08T12:00:00Z"),
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "duplicate_normalized_repository"):
+            build_catalog(snapshot, schema_version=3)
+
+    def test_catalog_v3_rejects_unresolved_legacy_slug_collision_pair(self) -> None:
+        snapshot = {
+            "captured_at": "2026-07-15T00:00:00Z",
+            "count": 2,
+            "repositories": [
+                repository("owner/foo.bar", 900, "2026-07-07T12:00:00Z"),
+                repository("owner/foo-bar", 800, "2026-07-08T12:00:00Z"),
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "unresolved_legacy_collision"):
+            build_catalog(snapshot, schema_version=3)
+
+    def test_catalog_v3_fails_closed_on_actual_project_id_collision(self) -> None:
+        snapshot = {
+            "captured_at": "2026-07-15T00:00:00Z",
+            "count": 2,
+            "repositories": [
+                repository("owner/foo.bar", 900, "2026-07-07T12:00:00Z"),
+                repository("owner/foo-bar", 800, "2026-07-08T12:00:00Z"),
+            ],
+        }
+
+        with patch(
+            "pipeline.project_identity._sha256_hex",
+            return_value="0" * 64,
+        ):
+            with self.assertRaisesRegex(ValueError, "project_id_collision"):
+                build_catalog(snapshot, schema_version=3)
+
+    def test_catalog_v3_heat_history_is_case_insensitive(self) -> None:
+        snapshot = {
+            "captured_at": "2026-07-15T00:00:00Z",
+            "count": 1,
+            "repositories": [
+                repository("Owner/Repo", 20_000, "2020-01-01T00:00:00Z")
+            ],
+        }
+        history = [
+            {
+                "captured_at": f"2026-07-{day:02d}T00:00:00Z",
+                "count": 1,
+                "repositories": [
+                    repository("owner/repo", 19_000 + day, "2020-01-01T00:00:00Z")
+                ],
+            }
+            for day in range(9, 15)
+        ]
+
+        project = build_catalog(
+            snapshot,
+            history=history,
+            schema_version=3,
+        )["projects"][0]
+
+        self.assertEqual(project["heatObservationCount"], 7)
+        self.assertEqual(project["heatObservationWindow"], 7)
+        self.assertEqual(project["longTermEvidenceKind"], "multi_snapshot")
 
 
 if __name__ == "__main__":
