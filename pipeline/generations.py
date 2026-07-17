@@ -1688,16 +1688,15 @@ def verify_retained_generation(
     canonical = _canonical_data_dir(data_dir)
     normalized = _validate_generation_id(generation_id)
     assert normalized is not None
-    target = _safe_generation_path(canonical, normalized, candidate=False)
-    if not target.exists():
-        raise CandidateGenerationError(
-            "rollback_target_missing",
-            f"retained generation is unavailable: {normalized}",
-            generation_id=normalized,
-            stage="rollback",
-        )
-
     try:
+        target = _safe_generation_path(canonical, normalized, candidate=False)
+        if not target.exists():
+            raise CandidateGenerationError(
+                "rollback_target_missing",
+                f"retained generation is unavailable: {normalized}",
+                generation_id=normalized,
+                stage="rollback",
+            )
         # A retained generation has no separate historical digest registry.
         # Fully validate it before hashing, then bind those exact manifest
         # bytes to the replacement pointer and reject a concurrent mutation.
