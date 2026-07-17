@@ -1,0 +1,1239 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "315551b1-0241-401a-b345-5d1528aec88f",
+  "prevId": "28fd5716-bd6c-4dfb-a25f-e292904d8b0a",
+  "tables": {
+    "decision_events": {
+      "name": "decision_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "decision_events_device_created_idx": {
+          "name": "decision_events_device_created_idx",
+          "columns": [
+            "device_id",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "decision_events_v2": {
+      "name": "decision_events_v2",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "legacy_event_id": {
+          "name": "legacy_event_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id_version": {
+          "name": "project_id_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalog_generation_id": {
+          "name": "catalog_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "decision_events_v2_legacy_event_idx": {
+          "name": "decision_events_v2_legacy_event_idx",
+          "columns": [
+            "legacy_event_id"
+          ],
+          "isUnique": true
+        },
+        "decision_events_v2_device_occurred_idx": {
+          "name": "decision_events_v2_device_occurred_idx",
+          "columns": [
+            "device_id",
+            "occurred_at"
+          ],
+          "isUnique": false
+        },
+        "decision_events_v2_device_project_occurred_idx": {
+          "name": "decision_events_v2_device_project_occurred_idx",
+          "columns": [
+            "device_id",
+            "project_id",
+            "occurred_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "decision_events_v2_version_check": {
+          "name": "decision_events_v2_version_check",
+          "value": "\"decision_events_v2\".\"project_id_version\" = 1"
+        },
+        "decision_events_v2_value_check": {
+          "name": "decision_events_v2_value_check",
+          "value": "\"decision_events_v2\".\"value\" IN ('有用', '无用', '复用', '待确定')"
+        },
+        "decision_events_v2_time_check": {
+          "name": "decision_events_v2_time_check",
+          "value": "julianday(\"decision_events_v2\".\"occurred_at\") IS NOT NULL"
+        }
+      }
+    },
+    "feedback": {
+      "name": "feedback",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "feedback_device_project_idx": {
+          "name": "feedback_device_project_idx",
+          "columns": [
+            "device_id",
+            "project_slug"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "feedback_v2": {
+      "name": "feedback_v2",
+      "columns": {
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id_version": {
+          "name": "project_id_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalog_generation_id": {
+          "name": "catalog_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "feedback_v2_device_updated_idx": {
+          "name": "feedback_v2_device_updated_idx",
+          "columns": [
+            "device_id",
+            "updated_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "feedback_v2_device_project_pk": {
+          "columns": [
+            "device_id",
+            "project_id"
+          ],
+          "name": "feedback_v2_device_project_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "feedback_v2_version_check": {
+          "name": "feedback_v2_version_check",
+          "value": "\"feedback_v2\".\"project_id_version\" = 1"
+        },
+        "feedback_v2_value_check": {
+          "name": "feedback_v2_value_check",
+          "value": "\"feedback_v2\".\"value\" IN ('有用', '无用', '复用', '待确定')"
+        },
+        "feedback_v2_created_time_check": {
+          "name": "feedback_v2_created_time_check",
+          "value": "julianday(\"feedback_v2\".\"created_at\") IS NOT NULL"
+        },
+        "feedback_v2_updated_time_check": {
+          "name": "feedback_v2_updated_time_check",
+          "value": "julianday(\"feedback_v2\".\"updated_at\") IS NOT NULL"
+        }
+      }
+    },
+    "project_action_events": {
+      "name": "project_action_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "project_action_events_device_idempotency_idx": {
+          "name": "project_action_events_device_idempotency_idx",
+          "columns": [
+            "device_id",
+            "idempotency_key"
+          ],
+          "isUnique": true
+        },
+        "project_action_events_device_occurred_idx": {
+          "name": "project_action_events_device_occurred_idx",
+          "columns": [
+            "device_id",
+            "occurred_at"
+          ],
+          "isUnique": false
+        },
+        "project_action_events_device_project_occurred_idx": {
+          "name": "project_action_events_device_project_occurred_idx",
+          "columns": [
+            "device_id",
+            "project_slug",
+            "occurred_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_action_events_action_check": {
+          "name": "project_action_events_action_check",
+          "value": "\"project_action_events\".\"action\" IN ('opened', 'saved', 'tried', 'cloned', 'reused')"
+        },
+        "project_action_events_time_check": {
+          "name": "project_action_events_time_check",
+          "value": "julianday(\"project_action_events\".\"occurred_at\") IS NOT NULL"
+        }
+      }
+    },
+    "project_action_events_v2": {
+      "name": "project_action_events_v2",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id_version": {
+          "name": "project_id_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalog_generation_id": {
+          "name": "catalog_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "project_action_events_v2_device_idempotency_idx": {
+          "name": "project_action_events_v2_device_idempotency_idx",
+          "columns": [
+            "device_id",
+            "idempotency_key"
+          ],
+          "isUnique": true
+        },
+        "project_action_events_v2_device_occurred_idx": {
+          "name": "project_action_events_v2_device_occurred_idx",
+          "columns": [
+            "device_id",
+            "occurred_at"
+          ],
+          "isUnique": false
+        },
+        "project_action_events_v2_device_project_occurred_idx": {
+          "name": "project_action_events_v2_device_project_occurred_idx",
+          "columns": [
+            "device_id",
+            "project_id",
+            "occurred_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_action_events_v2_version_check": {
+          "name": "project_action_events_v2_version_check",
+          "value": "\"project_action_events_v2\".\"project_id_version\" = 1"
+        },
+        "project_action_events_v2_action_check": {
+          "name": "project_action_events_v2_action_check",
+          "value": "\"project_action_events_v2\".\"action\" IN ('opened', 'saved', 'tried', 'cloned', 'reused')"
+        },
+        "project_action_events_v2_time_check": {
+          "name": "project_action_events_v2_time_check",
+          "value": "julianday(\"project_action_events_v2\".\"occurred_at\") IS NOT NULL"
+        }
+      }
+    },
+    "project_action_state": {
+      "name": "project_action_state",
+      "columns": {
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "highest_stage": {
+          "name": "highest_stage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "opened_at": {
+          "name": "opened_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "saved_at": {
+          "name": "saved_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tried_at": {
+          "name": "tried_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cloned_at": {
+          "name": "cloned_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reused_at": {
+          "name": "reused_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "project_action_state_device_updated_idx": {
+          "name": "project_action_state_device_updated_idx",
+          "columns": [
+            "device_id",
+            "updated_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "project_action_state_device_project_pk": {
+          "columns": [
+            "device_id",
+            "project_slug"
+          ],
+          "name": "project_action_state_device_project_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_action_state_stage_check": {
+          "name": "project_action_state_stage_check",
+          "value": "\"project_action_state\".\"highest_stage\" IN ('opened', 'saved', 'tried', 'cloned', 'reused')"
+        }
+      }
+    },
+    "project_action_state_v2": {
+      "name": "project_action_state_v2",
+      "columns": {
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id_version": {
+          "name": "project_id_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalog_generation_id": {
+          "name": "catalog_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "highest_stage": {
+          "name": "highest_stage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "opened_at": {
+          "name": "opened_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "saved_at": {
+          "name": "saved_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tried_at": {
+          "name": "tried_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cloned_at": {
+          "name": "cloned_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reused_at": {
+          "name": "reused_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "project_action_state_v2_device_updated_idx": {
+          "name": "project_action_state_v2_device_updated_idx",
+          "columns": [
+            "device_id",
+            "updated_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "project_action_state_v2_device_project_pk": {
+          "columns": [
+            "device_id",
+            "project_id"
+          ],
+          "name": "project_action_state_v2_device_project_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_action_state_v2_version_check": {
+          "name": "project_action_state_v2_version_check",
+          "value": "\"project_action_state_v2\".\"project_id_version\" = 1"
+        },
+        "project_action_state_v2_stage_check": {
+          "name": "project_action_state_v2_stage_check",
+          "value": "\"project_action_state_v2\".\"highest_stage\" IN ('opened', 'saved', 'tried', 'cloned', 'reused')"
+        }
+      }
+    },
+    "project_actions": {
+      "name": "project_actions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "project_actions_device_project_action_idx": {
+          "name": "project_actions_device_project_action_idx",
+          "columns": [
+            "device_id",
+            "project_slug",
+            "action"
+          ],
+          "isUnique": true
+        },
+        "project_actions_device_created_idx": {
+          "name": "project_actions_device_created_idx",
+          "columns": [
+            "device_id",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "project_identity_adoption_allowed_mapping": {
+      "name": "project_identity_adoption_allowed_mapping",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id_version": {
+          "name": "project_id_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "project_identity_adoption_allowed_mapping_pk": {
+          "columns": [
+            "session_id",
+            "project_slug"
+          ],
+          "name": "project_identity_adoption_allowed_mapping_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_identity_adoption_allowed_mapping_version_check": {
+          "name": "project_identity_adoption_allowed_mapping_version_check",
+          "value": "\"project_identity_adoption_allowed_mapping\".\"project_id_version\" = 1"
+        }
+      }
+    },
+    "project_identity_adoption_session": {
+      "name": "project_identity_adoption_session",
+      "columns": {
+        "singleton": {
+          "name": "singleton",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "active_generation_id": {
+          "name": "active_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_version": {
+          "name": "policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "project_identity_adoption_session_id_idx": {
+          "name": "project_identity_adoption_session_id_idx",
+          "columns": [
+            "session_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_identity_adoption_session_singleton_check": {
+          "name": "project_identity_adoption_session_singleton_check",
+          "value": "\"project_identity_adoption_session\".\"singleton\" = 1"
+        },
+        "project_identity_adoption_session_created_time_check": {
+          "name": "project_identity_adoption_session_created_time_check",
+          "value": "julianday(\"project_identity_adoption_session\".\"created_at\") IS NOT NULL"
+        }
+      }
+    },
+    "project_identity_catalog": {
+      "name": "project_identity_catalog",
+      "columns": {
+        "generation_id": {
+          "name": "generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id_version": {
+          "name": "project_id_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "canonical_repository": {
+          "name": "canonical_repository",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "project_identity_catalog_generation_repository_idx": {
+          "name": "project_identity_catalog_generation_repository_idx",
+          "columns": [
+            "generation_id",
+            "canonical_repository"
+          ],
+          "isUnique": true
+        },
+        "project_identity_catalog_generation_slug_idx": {
+          "name": "project_identity_catalog_generation_slug_idx",
+          "columns": [
+            "generation_id",
+            "project_slug"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "project_identity_catalog_generation_project_pk": {
+          "columns": [
+            "generation_id",
+            "project_id"
+          ],
+          "name": "project_identity_catalog_generation_project_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_identity_catalog_version_check": {
+          "name": "project_identity_catalog_version_check",
+          "value": "\"project_identity_catalog\".\"project_id_version\" = 1"
+        }
+      }
+    },
+    "project_identity_generation_evidence": {
+      "name": "project_identity_generation_evidence",
+      "columns": {
+        "generation_id": {
+          "name": "generation_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_created_at": {
+          "name": "generation_created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "manifest_sha256": {
+          "name": "manifest_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalog_schema_version": {
+          "name": "catalog_schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_identity_generation_evidence_created_time_check": {
+          "name": "project_identity_generation_evidence_created_time_check",
+          "value": "julianday(\"project_identity_generation_evidence\".\"generation_created_at\") IS NOT NULL"
+        },
+        "project_identity_generation_evidence_catalog_version_check": {
+          "name": "project_identity_generation_evidence_catalog_version_check",
+          "value": "\"project_identity_generation_evidence\".\"catalog_schema_version\" IN (1, 2, 3)"
+        }
+      }
+    },
+    "project_identity_migration_guard": {
+      "name": "project_identity_migration_guard",
+      "columns": {
+        "failure": {
+          "name": "failure",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_identity_migration_guard_check": {
+          "name": "project_identity_migration_guard_check",
+          "value": "\"project_identity_migration_guard\".\"failure\" = 0"
+        }
+      }
+    },
+    "project_identity_runtime": {
+      "name": "project_identity_runtime",
+      "columns": {
+        "singleton": {
+          "name": "singleton",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "published_at_micros": {
+          "name": "published_at_micros",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_identity_runtime_singleton_check": {
+          "name": "project_identity_runtime_singleton_check",
+          "value": "\"project_identity_runtime\".\"singleton\" = 1"
+        },
+        "project_identity_runtime_published_time_check": {
+          "name": "project_identity_runtime_published_time_check",
+          "value": "julianday(\"project_identity_runtime\".\"published_at\") IS NOT NULL"
+        }
+      }
+    },
+    "project_identity_unresolved_legacy": {
+      "name": "project_identity_unresolved_legacy",
+      "columns": {
+        "source_table": {
+          "name": "source_table",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_key": {
+          "name": "source_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_slug": {
+          "name": "project_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "disposition": {
+          "name": "disposition",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason_code": {
+          "name": "reason_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_version": {
+          "name": "policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "first_seen_generation_id": {
+          "name": "first_seen_generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "project_identity_unresolved_legacy_reason_idx": {
+          "name": "project_identity_unresolved_legacy_reason_idx",
+          "columns": [
+            "disposition",
+            "reason_code"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "project_identity_unresolved_legacy_source_pk": {
+          "columns": [
+            "source_table",
+            "source_key"
+          ],
+          "name": "project_identity_unresolved_legacy_source_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "project_identity_unresolved_legacy_source_table_check": {
+          "name": "project_identity_unresolved_legacy_source_table_check",
+          "value": "\"project_identity_unresolved_legacy\".\"source_table\" IN ('project_action_events', 'project_actions', 'project_action_state', 'feedback', 'decision_events')"
+        },
+        "project_identity_unresolved_legacy_disposition_check": {
+          "name": "project_identity_unresolved_legacy_disposition_check",
+          "value": "\"project_identity_unresolved_legacy\".\"disposition\" = 'quarantine'"
+        },
+        "project_identity_unresolved_legacy_reason_check": {
+          "name": "project_identity_unresolved_legacy_reason_check",
+          "value": "\"project_identity_unresolved_legacy\".\"reason_code\" = 'no_verified_repository_in_current_or_retained_catalogs'"
+        },
+        "project_identity_unresolved_legacy_created_time_check": {
+          "name": "project_identity_unresolved_legacy_created_time_check",
+          "value": "julianday(\"project_identity_unresolved_legacy\".\"created_at\") IS NOT NULL"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

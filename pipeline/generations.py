@@ -149,6 +149,18 @@ class PublicationResult:
 
 
 @dataclass(frozen=True)
+class VerifiedRetainedGeneration:
+    """One immutable retained generation after every publication gate passes."""
+
+    data_dir: Path
+    generation_id: str
+    root: Path
+    manifest: dict[str, Any]
+    audit: dict[str, Any]
+    manifest_sha256: str
+
+
+@dataclass(frozen=True)
 class _RecoveryPointerMetadata:
     generation_id: str | None
     published_at: datetime | None
@@ -1659,32 +1671,42 @@ def publish_candidate_generation(
         return PublicationResult(published, audit)
 
 
-def _verify_rollback_target(
-    canonical: Path,
+def verify_retained_generation(
+    data_dir: Path,
     generation_id: str,
-) -> tuple[Path, dict[str, Any], dict[str, Any], str]:
-    """Fully validate a retained rollback target before inspecting current."""
+) -> VerifiedRetainedGeneration:
+    """Fully validate one retained final generation without trusting current.
 
-    target = _safe_generation_path(canonical, generation_id, candidate=False)
-    if not target.exists():
-        raise CandidateGenerationError(
-            "rollback_target_missing",
-            f"retained rollback generation is unavailable: {generation_id}",
-            generation_id=generation_id,
-            stage="rollback",
-        )
+    Retained generations do not have a separate historical manifest-digest
+    registry.  This verifier therefore runs every immutable publication gate,
+    binds the exact manifest bytes to a digest, and confirms that neither the
+    manifest payload nor its bytes changed during validation.  Callers that
+    need a directory-wide snapshot must hold :func:`data_dir_lock` while
+    invoking this function for every visible generation.
+    """
 
+    canonical = _canonical_data_dir(data_dir)
+    normalized = _validate_generation_id(generation_id)
+    assert normalized is not None
     try:
+        target = _safe_generation_path(canonical, normalized, candidate=False)
+        if not target.exists():
+            raise CandidateGenerationError(
+                "rollback_target_missing",
+                f"retained generation is unavailable: {normalized}",
+                generation_id=normalized,
+                stage="rollback",
+            )
         # A retained generation has no separate historical digest registry.
         # Fully validate it before hashing, then bind those exact manifest
         # bytes to the replacement pointer and reject a concurrent mutation.
         manifest, audit = _verify_manifest_integrity(
             target,
-            generation_id,
+            normalized,
             verify_audit=True,
         )
         manifest_digest = _manifest_sha256(target)
-        confirmed_manifest = _load_manifest(target, expected_id=generation_id)
+        confirmed_manifest = _load_manifest(target, expected_id=normalized)
         verified_digest = _manifest_sha256(target)
     except CandidateGenerationError:
         raise
@@ -1692,19 +1714,26 @@ def _verify_rollback_target(
         raise CandidateGenerationError(
             error.code,
             str(error),
-            generation_id=generation_id,
+            generation_id=normalized,
             stage=error.stage or "integrity",
         ) from None
 
     if manifest != confirmed_manifest or manifest_digest != verified_digest:
         raise CandidateGenerationError(
             "rollback_target_changed",
-            f"rollback target manifest changed during validation: {generation_id}",
-            generation_id=generation_id,
+            f"retained generation manifest changed during validation: {normalized}",
+            generation_id=normalized,
             stage="integrity",
         )
     assert audit is not None
-    return target, manifest, audit, verified_digest
+    return VerifiedRetainedGeneration(
+        data_dir=canonical,
+        generation_id=normalized,
+        root=target,
+        manifest=manifest,
+        audit=audit,
+        manifest_sha256=verified_digest,
+    )
 
 
 def _recovery_publication_time(
@@ -1779,10 +1808,11 @@ def rollback_to_generation(
     normalized = _validate_generation_id(generation_id)
     assert normalized is not None
     with data_dir_lock(canonical):
-        target, manifest, audit, manifest_digest = _verify_rollback_target(
-            canonical,
-            normalized,
-        )
+        verified_target = verify_retained_generation(canonical, normalized)
+        target = verified_target.root
+        manifest = verified_target.manifest
+        audit = verified_target.audit
+        manifest_digest = verified_target.manifest_sha256
 
         pointer_path = canonical / "current.json"
         current: ResolvedGeneration | None = None

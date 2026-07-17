@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "2026-07-18.1",
+  "entries": [
+    {
+      "projectSlug": "officecli",
+      "disposition": "quarantine",
+      "reasonCode": "no_verified_repository_in_current_or_retained_catalogs",
+      "sourceTables": ["feedback"]
+    }
+  ]
+}

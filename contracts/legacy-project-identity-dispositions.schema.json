@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/legacy-project-identity-dispositions.schema.json",
+  "title": "Rardar legacy project identity dispositions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "policyVersion", "entries"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "policyVersion": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}\\.[1-9][0-9]*$",
+      "maxLength": 32
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/disposition" }
+    }
+  },
+  "$defs": {
+    "legacySourceTable": {
+      "enum": [
+        "feedback",
+        "decision_events"
+      ]
+    },
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectSlug", "disposition", "reasonCode", "sourceTables"],
+      "properties": {
+        "projectSlug": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$"
+        },
+        "disposition": { "const": "quarantine" },
+        "reasonCode": {
+          "const": "no_verified_repository_in_current_or_retained_catalogs"
+        },
+        "sourceTables": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/legacySourceTable" }
+        }
+      }
+    }
+  }
+}

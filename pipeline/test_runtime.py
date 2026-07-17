@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -223,11 +224,13 @@ class RuntimeTests(unittest.TestCase):
                 self._log_handle = None
                 self.start_count = 0
                 self.stop_count = 0
+                self.environment = None
                 services.append(self)
 
-            def start(self, _environment) -> None:
+            def start(self, environment) -> None:
                 self.start_count += 1
                 self.started_at = datetime.now(timezone.utc).isoformat()
+                self.environment = dict(environment)
 
             def poll(self) -> None:
                 return None
@@ -276,6 +279,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(scheduler.start_count, 1)
         self.assertEqual(website.restart_count, 0)
         self.assertEqual(website.stop_count, 1)
+        self.assertEqual(website.environment["RARDAR_PYTHON"], sys.executable)
+        self.assertEqual(scheduler.environment["RARDAR_PYTHON"], sys.executable)
 
     def test_python_dependency_preflight_succeeds_when_modules_are_available(self) -> None:
         with patch("pipeline.runtime.missing_python_dependencies", return_value=()):
