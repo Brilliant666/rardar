@@ -1,5 +1,8 @@
 import { env } from "cloudflare:workers";
+import { loadHistoricalIdentityBundleFromBridge } from "../app/published-data-client";
+import legacyProjectIdentityPolicySource from "../contracts/legacy-project-identity-dispositions.json?raw";
 import stableProjectIdentityMigration from "../drizzle/0004_stable_project_identity.sql?raw";
+import { parseLegacyProjectIdentityPolicy } from "./legacy-project-identity-policy.mjs";
 import { prepareProjectActionSchema } from "./project-actions.mjs";
 import {
   adoptStableProjectIdentities,
@@ -9,6 +12,9 @@ import {
 let schemaReady: Promise<void> | null = null;
 let adoptedIdentityKey: string | null = null;
 let identityAdoptionTail: Promise<void> = Promise.resolve();
+const legacyProjectIdentityPolicy = parseLegacyProjectIdentityPolicy(
+  legacyProjectIdentityPolicySource,
+);
 
 function identityCatalogKey(identityCatalog: ProjectIdentityCatalog) {
   return JSON.stringify(identityCatalog);
@@ -71,7 +77,20 @@ export async function ensureDecisionSchema(identityCatalog?: ProjectIdentityCata
   const key = identityCatalogKey(identityCatalog);
   const adoption = identityAdoptionTail.then(async () => {
     if (adoptedIdentityKey === key) return;
-    await adoptStableProjectIdentities(env.DB, identityCatalog);
+    const historicalIdentityBundle = await loadHistoricalIdentityBundleFromBridge();
+    if (
+      historicalIdentityBundle.activeGenerationId !== identityCatalog.generationId
+      || historicalIdentityBundle.activePublishedAt !== identityCatalog.publishedAt
+    ) {
+      throw new Error(
+        "historical identity bundle does not match the request generation pointer",
+      );
+    }
+    await adoptStableProjectIdentities(
+      env.DB,
+      historicalIdentityBundle,
+      legacyProjectIdentityPolicy,
+    );
     adoptedIdentityKey = key;
   });
   identityAdoptionTail = adoption.catch(() => undefined);

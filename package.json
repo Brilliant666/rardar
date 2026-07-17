@@ -28,7 +28,7 @@
     "build": "vinext build",
     "start": "vinext start",
     "test": "npm run build && npm run test:node",
-    "test:node": "node --test --test-concurrency=1 tests/action-events.test.mjs tests/project-identity.test.mjs tests/scoring-semantics.test.mjs tests/rendered-html.test.mjs tests/vinext-http.test.mjs",
+    "test:node": "node --test --test-concurrency=1 tests/action-events.test.mjs tests/legacy-project-identity-policy.test.mjs tests/project-identity.test.mjs tests/scoring-semantics.test.mjs tests/rendered-html.test.mjs tests/vinext-http.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "security:audit:prod": "npm audit --omit=dev --registry=https://registry.npmjs.org",
     "verify": "node scripts/verify.mjs",

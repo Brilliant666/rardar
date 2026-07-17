@@ -110,6 +110,26 @@ export const projectIdentityCatalog = sqliteTable(
   ],
 );
 
+export const projectIdentityGenerationEvidence = sqliteTable(
+  "project_identity_generation_evidence",
+  {
+    generationId: text("generation_id").primaryKey(),
+    generationCreatedAt: text("generation_created_at").notNull(),
+    manifestSha256: text("manifest_sha256").notNull(),
+    catalogSchemaVersion: integer("catalog_schema_version").notNull(),
+  },
+  (table) => [
+    check(
+      "project_identity_generation_evidence_created_time_check",
+      sql`julianday(${table.generationCreatedAt}) IS NOT NULL`,
+    ),
+    check(
+      "project_identity_generation_evidence_catalog_version_check",
+      sql`${table.catalogSchemaVersion} IN (1, 2, 3)`,
+    ),
+  ],
+);
+
 export const projectIdentityRuntime = sqliteTable(
   "project_identity_runtime",
   {
@@ -131,6 +151,86 @@ export const projectIdentityMigrationGuard = sqliteTable(
   "project_identity_migration_guard",
   { failure: integer("failure").notNull() },
   (table) => [check("project_identity_migration_guard_check", sql`${table.failure} = 0`)],
+);
+
+export const projectIdentityAdoptionSession = sqliteTable(
+  "project_identity_adoption_session",
+  {
+    singleton: integer("singleton").primaryKey(),
+    sessionId: text("session_id").notNull(),
+    activeGenerationId: text("active_generation_id").notNull(),
+    policyVersion: text("policy_version").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("project_identity_adoption_session_id_idx").on(table.sessionId),
+    check("project_identity_adoption_session_singleton_check", sql`${table.singleton} = 1`),
+    check(
+      "project_identity_adoption_session_created_time_check",
+      sql`julianday(${table.createdAt}) IS NOT NULL`,
+    ),
+  ],
+);
+
+export const projectIdentityAdoptionAllowedMapping = sqliteTable(
+  "project_identity_adoption_allowed_mapping",
+  {
+    sessionId: text("session_id").notNull(),
+    projectSlug: text("project_slug").notNull(),
+    generationId: text("generation_id").notNull(),
+    projectIdVersion: integer("project_id_version").notNull(),
+    projectId: text("project_id").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.sessionId, table.projectSlug],
+      name: "project_identity_adoption_allowed_mapping_pk",
+    }),
+    check(
+      "project_identity_adoption_allowed_mapping_version_check",
+      sql`${table.projectIdVersion} = 1`,
+    ),
+  ],
+);
+
+export const projectIdentityUnresolvedLegacy = sqliteTable(
+  "project_identity_unresolved_legacy",
+  {
+    sourceTable: text("source_table").notNull(),
+    sourceKey: text("source_key").notNull(),
+    projectSlug: text("project_slug").notNull(),
+    disposition: text("disposition").notNull(),
+    reasonCode: text("reason_code").notNull(),
+    policyVersion: text("policy_version").notNull(),
+    firstSeenGenerationId: text("first_seen_generation_id").notNull(),
+    createdAt: text("created_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.sourceTable, table.sourceKey],
+      name: "project_identity_unresolved_legacy_source_pk",
+    }),
+    check(
+      "project_identity_unresolved_legacy_source_table_check",
+      sql`${table.sourceTable} IN ('project_action_events', 'project_actions', 'project_action_state', 'feedback', 'decision_events')`,
+    ),
+    check(
+      "project_identity_unresolved_legacy_disposition_check",
+      sql`${table.disposition} = 'quarantine'`,
+    ),
+    check(
+      "project_identity_unresolved_legacy_reason_check",
+      sql`${table.reasonCode} = 'no_verified_repository_in_current_or_retained_catalogs'`,
+    ),
+    check(
+      "project_identity_unresolved_legacy_created_time_check",
+      sql`julianday(${table.createdAt}) IS NOT NULL`,
+    ),
+    index("project_identity_unresolved_legacy_reason_idx").on(
+      table.disposition,
+      table.reasonCode,
+    ),
+  ],
 );
 
 export const projectActionEventsV2 = sqliteTable(

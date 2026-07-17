@@ -19,6 +19,47 @@ export type ProjectIdentityCatalog = {
   }>;
 };
 
+export type HistoricalIdentityBundle = {
+  schemaVersion: 1;
+  activeGenerationId: string;
+  activePublishedAt: string;
+  generationCount: number;
+  mappingCount: number;
+  generations: readonly Array<{
+    generationId: string;
+    generationCreatedAt: string;
+    publishedAt: string | null;
+    manifestSha256: string;
+    catalogSchemaVersion: 1 | 2 | 3;
+    active: boolean;
+  }>;
+  mappings: readonly Array<{
+    generationId: string;
+    generationCreatedAt: string;
+    publishedAt: string | null;
+    manifestSha256: string;
+    catalogSchemaVersion: 1 | 2 | 3;
+    projectIdVersion: 1;
+    projectId: string;
+    canonicalRepository: string;
+    projectSlug: string;
+    active: boolean;
+  }>;
+};
+
+export type LegacyProjectIdentityDispositionPolicy = {
+  schemaVersion: 1;
+  policyVersion: string;
+  entries: readonly Array<{
+    projectSlug: string;
+    disposition: "quarantine";
+    reasonCode: "no_verified_repository_in_current_or_retained_catalogs";
+    sourceTables: readonly Array<
+      "feedback" | "decision_events"
+    >;
+  }>;
+};
+
 export type StableProjectActionEvent = StableProjectIdentity & {
   id: number;
   deviceId: string;
@@ -64,8 +105,21 @@ export class StableProjectDecisionError extends Error {
 
 export function adoptStableProjectIdentities(
   database: Database,
-  context: ProjectIdentityCatalog,
-): Promise<{ status: "ready"; generationId: string; projectCount: number }>;
+  context: ProjectIdentityCatalog | HistoricalIdentityBundle | {
+    bundle: HistoricalIdentityBundle;
+    policy?: LegacyProjectIdentityDispositionPolicy;
+  },
+  policy?: LegacyProjectIdentityDispositionPolicy,
+): Promise<{
+  status: "ready" | "ready_with_quarantine";
+  generationId: string;
+  projectCount: number;
+  migratedProjectCount: number;
+  migratedFactCount: number;
+  quarantinedSlugCount: number;
+  quarantinedFactCount: number;
+  unresolvedBlockingCount: 0;
+}>;
 
 export function appendStableProjectActionEvent(
   database: Database,

@@ -564,6 +564,11 @@ def _run_manager() -> int:
     environment = os.environ.copy()
     environment["PATH"] = str(node.parent) + os.pathsep + environment.get("PATH", "")
     environment["PYTHONUNBUFFERED"] = "1"
+    # The local Vinext host invokes the strict Python historical-generation
+    # verifier only for Stable Identity adoption.  Pin it to the same
+    # interpreter that passed the manager dependency preflight instead of
+    # relying on a potentially different global ``python`` on PATH.
+    environment["RARDAR_PYTHON"] = sys.executable
 
     website = ManagedService(
         "website",

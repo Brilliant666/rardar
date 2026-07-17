@@ -126,6 +126,36 @@ CREATE TRIGGER IF NOT EXISTS project_identity_catalog_reject_replacement
     )
     BEGIN SELECT RAISE(ABORT, 'project_identity_catalog mapping is immutable'); END
 --> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `project_identity_generation_evidence` (
+	`generation_id` text PRIMARY KEY NOT NULL,
+	`generation_created_at` text NOT NULL,
+	`manifest_sha256` text NOT NULL,
+	`catalog_schema_version` integer NOT NULL,
+	CONSTRAINT "project_identity_generation_evidence_created_time_check" CHECK(julianday("project_identity_generation_evidence"."generation_created_at") IS NOT NULL),
+	CONSTRAINT "project_identity_generation_evidence_catalog_version_check" CHECK("project_identity_generation_evidence"."catalog_schema_version" IN (1, 2, 3))
+);
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS project_identity_generation_evidence_reject_replacement
+    BEFORE INSERT ON project_identity_generation_evidence
+    WHEN EXISTS (
+      SELECT 1 FROM project_identity_generation_evidence AS existing
+      WHERE existing.generation_id = NEW.generation_id
+        AND NOT (
+          existing.generation_created_at IS NEW.generation_created_at
+          AND existing.manifest_sha256 IS NEW.manifest_sha256
+          AND existing.catalog_schema_version IS NEW.catalog_schema_version
+        )
+    )
+    BEGIN SELECT RAISE(ABORT, 'project identity generation evidence is immutable'); END
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS project_identity_generation_evidence_reject_update
+    BEFORE UPDATE ON project_identity_generation_evidence
+    BEGIN SELECT RAISE(ABORT, 'project identity generation evidence is immutable'); END
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS project_identity_generation_evidence_reject_delete
+    BEFORE DELETE ON project_identity_generation_evidence
+    BEGIN SELECT RAISE(ABORT, 'project identity generation evidence is immutable'); END
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `project_identity_migration_guard` (
 	`failure` integer NOT NULL,
 	CONSTRAINT "project_identity_migration_guard_check" CHECK("project_identity_migration_guard"."failure" = 0)
@@ -139,6 +169,92 @@ CREATE TABLE IF NOT EXISTS `project_identity_runtime` (
 	CONSTRAINT "project_identity_runtime_singleton_check" CHECK("project_identity_runtime"."singleton" = 1),
 	CONSTRAINT "project_identity_runtime_published_time_check" CHECK(julianday("project_identity_runtime"."published_at") IS NOT NULL)
 );
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `project_identity_adoption_session` (
+	`singleton` integer PRIMARY KEY NOT NULL,
+	`session_id` text NOT NULL,
+	`active_generation_id` text NOT NULL,
+	`policy_version` text NOT NULL,
+	`created_at` text NOT NULL,
+	CONSTRAINT "project_identity_adoption_session_singleton_check" CHECK("project_identity_adoption_session"."singleton" = 1),
+	CONSTRAINT "project_identity_adoption_session_created_time_check" CHECK(julianday("project_identity_adoption_session"."created_at") IS NOT NULL)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `project_identity_adoption_session_id_idx` ON `project_identity_adoption_session` (`session_id`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `project_identity_adoption_allowed_mapping` (
+	`session_id` text NOT NULL,
+	`project_slug` text NOT NULL,
+	`generation_id` text NOT NULL,
+	`project_id_version` integer NOT NULL,
+	`project_id` text NOT NULL,
+	PRIMARY KEY(`session_id`, `project_slug`),
+	CONSTRAINT "project_identity_adoption_allowed_mapping_version_check" CHECK("project_identity_adoption_allowed_mapping"."project_id_version" = 1)
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `project_identity_unresolved_legacy` (
+	`source_table` text NOT NULL,
+	`source_key` text NOT NULL,
+	`project_slug` text NOT NULL,
+	`disposition` text NOT NULL,
+	`reason_code` text NOT NULL,
+	`policy_version` text NOT NULL,
+	`first_seen_generation_id` text NOT NULL,
+	`created_at` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
+	PRIMARY KEY(`source_table`, `source_key`),
+	CONSTRAINT "project_identity_unresolved_legacy_source_table_check" CHECK("project_identity_unresolved_legacy"."source_table" IN ('project_action_events', 'project_actions', 'project_action_state', 'feedback', 'decision_events')),
+	CONSTRAINT "project_identity_unresolved_legacy_disposition_check" CHECK("project_identity_unresolved_legacy"."disposition" = 'quarantine'),
+	CONSTRAINT "project_identity_unresolved_legacy_reason_check" CHECK("project_identity_unresolved_legacy"."reason_code" = 'no_verified_repository_in_current_or_retained_catalogs'),
+	CONSTRAINT "project_identity_unresolved_legacy_created_time_check" CHECK(julianday("project_identity_unresolved_legacy"."created_at") IS NOT NULL)
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `project_identity_unresolved_legacy_reason_idx` ON `project_identity_unresolved_legacy` (`disposition`,`reason_code`);--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS project_identity_adoption_session_reject_update
+    BEFORE UPDATE ON project_identity_adoption_session
+    BEGIN SELECT RAISE(ABORT, 'project identity adoption session is immutable'); END
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS project_identity_adoption_allowed_mapping_validate_insert
+    BEFORE INSERT ON project_identity_adoption_allowed_mapping
+    WHEN NOT EXISTS (
+      SELECT 1 FROM project_identity_adoption_session AS session
+      JOIN project_identity_catalog AS identity
+        ON identity.generation_id = NEW.generation_id
+        AND identity.project_id_version = NEW.project_id_version
+        AND identity.project_id = NEW.project_id
+        AND identity.project_slug = NEW.project_slug
+      WHERE session.singleton = 1 AND session.session_id = NEW.session_id
+    )
+    BEGIN SELECT RAISE(ABORT, 'invalid project identity adoption mapping'); END
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS project_identity_adoption_allowed_mapping_reject_update
+    BEFORE UPDATE ON project_identity_adoption_allowed_mapping
+    BEGIN SELECT RAISE(ABORT, 'project identity adoption mapping is immutable'); END
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS project_identity_unresolved_legacy_reject_replacement
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS project_identity_unresolved_legacy_reject_replacement
+    BEFORE INSERT ON project_identity_unresolved_legacy
+    WHEN EXISTS (
+      SELECT 1 FROM project_identity_unresolved_legacy AS existing
+      WHERE existing.source_table = NEW.source_table
+        AND existing.source_key = NEW.source_key
+        AND NOT (
+          existing.project_slug IS NEW.project_slug
+          AND existing.disposition IS NEW.disposition
+          AND existing.reason_code IS NEW.reason_code
+          AND existing.policy_version IS NEW.policy_version
+          AND existing.first_seen_generation_id IS NEW.first_seen_generation_id
+          AND existing.created_at IS NEW.created_at
+        )
+    )
+    BEGIN SELECT RAISE(ABORT, 'project identity unresolved disposition is immutable'); END
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS project_identity_unresolved_legacy_reject_update
+    BEFORE UPDATE ON project_identity_unresolved_legacy
+    BEGIN SELECT RAISE(ABORT, 'project identity unresolved disposition is immutable'); END
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS project_identity_unresolved_legacy_reject_delete
+    BEFORE DELETE ON project_identity_unresolved_legacy
+    BEGIN SELECT RAISE(ABORT, 'project identity unresolved disposition is immutable'); END
 --> statement-breakpoint
 CREATE TRIGGER IF NOT EXISTS project_identity_catalog_reject_update
     BEFORE UPDATE ON project_identity_catalog
@@ -159,14 +275,42 @@ CREATE TRIGGER IF NOT EXISTS project_action_events_v2_validate_mapping
     )
     BEGIN SELECT RAISE(ABORT, 'unknown stable project identity'); END
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS project_action_events_v2_validate_active_generation
+DROP TRIGGER IF EXISTS project_action_events_v2_validate_active_generation
+--> statement-breakpoint
+CREATE TRIGGER project_action_events_v2_validate_active_generation
     BEFORE INSERT ON project_action_events_v2
     WHEN NOT EXISTS (
       SELECT 1 FROM project_identity_runtime AS runtime
       WHERE runtime.singleton = 1
         AND runtime.generation_id = NEW.catalog_generation_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM project_identity_adoption_session AS session
+      JOIN project_identity_adoption_allowed_mapping AS allowed
+        ON allowed.session_id = session.session_id
+      WHERE session.singleton = 1
+        AND allowed.generation_id = NEW.catalog_generation_id
+        AND allowed.project_id_version = NEW.project_id_version
+        AND allowed.project_id = NEW.project_id
+        AND allowed.project_slug = NEW.project_slug
     )
     BEGIN SELECT RAISE(ABORT, 'stale stable project generation'); END
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS project_action_events_v2_validate_historical_source
+    BEFORE INSERT ON project_action_events_v2
+    WHEN EXISTS (SELECT 1 FROM project_identity_adoption_session WHERE singleton = 1)
+    AND NOT EXISTS (
+      SELECT 1 FROM project_identity_runtime AS runtime
+      WHERE runtime.singleton = 1
+        AND runtime.generation_id = NEW.catalog_generation_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM project_action_events AS legacy
+      WHERE legacy.device_id IS NEW.device_id
+        AND legacy.project_slug IS NEW.project_slug
+        AND legacy.action IS NEW.action
+        AND legacy.occurred_at IS NEW.occurred_at
+        AND legacy.idempotency_key IS NEW.idempotency_key
+    )
+    BEGIN SELECT RAISE(ABORT, 'inactive stable project Event lacks an exact legacy source'); END
 --> statement-breakpoint
 CREATE TRIGGER IF NOT EXISTS project_action_events_v2_reject_legacy_conflict
     BEFORE INSERT ON project_action_events_v2
@@ -281,12 +425,23 @@ CREATE TRIGGER IF NOT EXISTS project_action_state_v2_validate_mapping_insert
     )
     BEGIN SELECT RAISE(ABORT, 'unknown stable project identity'); END
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS project_action_state_v2_validate_active_generation_insert
+DROP TRIGGER IF EXISTS project_action_state_v2_validate_active_generation_insert
+--> statement-breakpoint
+CREATE TRIGGER project_action_state_v2_validate_active_generation_insert
     BEFORE INSERT ON project_action_state_v2
     WHEN NOT EXISTS (
       SELECT 1 FROM project_identity_runtime AS runtime
       WHERE runtime.singleton = 1
         AND runtime.generation_id = NEW.catalog_generation_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM project_identity_adoption_session AS session
+      JOIN project_identity_adoption_allowed_mapping AS allowed
+        ON allowed.session_id = session.session_id
+      WHERE session.singleton = 1
+        AND allowed.generation_id = NEW.catalog_generation_id
+        AND allowed.project_id_version = NEW.project_id_version
+        AND allowed.project_id = NEW.project_id
+        AND allowed.project_slug = NEW.project_slug
     )
     BEGIN SELECT RAISE(ABORT, 'stale stable project generation'); END
 --> statement-breakpoint
@@ -302,12 +457,23 @@ CREATE TRIGGER IF NOT EXISTS project_action_state_v2_validate_mapping_update
     )
     BEGIN SELECT RAISE(ABORT, 'unknown stable project identity'); END
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS project_action_state_v2_validate_active_generation_update
+DROP TRIGGER IF EXISTS project_action_state_v2_validate_active_generation_update
+--> statement-breakpoint
+CREATE TRIGGER project_action_state_v2_validate_active_generation_update
     BEFORE UPDATE ON project_action_state_v2
     WHEN NOT EXISTS (
       SELECT 1 FROM project_identity_runtime AS runtime
       WHERE runtime.singleton = 1
         AND runtime.generation_id = NEW.catalog_generation_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM project_identity_adoption_session AS session
+      JOIN project_identity_adoption_allowed_mapping AS allowed
+        ON allowed.session_id = session.session_id
+      WHERE session.singleton = 1
+        AND allowed.generation_id = NEW.catalog_generation_id
+        AND allowed.project_id_version = NEW.project_id_version
+        AND allowed.project_id = NEW.project_id
+        AND allowed.project_slug = NEW.project_slug
     )
     BEGIN SELECT RAISE(ABORT, 'stale stable project generation'); END
 --> statement-breakpoint
@@ -555,14 +721,42 @@ CREATE TRIGGER IF NOT EXISTS feedback_v2_validate_mapping
     )
     BEGIN SELECT RAISE(ABORT, 'unknown stable project identity'); END
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS feedback_v2_validate_active_generation
+DROP TRIGGER IF EXISTS feedback_v2_validate_active_generation
+--> statement-breakpoint
+CREATE TRIGGER feedback_v2_validate_active_generation
     BEFORE INSERT ON feedback_v2
     WHEN NOT EXISTS (
       SELECT 1 FROM project_identity_runtime AS runtime
       WHERE runtime.singleton = 1
         AND runtime.generation_id = NEW.catalog_generation_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM project_identity_adoption_session AS session
+      JOIN project_identity_adoption_allowed_mapping AS allowed
+        ON allowed.session_id = session.session_id
+      WHERE session.singleton = 1
+        AND allowed.generation_id = NEW.catalog_generation_id
+        AND allowed.project_id_version = NEW.project_id_version
+        AND allowed.project_id = NEW.project_id
+        AND allowed.project_slug = NEW.project_slug
     )
     BEGIN SELECT RAISE(ABORT, 'stale stable project generation'); END
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS feedback_v2_validate_historical_source
+    BEFORE INSERT ON feedback_v2
+    WHEN EXISTS (SELECT 1 FROM project_identity_adoption_session WHERE singleton = 1)
+    AND NOT EXISTS (
+      SELECT 1 FROM project_identity_runtime AS runtime
+      WHERE runtime.singleton = 1
+        AND runtime.generation_id = NEW.catalog_generation_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM feedback AS legacy
+      WHERE legacy.device_id IS NEW.device_id
+        AND legacy.project_slug IS NEW.project_slug
+        AND legacy.value IS NEW.value
+        AND legacy.created_at IS NEW.created_at
+        AND legacy.updated_at IS NEW.updated_at
+    )
+    BEGIN SELECT RAISE(ABORT, 'inactive stable feedback lacks an exact legacy source'); END
 --> statement-breakpoint
 CREATE TRIGGER IF NOT EXISTS feedback_v2_validate_mapping_update
     BEFORE UPDATE OF project_id_version, project_id, project_slug, catalog_generation_id
@@ -576,12 +770,23 @@ CREATE TRIGGER IF NOT EXISTS feedback_v2_validate_mapping_update
     )
     BEGIN SELECT RAISE(ABORT, 'unknown stable project identity'); END
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS feedback_v2_validate_active_generation_update
+DROP TRIGGER IF EXISTS feedback_v2_validate_active_generation_update
+--> statement-breakpoint
+CREATE TRIGGER feedback_v2_validate_active_generation_update
     BEFORE UPDATE ON feedback_v2
     WHEN NOT EXISTS (
       SELECT 1 FROM project_identity_runtime AS runtime
       WHERE runtime.singleton = 1
         AND runtime.generation_id = NEW.catalog_generation_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM project_identity_adoption_session AS session
+      JOIN project_identity_adoption_allowed_mapping AS allowed
+        ON allowed.session_id = session.session_id
+      WHERE session.singleton = 1
+        AND allowed.generation_id = NEW.catalog_generation_id
+        AND allowed.project_id_version = NEW.project_id_version
+        AND allowed.project_id = NEW.project_id
+        AND allowed.project_slug = NEW.project_slug
     )
     BEGIN SELECT RAISE(ABORT, 'stale stable project generation'); END
 --> statement-breakpoint
@@ -707,14 +912,42 @@ CREATE TRIGGER IF NOT EXISTS decision_events_v2_validate_mapping
     )
     BEGIN SELECT RAISE(ABORT, 'unknown stable project identity'); END
 --> statement-breakpoint
-CREATE TRIGGER IF NOT EXISTS decision_events_v2_validate_active_generation
+DROP TRIGGER IF EXISTS decision_events_v2_validate_active_generation
+--> statement-breakpoint
+CREATE TRIGGER decision_events_v2_validate_active_generation
     BEFORE INSERT ON decision_events_v2
     WHEN NOT EXISTS (
       SELECT 1 FROM project_identity_runtime AS runtime
       WHERE runtime.singleton = 1
         AND runtime.generation_id = NEW.catalog_generation_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM project_identity_adoption_session AS session
+      JOIN project_identity_adoption_allowed_mapping AS allowed
+        ON allowed.session_id = session.session_id
+      WHERE session.singleton = 1
+        AND allowed.generation_id = NEW.catalog_generation_id
+        AND allowed.project_id_version = NEW.project_id_version
+        AND allowed.project_id = NEW.project_id
+        AND allowed.project_slug = NEW.project_slug
     )
     BEGIN SELECT RAISE(ABORT, 'stale stable project generation'); END
+--> statement-breakpoint
+CREATE TRIGGER IF NOT EXISTS decision_events_v2_validate_historical_source
+    BEFORE INSERT ON decision_events_v2
+    WHEN EXISTS (SELECT 1 FROM project_identity_adoption_session WHERE singleton = 1)
+    AND NOT EXISTS (
+      SELECT 1 FROM project_identity_runtime AS runtime
+      WHERE runtime.singleton = 1
+        AND runtime.generation_id = NEW.catalog_generation_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM decision_events AS legacy
+      WHERE legacy.id IS NEW.legacy_event_id
+        AND legacy.device_id IS NEW.device_id
+        AND legacy.project_slug IS NEW.project_slug
+        AND legacy.value IS NEW.value
+        AND legacy.created_at IS NEW.occurred_at
+    )
+    BEGIN SELECT RAISE(ABORT, 'inactive stable decision Event lacks an exact legacy source'); END
 --> statement-breakpoint
 CREATE TRIGGER IF NOT EXISTS decision_events_v2_reject_identity_replacement
     BEFORE INSERT ON decision_events_v2
