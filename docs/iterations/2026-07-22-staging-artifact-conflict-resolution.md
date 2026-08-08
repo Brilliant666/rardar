@@ -94,6 +94,25 @@ project enrichment 不是本次冲突：其 v1 机械转换后与 stable v2 完�
 
 演练中最先处理 n8n 后，OpenHands 和 openscience 冲突按顺序暴露。它们没有被批量或自动“选新”；本文件先逐项核对 repository、projectId、ready generation、双 SHA、analyzed time、snapshot pushed time 和事实差异，随后才在一次性副本中分别调用单仓库 resolver。
 
+## 真实外部边界演练（降级，不计作严格 PASS）
+
+为补足上述 deterministic 演练没有覆盖真实 GitHub、信号源和 HTTP 端口的限制，2026-08-09（Asia/Shanghai）又从 Primary `data/` 新建一份完整临时副本。复制前后均为 825 个文件、28,018,284 字节，全树 SHA-256 指纹为 `44fdf5c76e4fa2d8396b679c7e2b236bfe2442d4dba4474461c3ca9e23bed6c6`。三个 resolver 再次完成 dry-run、apply 和 no-op；副本只移出三个已审查 legacy analysis，原 current、5 个 retained generations 和 18 个 failed candidates 字节不变。
+
+本次没有 stub `collect`、`collect_signals` 或 `analyze_remote`：scheduler 子进程使用当前 `gh` 身份的短期 `GITHUB_TOKEN`，执行真实 9 条 GitHub Search、真实外部信号采集和 Top 5 公开仓库静态分析。Vinext 同时只监听随机回环端口 `64424`，`RARDAR_DATA_DIR` 指向副本，`RARDAR_VINEXT_STATE_DIR` 指向临时 Miniflare state，`CLOUDFLARE_VITE_FORCE_LOCAL=true`；因此没有连接正式 D1，也没有访问或占用 Primary 3000。
+
+真实外部结果：
+
+- 9/9 GitHub Search healthy，得到 183 个候选；snapshot、catalog、signals 和 queue 时间均为 `2026-08-08T18:27:57.033718+00:00`；
+- 5 个静态分析目标中 4 个产生本轮 Schema v2 evidence：`trycompai/crm`、`yc-software/qm`、`microsoft/skill-recorder` 和 `OpenHands/OpenHands`；
+- `n8n-io/n8n` 的 shallow clone 在 180 秒后超时。Windows 上直接 clone 进程退出后，三个 `git-remote-https` 后代仍持有管道和网络连接，scheduler 只有心跳而不推进；本次只终止了这三个已核验的隔离 clone 后代，使现有官方 codeload fallback 得以继续。fallback 随后按安全上限拒绝超过 25,000 个文件的 archive，因此 catalog 正确记录 1 个 `analysisFailure`，没有伪造新 n8n evidence；
+- 6 个信号源中 5 个 healthy；Hugging Face Blog 在 45 秒网络超时后记录为 failed，其他 OpenAI News、GitHub Changelog、AI News Radar、OpenGithubs Daily Rank 和 HelloGitHub 正常；
+- scheduler 发布 generation `20260808T182757981298Z-c6581c48d8e8`，manifest 为 ready/refresh，`previousGenerationId` 和 `baseGenerationId` 均为 `20260716T000001945465Z-d7223e00847a`；Schema validation healthy（33 artifacts），Audit 无 error 但因上述两项产生 2 个 warning，状态为 degraded；
+- 服务不重启即可从旧 generation 切换到新 generation。`GET /api/health`、`/`、`/signals`、`/search` 和使用临时本地 D1 的 `/api/actions` 均为 200；
+- 发布后三个 resolver 再次全部 no-op；旧 5 个 retained generations、18 个 failed candidates 和 flat staging（除三个显式移出的 legacy 文件）逐字节不变；
+- 隔离 Vinext、64424 端口、临时 D1、data copy、审计归档和分析临时目录均已清理。Primary 指纹、main HEAD、Manager/Website/Scheduler PID、3000 listener 和正式 generation 全部不变。
+
+因此，本次真实外部演练证明：三个 staging identity conflict 不再阻止 candidate 构建和 ready generation 发布，随机端口消费者也能原子读取新 generation；但它**不能**证明无人干预且所有外部来源均 healthy 的严格验收。n8n clone 超时后的 Windows 子进程清理，以及 Hugging Face 的外部网络可用性，仍是独立于 resolver 的运行风险，必须在把本轮描述为完整外部 PASS 之前另行解决或明确接受 degraded 发布语义。
+
 ## 行为测试
 
 `pipeline.test_resolve_project_artifact_conflict` 使用最小脱敏 n8n 形状，而不是提交 Primary 业务数据。49 项测试覆盖：
