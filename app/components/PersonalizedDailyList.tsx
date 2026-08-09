@@ -1,21 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Project } from "../data";
+import {
+  associateProjectsById,
+  resultForGeneration,
+} from "../client-project-identity.mjs";
+import type { StableProject } from "../data";
 import type { PersonalizationResult } from "../personalization";
 import { feedbackEventName, getDeviceId } from "./device-id";
 import { ProjectCard } from "./ProjectCard";
 
 export function PersonalizedDailyList({
+  generationId,
   dailyProjects,
   projects,
 }: {
-  dailyProjects: Project[];
-  projects: Project[];
+  generationId: string;
+  dailyProjects: StableProject[];
+  projects: StableProject[];
 }) {
-  const [result, setResult] = useState<PersonalizationResult | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [resultState, setResultState] = useState<{
+    generationId: string;
+    result: PersonalizationResult;
+  } | null>(null);
+  const [failedGeneration, setFailedGeneration] = useState<string | null>(null);
   const requestVersion = useRef(0);
+  const result = resultState?.generationId === generationId ? resultState.result : null;
+  const failed = failedGeneration === generationId;
 
   const refresh = useCallback(async () => {
     const currentRequestVersion = ++requestVersion.current;
@@ -27,15 +38,22 @@ export function PersonalizedDailyList({
         cache: "no-store",
       });
       if (!response.ok) throw new Error("recommendations unavailable");
-      const nextResult = (await response.json()) as PersonalizationResult;
+      const responseResult = (await response.json()) as PersonalizationResult & {
+        generationId?: unknown;
+      };
       if (currentRequestVersion !== requestVersion.current) return;
-      setResult(nextResult);
-      setFailed(false);
+      const nextResult = resultForGeneration(generationId, responseResult);
+      if (!nextResult) {
+        setFailedGeneration(generationId);
+        return;
+      }
+      setResultState({ generationId: nextResult.generationId, result: nextResult });
+      setFailedGeneration(null);
     } catch {
       if (currentRequestVersion !== requestVersion.current) return;
-      setFailed(true);
+      setFailedGeneration(generationId);
     }
-  }, []);
+  }, [generationId]);
 
   useEffect(() => {
     const initialRefresh = window.setTimeout(() => void refresh(), 0);
@@ -46,17 +64,15 @@ export function PersonalizedDailyList({
       window.clearTimeout(initialRefresh);
       window.removeEventListener(feedbackEventName, handleFeedback);
     };
-  }, [refresh]);
+  }, [generationId, refresh]);
 
   const rankedProjects = useMemo(() => {
     if (!result) return dailyProjects.map((project) => ({ project, reason: "" }));
-    const projectBySlug = new Map(projects.map((project) => [project.slug, project]));
-    return result.recommendations
-      .map((recommendation) => ({
-        project: projectBySlug.get(recommendation.slug),
+    return associateProjectsById(projects, result.recommendations)
+      .map(({ project, record: recommendation }) => ({
+        project,
         reason: result.personalized ? recommendation.reasons[0] ?? "" : "",
       }))
-      .filter((item): item is { project: Project; reason: string } => Boolean(item.project))
       .slice(0, 5);
   }, [dailyProjects, projects, result]);
 
@@ -74,7 +90,7 @@ export function PersonalizedDailyList({
       <div className="daily-list">
         {rankedProjects.map(({ project, reason }, index) => (
           <ProjectCard
-            key={project.slug}
+            key={project.projectId}
             project={project}
             index={index}
             rankingReason={reason}

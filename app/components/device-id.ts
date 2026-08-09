@@ -2,6 +2,7 @@ export const feedbackEventName = "rardar:feedback";
 export const projectActionEventName = "rardar:project-action";
 
 export type ProjectActionValue = "opened" | "saved" | "tried" | "cloned" | "reused";
+export type ClientProjectIdentity = { projectIdVersion: 1; projectId: string };
 
 const storageKey = "rardar-device-id";
 
@@ -34,7 +35,7 @@ export function isRetryableProjectActionError(error: unknown) {
 }
 
 export async function recordProjectAction(
-  projectSlug: string,
+  project: ClientProjectIdentity,
   action: ProjectActionValue,
   idempotencyKey = createProjectActionIdempotencyKey(),
 ) {
@@ -47,7 +48,7 @@ export async function recordProjectAction(
       response = await fetch("/api/actions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deviceId, projectSlug, action, idempotencyKey }),
+        body: JSON.stringify({ deviceId, ...project, action, idempotencyKey }),
         keepalive: action === "opened",
       });
       if (response.ok || response.status < 500) break;
@@ -64,6 +65,6 @@ export async function recordProjectAction(
     throw new ProjectActionRequestError(message, retryable);
   }
   const result = (await response.json()) as { recorded: boolean };
-  window.dispatchEvent(new CustomEvent(projectActionEventName, { detail: { projectSlug, action } }));
+  window.dispatchEvent(new CustomEvent(projectActionEventName, { detail: { ...project, action } }));
   return result;
 }

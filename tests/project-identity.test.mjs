@@ -12,6 +12,15 @@ import {
   withCurrentProjectIdentity,
   withCurrentProjectIdentityIfPresent,
 } from "../app/project-identity.mjs";
+import {
+  associateProjectsById,
+  canonicalProjectPath,
+  collectWatchStatusesByProjectId,
+  indexStableProjectsById,
+  isFreshClientRead,
+  resultForGeneration,
+  stableProjectSelector,
+} from "../app/client-project-identity.mjs";
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const python = process.env.RARDAR_PYTHON || "python";
@@ -149,9 +158,12 @@ function createTestProjectIdentityContext(generationId, catalog) {
 test("request identity context derives v1/v2 identities and verifies v3 carried identity", async () => {
   const expected = await identityForRepository("Owner/Repo.Name");
   for (const schemaVersion of [1, 2]) {
+    const sourceProject = catalogProject("Owner/Repo.Name", "owner--repo-name", {
+      title: `Catalog v${schemaVersion} project`,
+    });
     const context = await createTestProjectIdentityContext(`generation-v${schemaVersion}`, {
       schemaVersion,
-      projects: [catalogProject("Owner/Repo.Name", "owner--repo-name")],
+      projects: [sourceProject],
     });
     assert.deepEqual(context.identityCatalog, {
       generationId: `generation-v${schemaVersion}`,
@@ -163,17 +175,26 @@ test("request identity context derives v1/v2 identities and verifies v3 carried 
         repository: "Owner/Repo.Name",
       }],
     });
+    assert.deepEqual(context.stableProjects([sourceProject]), [{
+      ...sourceProject,
+      projectIdVersion: 1,
+      projectId: expected.projectId,
+    }]);
+    assert.equal(sourceProject.projectId, undefined, "legacy Catalog input must not be mutated");
   }
 
+  const v3Project = catalogProject("Owner/Repo.Name", "owner--repo-name", {
+    title: "Catalog v3 project",
+    projectIdVersion: 1,
+    projectId: expected.projectId,
+  });
   const v3 = await createTestProjectIdentityContext("generation-v3", {
     schemaVersion: 3,
     projectIdVersion: 1,
-    projects: [catalogProject("Owner/Repo.Name", "owner--repo-name", {
-      projectIdVersion: 1,
-      projectId: expected.projectId,
-    })],
+    projects: [v3Project],
   });
   assert.equal(v3.identityCatalog.projects[0].projectId, expected.projectId);
+  assert.deepEqual(v3.stableProjects([v3Project]), [v3Project]);
 
   await assert.rejects(
     createTestProjectIdentityContext("forged-v3", {
@@ -204,6 +225,110 @@ test("request identity context derives v1/v2 identities and verifies v3 carried 
       projects: [],
     }),
     (error) => error instanceof ProjectIdentityError && error.code === "unsupported_project_id_version",
+  );
+});
+
+test("client helpers keep projects with the same legacy slug isolated by stable ID", async () => {
+  const firstIdentity = await identityForRepository("owner/foo.bar");
+  const secondIdentity = await identityForRepository("owner/foo-bar");
+  const first = {
+    slug: "legacy-collision",
+    repo: "owner/foo.bar",
+    projectIdVersion: 1,
+    projectId: firstIdentity.projectId,
+  };
+  const second = {
+    slug: "legacy-collision",
+    repo: "owner/foo-bar",
+    projectIdVersion: 1,
+    projectId: secondIdentity.projectId,
+  };
+
+  assert.deepEqual(stableProjectSelector(first), {
+    projectIdVersion: 1,
+    projectId: firstIdentity.projectId,
+  });
+  assert.equal(
+    canonicalProjectPath(first),
+    `/project/v1/${encodeURIComponent(firstIdentity.projectId)}`,
+  );
+
+  const byId = indexStableProjectsById([first, second]);
+  assert.equal(byId.size, 2);
+  assert.strictEqual(byId.get(firstIdentity.projectId), first);
+  assert.strictEqual(byId.get(secondIdentity.projectId), second);
+
+  const records = [
+    {
+      projectIdVersion: 1,
+      projectId: secondIdentity.projectId,
+      projectSlug: "legacy-collision",
+      rank: 1,
+    },
+    {
+      projectIdVersion: 1,
+      projectId: firstIdentity.projectId,
+      projectSlug: "legacy-collision",
+      rank: 2,
+    },
+    {
+      projectIdVersion: 1,
+      projectId: "unknown-project--0123456789abcdef0123",
+      projectSlug: "legacy-collision",
+      rank: 3,
+    },
+  ];
+  const associated = associateProjectsById([first, second], records);
+  assert.deepEqual(
+    associated.map(({ project, record }) => [project.projectId, record.rank]),
+    [[secondIdentity.projectId, 1], [firstIdentity.projectId, 2]],
+  );
+
+  const statuses = collectWatchStatusesByProjectId(
+    [{
+      projectIdVersion: 1,
+      projectId: firstIdentity.projectId,
+      projectSlug: "legacy-collision",
+      value: "待确定",
+    }],
+    [{
+      projectIdVersion: 1,
+      projectId: secondIdentity.projectId,
+      projectSlug: "legacy-collision",
+      action: "saved",
+    }],
+  );
+  assert.deepEqual(
+    [...statuses.keys()].sort(),
+    [firstIdentity.projectId, secondIdentity.projectId].sort(),
+  );
+  assert.equal(statuses.get(firstIdentity.projectId).length, 1);
+  assert.equal(statuses.get(secondIdentity.projectId).length, 1);
+
+  assert.equal(isFreshClientRead(false, 7, 7, 2, 2), true);
+  assert.equal(isFreshClientRead(true, 7, 7, 2, 2), false);
+  assert.equal(
+    isFreshClientRead(false, 7, 7, 2, 3),
+    false,
+    "a successful mutation must invalidate an older feedback read",
+  );
+  const generationAResult = { generationId: "generation-a", recommendations: [] };
+  assert.strictEqual(resultForGeneration("generation-a", generationAResult), generationAResult);
+  assert.equal(
+    resultForGeneration("generation-a", { generationId: "generation-b", recommendations: [] }),
+    null,
+    "a recommendation response from another generation must be rejected",
+  );
+
+  assert.throws(
+    () => stableProjectSelector({ ...first, projectIdVersion: 2 }),
+    (error) => error instanceof ProjectIdentityError
+      && error.code === "invalid_client_project_identity",
+  );
+  assert.throws(
+    () => indexStableProjectsById([first, { ...second, projectId: first.projectId }]),
+    (error) => error instanceof ProjectIdentityError
+      && error.code === "duplicate_client_project_identity",
   );
 });
 

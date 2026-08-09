@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { formatNumber, type Project } from "../data";
+import { canonicalProjectPath } from "../client-project-identity.mjs";
+import { formatNumber, type StableProject } from "../data";
 
 type IntentRule = {
   label: string;
@@ -86,7 +87,7 @@ function analyzeIntent(query: string) {
   };
 }
 
-function matchProject(project: Project, query: string, rules: IntentRule[], tokens: string[]) {
+function matchProject(project: StableProject, query: string, rules: IntentRule[], tokens: string[]) {
   const haystack = normalize([
     project.repo,
     project.title,
@@ -133,7 +134,7 @@ export function SearchWorkbench({
   projects,
   compact = false,
 }: {
-  projects: Project[];
+  projects: StableProject[];
   compact?: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -236,7 +237,7 @@ export function SearchWorkbench({
           )}
           <div className="match-list">
             {displayedResults.map(({ project, score, reasons }, index) => (
-              <Link href={`/projects/${project.slug}`} key={project.slug} className={`match-row ${compact ? "" : "match-row-rich"}`}>
+              <Link href={canonicalProjectPath(project)} key={project.projectId} className={`match-row ${compact ? "" : "match-row-rich"}`}>
                 <span>{String(index + 1).padStart(2, "0")}</span>
                 <div className="match-identity">
                   <strong>{project.repo}</strong>

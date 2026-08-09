@@ -165,13 +165,13 @@ async function startDecoyServer() {
 }
 
 async function rawHttpRequest(baseUrl, path, headers = {}) {
-  const target = new URL(path, baseUrl);
+  const target = new URL(baseUrl);
   return new Promise((resolve, reject) => {
     const request = httpRequest(
       {
         hostname: target.hostname,
         port: target.port,
-        path: `${target.pathname}${target.search}`,
+        path,
         method: "GET",
         headers,
       },
@@ -182,6 +182,7 @@ async function rawHttpRequest(baseUrl, path, headers = {}) {
           resolve({
             status: response.statusCode,
             body: Buffer.concat(chunks).toString("utf8"),
+            headers: response.headers,
           });
         });
       },
@@ -339,6 +340,10 @@ function assertGenerationMarkers(html, expectedCatalog, expectedSignal, rejected
   assert.doesNotMatch(html, new RegExp(rejectedSignal));
 }
 
+function canonicalProjectRoute(projectId, version = "v1") {
+  return `/project/${encodeURIComponent(version)}/${encodeURIComponent(projectId)}`;
+}
+
 test(
   "serves one verified generation per real Vinext request and recovers without restart",
   { timeout: 300_000 },
@@ -401,6 +406,95 @@ test(
       assert.match(homeAText, /静态工程就绪度/);
       assert.doesNotMatch(homeAText, /全球影响力|复用价值|建议：复用/);
 
+      const canonicalPath = canonicalProjectRoute(fixture.projectId);
+      assert.ok(homeAText.includes(canonicalPath), "home SSR must link to the canonical project ID");
+      assert.ok(
+        !homeAText.includes(`/projects/${fixture.projectSlug}`),
+        "home SSR must not link to the legacy slug detail route",
+      );
+      const canonicalA = await request(baseUrl, canonicalPath, "text/html");
+      assert.equal(canonicalA.status, 200);
+      const canonicalAText = await canonicalA.text();
+      assert.match(canonicalAText, new RegExp(`data-generation="${fixture.generationA}"`));
+      assert.match(canonicalAText, new RegExp(`data-project-id="${fixture.projectId}"`));
+      assert.ok(canonicalAText.includes(fixture.projectRepository));
+
+      const legacyRedirect = await request(
+        baseUrl,
+        `/projects/${encodeURIComponent(fixture.projectSlug)}`,
+        "text/html",
+      );
+      assert.equal(legacyRedirect.status, 302);
+      assert.equal(legacyRedirect.headers.get("location"), canonicalPath);
+      assert.match(legacyRedirect.headers.get("cache-control") ?? "", /no-store/);
+      assert.equal(legacyRedirect.headers.get("x-rardar-generation"), fixture.generationA);
+
+      const missingLegacyRoute = await request(baseUrl, "/projects/not-in-current-catalog");
+      assert.equal(missingLegacyRoute.status, 404);
+      assert.equal((await missingLegacyRoute.json()).error, "unknown_project_slug");
+
+      const forgedProjectId = `${fixture.projectId.slice(0, -1)}${fixture.projectId.endsWith("0") ? "1" : "0"}`;
+      assert.equal(
+        (await request(baseUrl, canonicalProjectRoute(forgedProjectId), "text/html")).status,
+        404,
+      );
+      assert.equal(
+        (await request(baseUrl, canonicalProjectRoute(fixture.projectId, "v2"), "text/html")).status,
+        404,
+      );
+      for (const unsafePath of [
+        "/project/v1/%2e%2e",
+        `/project/v1/%2F${fixture.projectId}`,
+        `/project/v1/%5c${fixture.projectId}`,
+        `/project/v1/%252F${fixture.projectId}`,
+        "/project/v1/%252e%252e",
+        "/project/v1/%",
+      ]) {
+        const unsafeResponse = await rawHttpRequest(
+          baseUrl,
+          unsafePath,
+          { Accept: "text/html" },
+        );
+        const location = unsafeResponse.headers.location;
+        if (unsafeResponse.status >= 300 && unsafeResponse.status < 400) {
+          assert.equal(typeof location, "string");
+          assert.notEqual(
+            location,
+            canonicalPath,
+            `raw unsafe request target must not redirect to a project: ${unsafePath}`,
+          );
+          const normalizedResponse = await request(baseUrl, location, "text/html");
+          assert.equal(
+            normalizedResponse.status,
+            404,
+            `framework-normalized unsafe request target must remain unknown: ${unsafePath}`,
+          );
+          assert.doesNotMatch(await normalizedResponse.text(), /data-project-id=/);
+        } else {
+          assert.ok(
+            unsafeResponse.status >= 400 && unsafeResponse.status < 500,
+            `raw unsafe request target must fail closed: ${unsafePath}`,
+          );
+        }
+        assert.doesNotMatch(
+          unsafeResponse.body,
+          /data-project-id=/,
+          `raw unsafe request target must not render a project: ${unsafePath}`,
+        );
+      }
+
+      assert.equal(
+        (
+          await request(
+            baseUrl,
+            canonicalProjectRoute(fixture.removedProjectId),
+            "text/html",
+          )
+        ).status,
+        200,
+        "the later-removed project must be current before the pointer switch",
+      );
+
       const signals = await request(baseUrl, "/signals", "text/html");
       assert.equal(signals.status, 200);
       const search = await request(baseUrl, "/search", "text/html");
@@ -424,6 +518,7 @@ test(
       const recommendationsBeforeResponse = await request(baseUrl, recommendationPath);
       assert.equal(recommendationsBeforeResponse.status, 200);
       const recommendationsBefore = await recommendationsBeforeResponse.json();
+      assert.equal(recommendationsBefore.generationId, fixture.generationA);
       assert.ok(recommendationsBefore.recommendations.every((item) => Number.isFinite(item.baseScore)));
       assert.doesNotMatch(JSON.stringify(recommendationsBefore), /复用价值|全球影响力/);
       const sharedAttempt = {
@@ -507,7 +602,6 @@ test(
       assert.equal(mismatchedDualSelector.status, 409);
       assert.equal((await mismatchedDualSelector.json()).error, "project_identity_conflict");
 
-      const forgedProjectId = `${fixture.projectId.slice(0, -1)}${fixture.projectId.endsWith("0") ? "1" : "0"}`;
       const forgedProject = await postJson(baseUrl, "/api/actions", {
         ...sharedAttempt,
         projectId: forgedProjectId,
@@ -700,6 +794,18 @@ test(
         baseUrl,
         fixture.generationWithRemoval,
       );
+      const removedCanonical = await request(
+        baseUrl,
+        canonicalProjectRoute(fixture.removedProjectId),
+        "text/html",
+      );
+      assert.equal(removedCanonical.status, 404);
+      const removedLegacy = await request(
+        baseUrl,
+        `/projects/${encodeURIComponent(fixture.removedProjectSlug)}`,
+      );
+      assert.equal(removedLegacy.status, 404);
+      assert.equal((await removedLegacy.json()).error, "unknown_project_slug");
       const currentActionsAfterRemoval = await request(
         baseUrl,
         `/api/actions?deviceId=${encodeURIComponent(actionDeviceId)}`,
@@ -728,6 +834,7 @@ test(
       const recommendationsAfterRemoval = await request(baseUrl, recommendationPath);
       assert.equal(recommendationsAfterRemoval.status, 200);
       const recommendationsAfterRemovalPayload = await recommendationsAfterRemoval.json();
+      assert.equal(recommendationsAfterRemovalPayload.generationId, fixture.generationWithRemoval);
       assert.equal(recommendationsAfterRemovalPayload.feedbackCount, 1);
       assert.doesNotMatch(JSON.stringify(recommendationsAfterRemovalPayload), new RegExp(fixture.removedProjectId));
 
@@ -770,6 +877,31 @@ test(
         legacyHomeText,
         new RegExp(`${fixture.catalogMarkerA}|${fixture.catalogMarkerB}`),
       );
+      const legacyCanonicalPath = canonicalProjectRoute(fixture.legacyProjectId);
+      const retainedV1Canonical = await request(baseUrl, legacyCanonicalPath, "text/html");
+      assert.equal(retainedV1Canonical.status, 200);
+      const retainedV1CanonicalText = await retainedV1Canonical.text();
+      assert.match(
+        retainedV1CanonicalText,
+        new RegExp(`data-generation="${fixture.legacyGeneration}"`),
+      );
+      assert.match(
+        retainedV1CanonicalText,
+        new RegExp(`data-project-id="${fixture.legacyProjectId}"`),
+      );
+      assert.ok(retainedV1CanonicalText.includes(fixture.legacyProjectRepository));
+      const retainedV1LegacyRedirect = await request(
+        baseUrl,
+        `/projects/${encodeURIComponent(fixture.legacyProjectSlug)}`,
+        "text/html",
+      );
+      assert.equal(retainedV1LegacyRedirect.status, 302);
+      assert.equal(retainedV1LegacyRedirect.headers.get("location"), legacyCanonicalPath);
+      assert.match(retainedV1LegacyRedirect.headers.get("cache-control") ?? "", /no-store/);
+      assert.equal(
+        retainedV1LegacyRedirect.headers.get("x-rardar-generation"),
+        fixture.legacyGeneration,
+      );
       assert.equal(runtime.child.pid, originalPid);
       assert.equal(runtime.child.exitCode, null);
       const retainedV1Action = await postJson(baseUrl, "/api/actions", {
@@ -797,6 +929,11 @@ test(
         fixture.catalogMarkerA,
         fixture.signalMarkerA,
       );
+      const canonicalB = await request(baseUrl, canonicalPath, "text/html");
+      assert.equal(canonicalB.status, 200);
+      const canonicalBText = await canonicalB.text();
+      assert.match(canonicalBText, new RegExp(`data-generation="${fixture.generationB}"`));
+      assert.match(canonicalBText, new RegExp(`data-project-id="${fixture.projectId}"`));
       assert.equal(runtime.child.pid, originalPid);
       assert.equal(runtime.child.exitCode, null);
 

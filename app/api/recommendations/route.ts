@@ -38,7 +38,10 @@ export async function GET(request: Request) {
       .map((row) => withCurrentProjectIdentityIfPresent(identityContext, row))
       .filter((row) => row !== null);
     const projects = identityContext.stableProjects(published.projects);
-    return Response.json(rankProjects(projects, rows), {
+    return Response.json({
+      generationId: published.generationId,
+      ...rankProjects(projects, rows),
+    }, {
       headers: { "cache-control": "no-store" },
     });
   } catch (error) {

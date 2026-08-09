@@ -24,7 +24,7 @@ export default async function DiscoverPage() {
           ))}
         </div>
         <section className="discover-grid">
-          {projects.map((project) => <ProjectCard key={project.slug} project={project} />)}
+          {projects.map((project) => <ProjectCard key={project.projectId} project={project} />)}
         </section>
       </main>
     </div>

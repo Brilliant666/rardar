@@ -4,6 +4,7 @@ import { SearchWorkbench } from "./components/SearchWorkbench";
 import { DecisionMetrics } from "./components/DecisionMetrics";
 import { SignalDigest } from "./components/SignalDigest";
 import { PersonalizedDailyList } from "./components/PersonalizedDailyList";
+import { canonicalProjectPath } from "./client-project-identity.mjs";
 import { formatCapturedDate, formatNumber } from "./data";
 import { loadPublishedData } from "./server-data";
 
@@ -39,7 +40,7 @@ export default async function Home() {
           </div>
           <div className="hero-side">
             {leadProject ? (
-              <Link className="hero-lead-card" href={`/projects/${leadProject.slug}`}>
+              <Link className="hero-lead-card" href={canonicalProjectPath(leadProject)}>
                 <div className="hero-lead-topline">
                   <span>今日 01 · {leadProject.heatTrack === "long_term" ? "长期高热" : "近期动量"}</span>
                   <b>{leadProject.recommendation} →</b>
@@ -81,7 +82,11 @@ export default async function Home() {
               <small>长期持续性将在累计 7 次快照后升级验证</small>
             </div>
           </div>
-          <PersonalizedDailyList dailyProjects={dailyProjects} projects={projects} />
+          <PersonalizedDailyList
+            generationId={generationId}
+            dailyProjects={dailyProjects}
+            projects={projects}
+          />
         </section>
 
         <SignalDigest signalSnapshot={signalSnapshot} codexQueue={codexQueue} />

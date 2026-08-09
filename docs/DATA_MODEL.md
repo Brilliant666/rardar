@@ -52,7 +52,7 @@ identity v1 的唯一正式算法是：
 | Project enrichment | v2 | payload 同时绑定 repository 与 projectId，文件名为 `<projectId>.json` |
 | Codex Queue | v2 | 项目 task ID、输入路径和输出路径绑定 projectId；顶层声明 `projectIdVersion: 1` |
 
-Catalog v3 只能配 Queue v2；Catalog v1/v2 继续配 Queue v1。未知组合、新旧字段混用或跨文件身份不一致均 fail closed。identity v1 能区分旧 slug 碰撞对，但在 P1-6C 完成路由和 UI 迁移前，当前 Catalog 的 legacy `slug` 仍必须唯一；若 snapshot 或 legacy artifact 暴露同一旧 slug 对应多个 repository，构建与 audit 都按 unresolved collision 拒绝发布。
+Catalog v3 只能配 Queue v2；Catalog v1/v2 继续配 Queue v1。未知组合、新旧字段混用或跨文件身份不一致均 fail closed。identity v1 能区分旧 slug 碰撞对，P1-6C1 也让客户端与 canonical 路由不再以 slug 为身份；但当前 Catalog 的 legacy `slug` 发布门禁在本轮仍保持唯一。若 snapshot 或 legacy artifact 暴露同一旧 slug 对应多个 repository，构建与 audit 都继续按 unresolved collision 拒绝发布，直到独立 P1-6C2 collision-history 工程轮明确迁移和回滚协议。
 
 ## 验证顺序
 
@@ -212,7 +212,15 @@ decision_events_v2
 
 `project_identity_catalog` 记录已验证的 generation、规范化 repository、projectId 和兼容 slug，映射建立后拒绝 UPDATE、DELETE 与非等价 replacement；全部 retained mappings 还必须同时满足 projectId ↔ canonical repository 的全局一对一关系，且同一 legacy slug 不能跨代改绑另一个 projectId。JS 全量 preflight、正式 INSERT trigger 与事务内 pairwise guard 都会检查该约束，两个 publisher 在 preflight 后竞争也不能提交碰撞关系；错误稳定为 `project_identity_collision`。`project_identity_runtime` 同时保存 generation、pointer `publishedAt` 与微秒顺序，并要求文本时间能精确重算同一个微秒值。adoption 在同一 D1 原子 batch 内完成完整 legacy preflight、active row、mutable State 重键、backfill 和兼容投影，任一步失败都整体回滚。只有发布时间更新的 verified pointer 能推进或显式回滚 active generation；较旧慢请求和相同发布时间的不同 generation 均 fail closed，不能回退全局 legacy capture 边界。API 的 legacy slug 解析只查询本次请求 generation 的 verified 映射，不能把数据库中其他 retained generation 的历史映射当作当前事实。客户端提交的 repository、发生时间或单独 slug 哈希都不构成身份来源；同时提交 projectId 与 slug 时必须解析到同一项目，否则返回冲突。
 
-canonical JSON 写请求必须同时提供数值 `projectIdVersion: 1` 与 `projectId`；单项 GET 查询使用同名 query pair。P1-6C 前，只有 slug 的 legacy 请求继续兼容；双 selector 共存时必须指向同一项目。projectId pair 缺一或 selector 形状错误返回 `invalid_project_selector`，必须指定单项目的操作在两种 selector 都缺失时返回 `missing_project_identity`；Action/feedback collection GET 可以只给 `deviceId` 并返回 current Catalog 中的记录。错误版本返回 `unsupported_project_id_version`，畸形 ID/slug 返回 `invalid_project_id` / `invalid_project_slug`，未知 ID 或 slug 分别返回 `unknown_project_id` / `unknown_project_slug`，歧义 slug 返回 `ambiguous_project_slug`，双 selector 不一致返回 `project_identity_conflict`。Catalog 自身非法，或 stored identity 的版本/格式无法可信解析时服务端 fail closed。结构合法但暂时不在 current Catalog 的历史 projectId 不会被删除，也不会让集合 API 整体失败：当前集合和推荐会省略它；不需要 slug 投影的全局反馈 State 聚合以及近 7 天 Event/decision 周指标继续直接按 canonical projectId 汇总。canonical 写请求明确拒绝客户端 `repository` 和 `occurredAt`。Action、feedback 与 State 项返回 `projectIdVersion`、`projectId` 和临时兼容 `projectSlug`；历史记录以 projectId 和其不可变 generation mapping 证明身份，响应将当前记录的兼容 slug 归一为 current Catalog 值，不把 slug 当成跨 generation 身份不变量。recommendation 项返回 Stable ID 并在 P1-6C 前保留既有 `slug` 字段。
+canonical JSON 写请求必须同时提供数值 `projectIdVersion: 1` 与 `projectId`；单项 GET 查询使用同名 query pair。P1-6C1 客户端只使用这个 stable pair；只有 slug 的 API 请求仍作为旧客户端兼容边界，双 selector 共存时必须指向同一项目。projectId pair 缺一或 selector 形状错误返回 `invalid_project_selector`，必须指定单项目的操作在两种 selector 都缺失时返回 `missing_project_identity`；Action/feedback collection GET 可以只给 `deviceId` 并返回 current Catalog 中的记录。错误版本返回 `unsupported_project_id_version`，畸形 ID/slug 返回 `invalid_project_id` / `invalid_project_slug`，未知 ID 或 slug 分别返回 `unknown_project_id` / `unknown_project_slug`，歧义 slug 返回 `ambiguous_project_slug`，双 selector 不一致返回 `project_identity_conflict`。Catalog 自身非法，或 stored identity 的版本/格式无法可信解析时服务端 fail closed。结构合法但暂时不在 current Catalog 的历史 projectId 不会被删除，也不会让集合 API 整体失败：当前集合和推荐会省略它；不需要 slug 投影的全局反馈 State 聚合以及近 7 天 Event/decision 周指标继续直接按 canonical projectId 汇总。canonical 写请求明确拒绝客户端 `repository` 和 `occurredAt`。Action、feedback 与 State 项返回 `projectIdVersion`、`projectId` 和临时兼容 `projectSlug`；历史记录以 projectId 和其不可变 generation mapping 证明身份，响应将当前记录的兼容 slug 归一为 current Catalog 值，不把 slug 当成跨 generation 身份不变量。recommendation 响应返回它实际读取的 `generationId`，每个项目项返回 Stable ID，并继续保留既有 `slug` 作为显示兼容字段；客户端只能把与当前页面 generation 精确一致的响应用于排序。
+
+## P1-6C1 Web 与客户端 Stable Identity
+
+服务端网页数据入口从同一次已验证 published bundle 建立 identity context。Catalog v1/v2 项目从 `repo` 机械派生 `projectIdVersion: 1` 与 projectId；Catalog v3 项目从 repository 重新计算并精确核对发布值。页面一次请求只使用这个 bundle 和 identity context，不分别读取两次 current；pointer 原子切换后的下一请求读取新 generation，已经取得的单个响应保持内部一致。
+
+canonical 详情 URL 是 `/project/v1/<projectId>`。版本必须精确为 `v1`，projectId 必须形状合法、能在本次 current Catalog 中唯一解析且与 repository 重算一致；错误版本、畸形/伪造 ID、未知 ID 或已经退出 current Catalog 的历史 ID 都返回 `404`，不回退旧 generation、flat staging 或 slug。页面项目链接、React key、Action/feedback props 与 payload、recommendation 关联以及 watch/local 状态映射都使用 Stable ID；repository 和 slug 只用于展示。
+
+旧 `/projects/<slug>` 是兼容解析入口，不是第二套详情身份。它只在同一 identity context 内解析：唯一匹配返回 `302` 到 canonical URL 并设置 `Cache-Control: no-store`，未知返回 `404`，歧义返回 `409`。不得选择第一项、按 slug 哈希、从 D1 retained mapping 猜测，或缓存可能跨 generation 失效的 redirect。P1-6C1 不修改 `0004`、D1 adoption、API legacy selector 或 unresolved collision 发布门禁；跨 retained history 接受相同 legacy slug 属于 P1-6C2。
 
 ### Historical Identity Bundle 与首次 adoption recovery
 
@@ -230,7 +238,7 @@ Event INSERT 通过 `project_action_events_v2_sync_state` 在同一 SQLite 写�
 
 Weekly Acted Projects 只查询 canonical v2 Event，在一次服务端 `now` 下使用包含下界的 `[now - 7 days, now]` 窗口，对 `tried`、`cloned`、`reused` 的不同 projectId 计数；`opened` 与 `saved` 仅作为辅助漏斗指标。同一项目在窗口内多次行动只计一次，旧事件离开窗口后的新真实行动可重新计入，State 不参与反推。
 
-`feedback_v2` 保存每个设备和 projectId 的当前反馈，`decision_events_v2` 保存反馈变化历史；新反馈 INSERT 或真实值变化在同一数据库写入中追加 history。推荐、当前反馈计数和辅助反馈指标使用 canonical projectId，响应同时返回 `projectIdVersion`、`projectId` 和 P1-6C 前的兼容 slug。反馈仍不属于 Weekly Acted Projects，不能冒充试用、浅克隆或确认复用。
+`feedback_v2` 保存每个设备和 projectId 的当前反馈，`decision_events_v2` 保存反馈变化历史；新反馈 INSERT 或真实值变化在同一数据库写入中追加 history。推荐、当前反馈计数和辅助反馈指标使用 canonical projectId，响应同时返回 `projectIdVersion`、`projectId` 和用于展示/旧客户端的兼容 slug；P1-6C1 客户端关联只使用 projectId。反馈仍不属于 Weekly Acted Projects，不能冒充试用、浅克隆或确认复用。
 
 ## D1 迁移与旧代码回滚
 
@@ -259,7 +267,7 @@ legacy adoption 只通过明确 Catalog 映射进行。`project_actions`、`proj
 9. Catalog v1 generation 保持字节、Schema 和历史审计语义不变，可继续显式回滚。评分语义迭代中派生的 v2 generation 不采集新 GitHub 事实、不修改 snapshot/history，也不把缺失证据补造成分数；只按 `evidence-v2` 重建 catalog 与依赖 catalog 的 Codex queue，并由完整 generation gate 发布。
 10. P1-6A 不改写 retained generations。Catalog v1/v2、static evidence v0/v1、project enrichment v0/v1 和 Queue v1 保留各自 validator、audit 与显式 rollback；新 refresh/derive 才生成 Catalog v3、static evidence v2、project enrichment v2 和 Queue v2。
 11. flat staging 可用 `python -m pipeline.migrate_project_identity --data-dir data` 预检和 dry-run，再显式加 `--apply` 迁移可信 v1 artifact；无法机械升级的 legacy v0 只报告并保留。应用代码回滚前，显式 `--to-legacy-v1` 模式（同样默认 dry-run，写入还需 `--apply`）把 static evidence/project enrichment v2 机械降为 v1：`schemaVersion: 2 → 1`、移除 `projectIdVersion`/`projectId`、恢复 legacy slug 文件名，其他事实、时间和内容原样保留。两个方向都只处理 `data/analysis` 与 `data/enrichment`，不跟随 symlink/junction，不访问或修改 current、retained generations、candidates、manifest，也不发布 generation。完整 preflight 必须在任何写入前发现 legacy slug collision、非等价目标、归属冲突和路径逃逸；apply 先原子写入并验证全部目标，再删除源。等价目标不重写，写入或源清理中断后可安全重试，完整执行后的重复 apply 为 no-op。
-12. P1-6B 增加 canonical Stable Project ID D1/API 边界，同时完整保留旧 `project_slug` 表与兼容投影用于旧代码回滚。页面路由、链接、React key 和组件身份仍由 P1-6C 迁移；legacy slug 只能经本次请求的 verified Catalog 唯一解析，不能成为 canonical 事实主键。
+12. P1-6B 增加 canonical Stable Project ID D1/API 边界，同时完整保留旧 `project_slug` 表与兼容投影用于旧代码回滚。P1-6C1 把页面路由、链接、React key、组件交互和本地关联迁移到 projectId；legacy slug 只能经本次请求的 verified Catalog 严格解析，不能成为 canonical 事实主键。P1-6C2 才能独立演进 collision history 与发布门禁。
 
 ### 显式 staging artifact 冲突解析
 
@@ -296,4 +304,4 @@ Schema 与 generation 验证不执行候选仓库代码、不安装其依赖、�
 
 本地管理器在启动任何子服务前检查声明的 Python 运行依赖。缺失时只输出 `python -m pip install -r requirements.txt` 并退出，不自动安装，也不启动会持续失败重启的 scheduler。
 
-Schema 不能单独解决跨文件一致性、历史增长、缓存新鲜度或身份碰撞。前三项由 generation audit、manifest/hash 和请求级 generation 边界处理；Stable Project ID 由 identity v1 重算、跨产物审计和 collision/unresolved 门禁共同保证。追加式行动事件已由 PR #5 完成，评分语义已由 PR #6、提交 `ab34119` 完成，verify/CI 已由 PR #7、提交 `3430e30` 完成，P1-6A JSON 身份层已由 PR #8、提交 `d41033f` 完成。P1-6B 当前只在独立 Draft PR 中迁移 D1/API 身份，合并前不视为 `main` 完成；P1-6 整体须在后续 P1-6C 完成后才能关闭。
+Schema 不能单独解决跨文件一致性、历史增长、缓存新鲜度或身份碰撞。前三项由 generation audit、manifest/hash 和请求级 generation 边界处理；Stable Project ID 由 identity v1 重算、跨产物审计和 collision/unresolved 门禁共同保证。追加式行动事件已由 PR #5 完成，评分语义已由 PR #6、提交 `ab34119` 完成，verify/CI 已由 PR #7、提交 `3430e30` 完成，P1-6A JSON 身份层已由 PR #8、提交 `d41033f` 完成。P1-6B 已由 PR #9、提交 `c24b7d6` 完成，正式 Primary Runtime D1 adoption、完整重启和重复 adoption no-op 均已通过。P1-6C1 client/UI Stable Identity 是当前独立工程轮；P1-6 整体须在后续 P1-6C2 collision-history 边界完成后才能关闭。

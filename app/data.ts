@@ -66,6 +66,12 @@ export type Project = {
   capturedAt: string;
 };
 
+/** A project after the request-scoped Catalog identity view has verified it. */
+export type StableProject = Project & {
+  projectIdVersion: 1;
+  projectId: string;
+};
+
 export type CatalogSnapshot = {
   schemaVersion: 1 | 2 | 3;
   /** Catalog v3 explicitly binds every project to identity protocol v1. */
@@ -112,6 +118,6 @@ export function formatCapturedDate(value: string) {
       }).format(date);
 }
 
-export function getProject(projects: Project[], slug: string) {
-  return projects.find((project) => project.slug === slug);
+export function getProjectById(projects: StableProject[], projectId: string) {
+  return projects.find((project) => project.projectId === projectId);
 }

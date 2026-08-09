@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { stableProjectSelector } from "../client-project-identity.mjs";
 import {
   createProjectActionIdempotencyKey,
   getDeviceId,
@@ -16,21 +17,28 @@ const actionOptions: Array<{ value: ProjectActionValue; label: string; detail: s
   { value: "reused", label: "确认复用", detail: "已用于自己的任务或项目" },
 ];
 
-export function TrackedRepositoryLink({ projectSlug, repository }: { projectSlug: string; repository: string }) {
+type ProjectIdentityProps = { projectIdVersion: 1; projectId: string };
+
+export function TrackedRepositoryLink({
+  projectIdVersion,
+  projectId,
+  repository,
+}: ProjectIdentityProps & { repository: string }) {
+  const project = stableProjectSelector({ projectIdVersion, projectId });
   return (
     <a
       className="repo-name"
       href={`https://github.com/${repository}`}
       target="_blank"
       rel="noreferrer"
-      onClick={() => void recordProjectAction(projectSlug, "opened").catch(() => undefined)}
+      onClick={() => void recordProjectAction(project, "opened").catch(() => undefined)}
     >
       {repository} ↗
     </a>
   );
 }
 
-export function ProjectActions({ projectSlug }: { projectSlug: string }) {
+export function ProjectActions({ projectIdVersion, projectId }: ProjectIdentityProps) {
   const [selected, setSelected] = useState<Set<ProjectActionValue>>(new Set());
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
@@ -41,10 +49,16 @@ export function ProjectActions({ projectSlug }: { projectSlug: string }) {
   useEffect(() => {
     const deviceId = getDeviceId();
     if (!deviceId) return;
+    const project = stableProjectSelector({ projectIdVersion, projectId });
     const controller = new AbortController();
     const mutationVersionAtStart = successfulMutationVersion.current;
+    const query = new URLSearchParams({
+      deviceId,
+      projectIdVersion: String(project.projectIdVersion),
+      projectId: project.projectId,
+    });
 
-    fetch(`/api/actions?deviceId=${encodeURIComponent(deviceId)}&projectSlug=${encodeURIComponent(projectSlug)}`, {
+    fetch(`/api/actions?${query}`, {
       signal: controller.signal,
     })
       .then((response) => (response.ok ? response.json() : null))
@@ -56,11 +70,11 @@ export function ProjectActions({ projectSlug }: { projectSlug: string }) {
       .catch(() => undefined);
 
     return () => controller.abort();
-  }, [projectSlug]);
+  }, [projectId, projectIdVersion]);
 
   async function save(action: ProjectActionValue) {
-    const requestProjectSlug = projectSlug;
-    const attemptKey = `${requestProjectSlug}:${action}`;
+    const requestProject = stableProjectSelector({ projectIdVersion, projectId });
+    const attemptKey = `${requestProject.projectId}:${action}`;
     if (inFlightActions.current.has(attemptKey)) return;
     const wasSelected = selected.has(action);
     const idempotencyKey = retryKeys.current.get(attemptKey) ?? createProjectActionIdempotencyKey();
@@ -69,7 +83,7 @@ export function ProjectActions({ projectSlug }: { projectSlug: string }) {
     setPending((current) => new Set([...current, attemptKey]));
     setMessage("记录中…");
     try {
-      const result = await recordProjectAction(requestProjectSlug, action, idempotencyKey);
+      const result = await recordProjectAction(requestProject, action, idempotencyKey);
       retryKeys.current.delete(attemptKey);
       successfulMutationVersion.current += 1;
       setSelected((current) => new Set([...current, action]));
@@ -104,7 +118,7 @@ export function ProjectActions({ projectSlug }: { projectSlug: string }) {
             key={option.value}
             className={selected.has(option.value) ? "selected" : ""}
             aria-pressed={selected.has(option.value)}
-            disabled={pending.has(`${projectSlug}:${option.value}`)}
+            disabled={pending.has(`${projectId}:${option.value}`)}
             onClick={() => save(option.value)}
           >
             <strong>{option.label}</strong>
