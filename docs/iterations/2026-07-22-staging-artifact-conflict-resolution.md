@@ -4,7 +4,7 @@
 
 本轮针对 2026-07-17 至 2026-07-22 连续 18 次 refresh build 失败，建立单 repository、单 artifact、显式人工决策的 staging 冲突 resolver。fail-closed 的 candidate adoption 本身没有错误：它正确阻止了非等价 legacy v1 覆盖 current ready generation 中的 stable v2。
 
-本轮不修改 Primary Runtime、正式 `data/`、18 个 failed candidates、PR #9 或长期开发 worktree；不访问 3000 端口，不触发正式 refresh，不部署、不合并，也不开始 P1-6C。所有 apply 和 refresh 证明只允许发生在 Primary `data/` 的一次性完整副本。
+本轮不修改 Primary Runtime、正式 `data/`、最终验收时存在的 21 个 failed candidates（原 18 个加 2026-08-09 新增 3 个）、PR #9 或长期开发 worktree；不访问 3000 端口，不触发正式 refresh，不部署、不合并，也不开始 P1-6C。所有 apply 和 refresh 证明只允许发生在 Primary `data/` 的一次性完整副本。
 
 ## 权威证据结论
 
@@ -94,24 +94,30 @@ project enrichment 不是本次冲突：其 v1 机械转换后与 stable v2 完�
 
 演练中最先处理 n8n 后，OpenHands 和 openscience 冲突按顺序暴露。它们没有被批量或自动“选新”；本文件先逐项核对 repository、projectId、ready generation、双 SHA、analyzed time、snapshot pushed time 和事实差异，随后才在一次性副本中分别调用单仓库 resolver。
 
-## 真实外部边界演练（降级，不计作严格 PASS）
+## 真实外部完整副本演练（发布成功，信号源降级）
 
-为补足上述 deterministic 演练没有覆盖真实 GitHub、信号源和 HTTP 端口的限制，2026-08-09（Asia/Shanghai）又从 Primary `data/` 新建一份完整临时副本。复制前后均为 825 个文件、28,018,284 字节，全树 SHA-256 指纹为 `44fdf5c76e4fa2d8396b679c7e2b236bfe2442d4dba4474461c3ca9e23bed6c6`。三个 resolver 再次完成 dry-run、apply 和 no-op；副本只移出三个已审查 legacy analysis，原 current、5 个 retained generations 和 18 个 failed candidates 字节不变。
+PR #11（`0de3e54`）和 PR #12（`aa9c83e`）合并后，hotfix 分支 clean rebase 到最新 `main`。2026-08-09（Asia/Shanghai）从 Primary `data/` 新建一次性完整临时副本；复制前 Primary、复制结果和复制后 Primary 都是 939 个文件、31,874,130 字节，全树 SHA-256 为 `44b392528ab9a2b5f6978f15c571f278b2be387925866aef7ee99eca9eb955d7`。副本包含 5 个 retained generations 和 21 个 failed candidates。
 
-本次没有 stub `collect`、`collect_signals` 或 `analyze_remote`：scheduler 子进程使用当前 `gh` 身份的短期 `GITHUB_TOKEN`，执行真实 9 条 GitHub Search、真实外部信号采集和 Top 5 公开仓库静态分析。Vinext 同时只监听随机回环端口 `64424`，`RARDAR_DATA_DIR` 指向副本，`RARDAR_VINEXT_STATE_DIR` 指向临时 Miniflare state，`CLOUDFLARE_VITE_FORCE_LOCAL=true`；因此没有连接正式 D1，也没有访问或占用 Primary 3000。
+三个 resolver 再次逐项完成 `dry-run → applied → no-op`。dry-run 没有创建归档或修改 data；apply 只移出三个已审查 legacy analysis；no-op 不再写入。外部归档为 3 个 entry、9 个文件、10,795 字节，SHA-256 为 `83386bfbfe96b2725107195be09229e58bf34eebe64cf068248dee0d316e50a7`；每项 `legacy.json` 和永久保留的 `detached-legacy.json` 都与 expected legacy SHA 精确一致，审计状态均为 resolved。原 5 个 retained generations 保持 118 个文件、4,350,767 字节、SHA `9f5507518c685cec74d7f1a21bebc94495fec08e6f88c0688b080edddc9b4925`；21 个 failed candidates 保持 798 个文件、26,990,922 字节、SHA `b8ccb0cbd3d27684a1e0df697cbc9f44ad1d1c3a8550443f18c86a71c3c81c86`。
 
-真实外部结果：
+演练没有 stub `collect`、`collect_signals` 或 `analyze_remote`。隔离 scheduler 真实执行 `run_cycle → refresh → candidate → Schema/Audit → publish`，只把当前 `gh` 身份的短期 `GITHUB_TOKEN` 作为子进程环境变量传入；所有 data lock、runtime、临时目录、Wrangler/Miniflare state 和 D1 都位于高熵系统临时根。Vinext 始终由同一 PID 监听 `127.0.0.1:59780`，没有访问或占用 Primary 3000。
 
-- 9/9 GitHub Search healthy，得到 183 个候选；snapshot、catalog、signals 和 queue 时间均为 `2026-08-08T18:27:57.033718+00:00`；
-- 5 个静态分析目标中 4 个产生本轮 Schema v2 evidence：`trycompai/crm`、`yc-software/qm`、`microsoft/skill-recorder` 和 `OpenHands/OpenHands`；
-- `n8n-io/n8n` 的 shallow clone 在 180 秒后超时。Windows 上直接 clone 进程退出后，三个 `git-remote-https` 后代仍持有管道和网络连接，scheduler 只有心跳而不推进；本次只终止了这三个已核验的隔离 clone 后代，使现有官方 codeload fallback 得以继续。fallback 随后按安全上限拒绝超过 25,000 个文件的 archive，因此 catalog 正确记录 1 个 `analysisFailure`，没有伪造新 n8n evidence；
-- 6 个信号源中 5 个 healthy；Hugging Face Blog 在 45 秒网络超时后记录为 failed，其他 OpenAI News、GitHub Changelog、AI News Radar、OpenGithubs Daily Rank 和 HelloGitHub 正常；
-- scheduler 发布 generation `20260808T182757981298Z-c6581c48d8e8`，manifest 为 ready/refresh，`previousGenerationId` 和 `baseGenerationId` 均为 `20260716T000001945465Z-d7223e00847a`；Schema validation healthy（33 artifacts），Audit 无 error 但因上述两项产生 2 个 warning，状态为 degraded；
-- 服务不重启即可从旧 generation 切换到新 generation。`GET /api/health`、`/`、`/signals`、`/search` 和使用临时本地 D1 的 `/api/actions` 均为 200；
-- 发布后三个 resolver 再次全部 no-op；旧 5 个 retained generations、18 个 failed candidates 和 flat staging（除三个显式移出的 legacy 文件）逐字节不变；
-- 隔离 Vinext、64424 端口、临时 D1、data copy、审计归档和分析临时目录均已清理。Primary 指纹、main HEAD、Manager/Website/Scheduler PID、3000 listener 和正式 generation 全部不变。
+第一次真实 refresh 的结果：
 
-因此，本次真实外部演练证明：三个 staging identity conflict 不再阻止 candidate 构建和 ready generation 发布，随机端口消费者也能原子读取新 generation；但它**不能**证明无人干预且所有外部来源均 healthy 的严格验收。n8n clone 超时后的 Windows 子进程清理，以及 Hugging Face 的外部网络可用性，仍是独立于 resolver 的运行风险，必须在把本轮描述为完整外部 PASS 之前另行解决或明确接受 degraded 发布语义。
+- 9/9 GitHub Search healthy，得到 183 个候选；Top 5 静态分析没有 failure，`analysisFailureCount=0`、`staticAnalysisRequiredCount=0`；
+- `n8n-io/n8n` shallow clone 以 exit 128 结束后，由 PR #12 的有界 official archive fallback 自动继续；没有人工终止 Git 进程或后代，最终产生本轮 Schema v2 evidence，确定性扫描 26,191 个合格文件中的前 12,000 个；
+- 发布 generation `20260809T064423351957Z-1d71d2452f3d`；manifest 为 ready/refresh，`baseGenerationId` 和 pointer `previousGenerationId` 都是 `20260716T000001945465Z-d7223e00847a`，snapshot 与 catalog 的 `capturedAt` 同为 `2026-08-09T06:44:22.268455+00:00`；
+- Schema validation healthy（33 个文件、0 error）。Audit 为 0 error、1 aggregate warning：6 个信号源中 Hugging Face Blog 连接超时，AI News Radar 被远端断开，故 4 healthy / 2 failed，状态如实为 degraded；
+- 发布后不重启 Vinext，`GET /api/health`、`/`、`/signals`、`/search` 都返回 200；健康端点和首页读取新 generation。临时 D1 的 `/api/actions` 首次写入 `recorded=true`，相同幂等键重放 `idempotentReplay=true`，GET 可读回一条 Event 和一条 State；
+- current 切换后，三个 resolver 原参数再次 apply 均为 no-op，继续绑定原 retained generation `20260716T000001945465Z-d7223e00847a`。
+
+为排除瞬时信号源故障，在同一隔离副本上只重试一次完整 scheduler refresh。第二次同样是 9/9 GitHub 查询、0 analysis failure，并发布 ready/refresh generation `20260809T065803120955Z-805fa5a1f330`；其 base 和 previous 都精确指向上一演练 generation。AI News Radar 恢复，Hugging Face Blog 仍在 45 秒后以 `WinError 10060` 超时，因此 Audit 仍为 degraded、0 error、1 warning，但改善为 5 healthy / 1 failed。Schema validation healthy（37 个文件、0 error）。同一 Vinext PID 再次无需重启便由健康端点和首页看到第二个 generation；其他页面仍为 200，三个 resolver 在第二次 pointer 切换后仍全部 no-op。
+
+最终 generation 的 pointer/manifest digest、ready 状态、36 个 artifact hash 和跨文件关系全部通过；growth chain 从 `2026-08-09T06:44:22.268455+00:00` 精确前进到 `2026-08-09T06:58:01.915455+00:00`，上一 snapshot 以原字节进入 history。原 5 个 retained generations 和 21 个 failed candidates 的上述指纹保持不变；三个 active legacy 都不存在，审计和 detached postcondition 均成立，无 quarantine。scheduler 自行结束后没有 Git、`git-remote-https` 或 analyzer 进程/临时目录残留。
+
+验收结束后，只终止已记录的隔离 Vinext/workerd 进程树；59780 监听关闭。1,029 个演练文件的精确 GitHub token 与常见凭据模式扫描均为 0，临时根随后由 identity-bound owned-tree 清理器删除。Primary 后置状态仍为 939 个文件、31,874,130 字节和同一全树 SHA；current SHA `e249460ce5ec538e20ba80ccd948a3943424a16cbd83dab9341d1c82d7d7c284`、正式 generation、5 个 retained generations、21 个 failed candidates、Manager/Website/Scheduler PID、3000 listener 与 `/api/health` generation 全部不变。
+
+因此，staging resolver 和 PR #12 Analyzer 的目标已经由无人干预的真实 refresh、ready publish、运行中 pointer 切换和 D1 HTTP 链路证明。唯一没有达到“六个外部信号源全部 healthy”的严格条件是 Hugging Face Blog 的重复网络超时；它没有造成 Schema/Audit error，也没有阻止 fail-closed generation 发布。本记录将总体外部结果明确标为 **degraded**，不把第三方网络可用性伪装成严格全源 PASS，也不为此扩大 resolver hotfix 范围。
 
 ## 行为测试
 
@@ -133,11 +139,12 @@ project enrichment 不是本次冲突：其 v1 机械转换后与 stable v2 完�
 
 最终实现先对 Primary `data/` 做全量只读比较，确认 5 个 analysis v1 配对中 2 个机械等价、3 个非等价，4 个 enrichment 配对全部机械等价且没有未配对 v1；随后只在完整副本中对三个冲突执行 resolver。正式 data 未调用 apply，Primary 全树前后指纹一致。
 
-`npm run verify` 的结果：
+PR #11 已修复并合并生产依赖安全升级，PR #12 已合并 bounded remote analysis。hotfix clean rebase 到 `aa9c83e` 后，在 Node `v22.13.1`、npm `10.9.2` 和本 worktree `.venv` Python `3.10.10` 上执行 `npm ci` 与完整 `npm run verify`：
 
-- 使用本 worktree `.venv` 与 Node `v24.14.0` 执行；Lint、299 个 Python 测试（13 个环境相关 skip）、Schema validation、Data Audit、生产构建和 22 个 Node/真实 Vinext HTTP 测试全部通过；
-- Verify 的 data、Git-visible 文件、临时 artifact 和隔离 Runtime guard 全部通过；
-- 唯一失败阶段是 `npm run security:audit:prod`：未改动的 dependency lock 当前报告 `next@16.2.6`、`postcss@8.5.14`、`nanoid@3.3.12` 与 `sharp@0.34.5` 共 4 个 high severity package advisory；这些公告发布于 PR #9 的 2026-07-17 Verify 之后，不是 resolver 引入的依赖变化；
-- npm 的完整修复建议会升级到 `next@16.3.0`，并需同步处理显式 PostCSS override 与 lockfile。依赖升级不属于本单 artifact Hotfix 的已授权提交范围，也不能通过降低审计门禁掩盖，因此本轮不修改依赖；Draft PR 必须保持阻塞并如实记录本地与远端 Verify。
+- Lint 通过；Python 349 项（334 pass、15 个平台或权限相关 skip）通过；
+- Schema validation 验证正式 current 的 21 个 artifact，0 error；Data Audit healthy；
+- 生产构建通过；22 个 Node/真实 Vinext HTTP/D1 测试全部通过；
+- `npm run security:audit:prod` 为 0 vulnerabilities；
+- repository data、Git-visible 文件、临时 artifact、隔离 Runtime 和本地服务 guard 全部通过。
 
-本分支只在 `package.json` 增加 resolver 命令，没有修改 dependency 版本或 `package-lock.json`。供应链公告是当前 main 依赖基线问题，不是 resolver 引入的回归。
+上述结果来自文档收尾后的最终提交树，完整 Verify 用时约 12 分钟；PR 保持 Draft，不部署、不合并，也不修改 Primary Runtime 数据。
