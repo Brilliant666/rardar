@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/historical-identity-bundle.schema.json",
+  "title": "Rardar Historical Identity Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "activeGenerationId",
+    "activePublishedAt",
+    "generationCount",
+    "mappingCount",
+    "generations",
+    "mappings"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "activeGenerationId": { "$ref": "#/$defs/generationId" },
+    "activePublishedAt": { "type": "string", "format": "date-time" },
+    "generationCount": { "type": "integer", "minimum": 1 },
+    "mappingCount": { "type": "integer", "minimum": 0 },
+    "generations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/generation" },
+      "contains": {
+        "type": "object",
+        "required": ["active"],
+        "properties": { "active": { "const": true } }
+      },
+      "minContains": 1,
+      "maxContains": 1
+    },
+    "mappings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/mapping" }
+    }
+  },
+  "$defs": {
+    "generationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 25,
+      "maxLength": 86,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*--[0-9a-f]{20}$"
+    },
+    "canonicalRepository": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 140,
+      "pattern": "^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}/(?!\\.{1,2}$)[a-z0-9._-]{1,100}$"
+    },
+    "generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generationId",
+        "generationCreatedAt",
+        "publishedAt",
+        "manifestSha256",
+        "catalogSchemaVersion",
+        "active"
+      ],
+      "properties": {
+        "generationId": { "$ref": "#/$defs/generationId" },
+        "generationCreatedAt": { "type": "string", "format": "date-time" },
+        "publishedAt": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "format": "date-time" }
+          ]
+        },
+        "manifestSha256": { "$ref": "#/$defs/sha256" },
+        "catalogSchemaVersion": { "enum": [1, 2, 3] },
+        "active": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["active"],
+            "properties": { "active": { "const": true } }
+          },
+          "then": { "properties": { "publishedAt": { "type": "string", "format": "date-time" } } },
+          "else": { "properties": { "publishedAt": { "type": "null" } } }
+        }
+      ]
+    },
+    "mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generationId",
+        "generationCreatedAt",
+        "publishedAt",
+        "manifestSha256",
+        "catalogSchemaVersion",
+        "projectIdVersion",
+        "projectId",
+        "canonicalRepository",
+        "projectSlug",
+        "active"
+      ],
+      "properties": {
+        "generationId": { "$ref": "#/$defs/generationId" },
+        "generationCreatedAt": { "type": "string", "format": "date-time" },
+        "publishedAt": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "format": "date-time" }
+          ]
+        },
+        "manifestSha256": { "$ref": "#/$defs/sha256" },
+        "catalogSchemaVersion": { "enum": [1, 2, 3] },
+        "projectIdVersion": { "const": 1 },
+        "projectId": { "$ref": "#/$defs/projectId" },
+        "canonicalRepository": { "$ref": "#/$defs/canonicalRepository" },
+        "projectSlug": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "active": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["active"],
+            "properties": { "active": { "const": true } }
+          },
+          "then": { "properties": { "publishedAt": { "type": "string", "format": "date-time" } } },
+          "else": { "properties": { "publishedAt": { "type": "null" } } }
+        }
+      ]
+    }
+  }
+}

@@ -160,33 +160,89 @@ Catalog v2 使用固定的 `scoreModelVersion: evidence-v2`，把不同证据能
 
 网页在一个服务端入口归一化三种版本。v3 按 identity v1 与 `evidence-v2` 字段读取，v2 继续按原评分字段与 legacy slug 读取；v1 只把旧 `globalScore` 保守映射成 Attention，把旧 Endurance 保留，其余三项均显示未知。旧 `reuseScore` 不会被解释成 Engineering Readiness，旧“试用 / 复用”建议也只会显示为“隔离试用”。未知 Catalog 版本直接失败。
 
-## 项目行动 Event 与 State
+## P1-6B D1 Stable Project Identity
 
-真实项目行动保存在 Cloudflare D1，而不是 generation JSON 或浏览器存储中。模型明确分开历史事实与当前显示状态：
+真实项目行动、反馈与个性化状态保存在 Cloudflare D1，而不是 generation JSON 或浏览器存储中。P1-6B 增加 generation-bound 身份目录和 canonical v2 表；已有 slug 表保持原结构，作为旧代码回滚边界而不是新的事实主键：
 
 ```text
-project_action_events
+project_identity_catalog
+  generation_id
+  project_id_version
+  project_id
+  canonical_repository
+  project_slug
+
+project_identity_runtime
+  singleton active generation
+  generation_id + published_at + published_at_micros
+
+project_action_events_v2
   id
   device_id
-  project_slug
+  project_id_version + project_id
+  project_slug + catalog_generation_id
   action
   occurred_at
   idempotency_key
 
-project_action_state
-  device_id + project_slug
+project_action_state_v2
+  device_id + project_id (project_id_version = 1)
+  project_slug + catalog_generation_id
   highest_stage
   opened_at / saved_at / tried_at / cloned_at / reused_at
   updated_at
+
+feedback_v2
+  device_id + project_id (project_id_version = 1)
+  project_slug + catalog_generation_id
+  value
+  created_at / updated_at
+
+decision_events_v2
+  id
+  legacy_event_id
+  device_id
+  project_id_version + project_id
+  project_slug + catalog_generation_id
+  value
+  occurred_at
 ```
 
-`project_action_events` 的应用写入边界只允许 INSERT，数据库触发器拒绝 UPDATE 与 DELETE。新事件的 `occurred_at` 由 Worker 生成带时区的 RFC3339 UTC 时间；API 不接受客户端时间。幂等键在同一 `device_id` 内唯一：相同键与相同项目/行动是安全重放，不产生第二个 Event；相同键绑定不同项目或行动返回冲突。一次用户意图的即时网络重试和页面内再次尝试复用同一键，成功后的新一次真实行动生成新键，因此跨周重复行动仍能追加。
+每个 Action、feedback、recommendation 或 metrics 请求先从一次 published-data bridge 解析取得同一个 generation 和 Catalog，再为该 generation 构造完整身份目录。Catalog v3 项目必须携带 `projectIdVersion: 1`，且 projectId 能从 `repo` 精确重算；Catalog v1/v2 没有身份字段时，从其 `repo` 机械计算 identity v1。规范化 repository、projectId 和 legacy slug 在该 generation 内都必须形成可验证的一对一关系；任一重复、伪造、缺失或歧义都会在 D1 写入前失败。
 
-Event INSERT 在同一 SQLite 语句的 `AFTER INSERT` 触发器内更新 State。State 每个设备和项目只有一行，`highest_stage` 按 `opened < saved < tried < cloned < reused` 单调推进；各阶段时间只在该阶段真实发生时记录，不因最高阶段倒推缺失步骤。按钮和观察列表由 State 投影，不能扫描 Event 充当当前状态。Weekly Acted Projects 则只查询 Event，在一次服务端 `now` 下使用包含下界的 `[now - 7 days, now]` 窗口，对 `tried`、`cloned`、`reused` 的不同 `project_slug` 计数；`opened` 与 `saved` 仅作为辅助漏斗指标。
+`project_identity_catalog` 记录已验证的 generation、规范化 repository、projectId 和兼容 slug，映射建立后拒绝 UPDATE、DELETE 与非等价 replacement；全部 retained mappings 还必须同时满足 projectId ↔ canonical repository 的全局一对一关系，且同一 legacy slug 不能跨代改绑另一个 projectId。JS 全量 preflight、正式 INSERT trigger 与事务内 pairwise guard 都会检查该约束，两个 publisher 在 preflight 后竞争也不能提交碰撞关系；错误稳定为 `project_identity_collision`。`project_identity_runtime` 同时保存 generation、pointer `publishedAt` 与微秒顺序，并要求文本时间能精确重算同一个微秒值。adoption 在同一 D1 原子 batch 内完成完整 legacy preflight、active row、mutable State 重键、backfill 和兼容投影，任一步失败都整体回滚。只有发布时间更新的 verified pointer 能推进或显式回滚 active generation；较旧慢请求和相同发布时间的不同 generation 均 fail closed，不能回退全局 legacy capture 边界。API 的 legacy slug 解析只查询本次请求 generation 的 verified 映射，不能把数据库中其他 retained generation 的历史映射当作当前事实。客户端提交的 repository、发生时间或单独 slug 哈希都不构成身份来源；同时提交 projectId 与 slug 时必须解析到同一项目，否则返回冲突。
 
-运行时 schema 初始化与 Drizzle migration 使用同一协议：先保留或创建 legacy `project_actions`，再创建 Event、State、索引和触发器，最后把每个旧行机械复制为一个 Event。迁移原样保留 `created_at`，使用 `legacy-project-actions:<id>` 确定性幂等键，不推断旧表中不存在的重复行动或阶段；非法 action 或无法解析的旧时间会使整批迁移失败，而不是被静默丢弃。多次初始化不会重复迁移，正式 migration 与先发生的运行时初始化也可按任一顺序安全重放。legacy 表不会在本轮删除；每个新 Event 都把对应 legacy 阶段投影推进到最近真实发生时间，并写成 UTC `YYYY-MM-DD HH:MM:SS.SSS`，以保持旧版文本时间窗口查询正确。反向捕获按等价时间识别该投影，不会把格式规范化误写成第二个 Event；旧代码写入的新阶段仍会被现存触发器捕获，便于代码回滚后继续读取最新状态并在再次升级时保留事实。
+canonical JSON 写请求必须同时提供数值 `projectIdVersion: 1` 与 `projectId`；单项 GET 查询使用同名 query pair。P1-6C 前，只有 slug 的 legacy 请求继续兼容；双 selector 共存时必须指向同一项目。projectId pair 缺一或 selector 形状错误返回 `invalid_project_selector`，必须指定单项目的操作在两种 selector 都缺失时返回 `missing_project_identity`；Action/feedback collection GET 可以只给 `deviceId` 并返回 current Catalog 中的记录。错误版本返回 `unsupported_project_id_version`，畸形 ID/slug 返回 `invalid_project_id` / `invalid_project_slug`，未知 ID 或 slug 分别返回 `unknown_project_id` / `unknown_project_slug`，歧义 slug 返回 `ambiguous_project_slug`，双 selector 不一致返回 `project_identity_conflict`。Catalog 自身非法，或 stored identity 的版本/格式无法可信解析时服务端 fail closed。结构合法但暂时不在 current Catalog 的历史 projectId 不会被删除，也不会让集合 API 整体失败：当前集合和推荐会省略它；不需要 slug 投影的全局反馈 State 聚合以及近 7 天 Event/decision 周指标继续直接按 canonical projectId 汇总。canonical 写请求明确拒绝客户端 `repository` 和 `occurredAt`。Action、feedback 与 State 项返回 `projectIdVersion`、`projectId` 和临时兼容 `projectSlug`；历史记录以 projectId 和其不可变 generation mapping 证明身份，响应将当前记录的兼容 slug 归一为 current Catalog 值，不把 slug 当成跨 generation 身份不变量。recommendation 项返回 Stable ID 并在 P1-6C 前保留既有 `slug` 字段。
 
-回滚只需要恢复上一版应用代码，不执行破坏性 down migration，也不删除 Event 或 State。回滚开始时，legacy 投影的 `created_at` 已是各阶段最近 Event，因此旧指标可读取回滚前的当前窗口；旧版本本身仍受全生命周期唯一限制，所以回滚期间再次发生的同阶段行动仍会漏计。重新启用本版本后只能迁移旧代码实际成功保存的行，不会补造回滚期间未能写入的历史。
+### Historical Identity Bundle 与首次 adoption recovery
+
+D1 adoption 的历史身份来源是版本化 `Historical Identity Bundle v1`，而不是 D1 中陈旧的 slug map。构建器在 canonical data lock 内读取一次 current pointer，并严格验证 current 与全部可见 retained final generation。独立 `generations` 清单保存 generation ID、manifest `createdAt`、manifest SHA-256、Catalog Schema 版本与 active 标记，即使某代 Catalog 没有项目也保留 provenance；`mappings` 保存 identity v1、canonical repository、legacy slug，并逐字段绑定所属 generation。active generation 的 `publishedAt` 必须精确等于 pointer；retained generation 因可能被多次 rollback 激活而只能为 `null`，不得用 manifest 创建时间冒充发布时间。`.candidates`、flat staging 和隐藏路径不参与解析，任何可见 final 的 hash、Schema、Audit、路径或身份冲突都会阻止整个 adoption。
+
+`project_identity_generation_evidence` 保存每代不可变的 `generation_created_at + manifest_sha256 + catalog_schema_version`，并与 `project_identity_catalog` 成对校验；role-dependent pointer 时间只保存在 `project_identity_runtime`。retained legacy slug 若在多个已验证 generation 中始终属于同一 projectId，则使用 manifest 创建时间精确到微秒选择最新 witness；若归属不唯一则失败，绝不按文件顺序或字符串第一项猜测。事务内 `project_identity_adoption_session` 和 `project_identity_adoption_allowed_mapping` 只为本次 backfill 临时放行精确 historical mapping，写入仍需匹配原 legacy source，提交前两表必须清空；应用的普通写路径仍只能使用 active generation。
+
+无法由 current 或 retained Catalog 证明 repository 的 legacy 行只能依据 exact、版本化 disposition policy 处置。当前 policy `2026-07-18.1` 仅把 `officecli` 的 `feedback` source 记入 append-only `project_identity_unresolved_legacy`：保留原 feedback/history，不写 repository、projectId 或 device ID，不进入 canonical metrics/recommendations。ledger 的 source table/key、slug、reason 和 policy version 不可 UPDATE/DELETE；未来解析必须使用单独、显式、可审计的 resolution migration，不能修改 policy 后把旧 quarantine 静默解释成新身份。`oomol-lab--open-connector` 有唯一 verified retained repository，因此按该 mapping 机械 backfill，而不是 quarantine。
+
+## Canonical v2 Event、State 与 feedback
+
+`project_action_events_v2` 的应用写入边界只允许 INSERT，数据库触发器拒绝 UPDATE、DELETE 和 identity replacement。新事件的 `occurred_at` 由 Worker 生成带时区的 RFC3339 UTC 时间；API 不接受客户端时间。幂等键在同一 `device_id` 内唯一：相同键与相同 projectId/行动是安全重放，不产生第二个 Event；相同键绑定不同 projectId 或行动返回冲突。一次用户意图的即时网络重试和页面内再次尝试复用同一键，成功后的新一次真实行动生成新键，因此跨周重复行动仍能追加。
+
+Event INSERT 通过 `project_action_events_v2_sync_state` 在同一 SQLite 写入中更新 `project_action_state_v2`。State 以 `device_id + project_id` 唯一，`project_id_version` 固定为 1；`highest_stage` 按 `opened < saved < tried < cloned < reused` 单调推进，各阶段时间只在该阶段真实发生时记录，不因最高阶段倒推缺失步骤。按钮和观察列表由 State 投影，不能扫描 Event 充当当前状态。
+
+Weekly Acted Projects 只查询 canonical v2 Event，在一次服务端 `now` 下使用包含下界的 `[now - 7 days, now]` 窗口，对 `tried`、`cloned`、`reused` 的不同 projectId 计数；`opened` 与 `saved` 仅作为辅助漏斗指标。同一项目在窗口内多次行动只计一次，旧事件离开窗口后的新真实行动可重新计入，State 不参与反推。
+
+`feedback_v2` 保存每个设备和 projectId 的当前反馈，`decision_events_v2` 保存反馈变化历史；新反馈 INSERT 或真实值变化在同一数据库写入中追加 history。推荐、当前反馈计数和辅助反馈指标使用 canonical projectId，响应同时返回 `projectIdVersion`、`projectId` 和 P1-6C 前的兼容 slug。反馈仍不属于 Weekly Acted Projects，不能冒充试用、浅克隆或确认复用。
+
+## D1 迁移与旧代码回滚
+
+`drizzle/0004_stable_project_identity.sql` 是本轮正式、版本化的 additive DDL：它先保留全部 legacy 表，再创建 `project_identity_catalog`、`project_identity_runtime`、canonical v2 表、索引、反馈历史链和完整触发器边界。DDL 不读取 generation 文件，也不从 slug 猜测身份；runtime bootstrap 通过 Vite raw module 直接拆分并重放这一个正式文件，fresh-D1 与 migration 路径不能维护另一套漂移的 stable schema。运行时 adoption 不是第二份 DDL migration，它只接收本次请求从 verified generation 导出的完整映射，完成 legacy preflight、mutable State 重键、backfill 和 active-generation 切换。因此正式 `0004` 先运行或由初始化重放时都得到相同结构，多次执行为 no-op；只执行正式 0000..0004 也必须让 canonical feedback INSERT/真实值变化生成 legacy 与 canonical decision history。
+
+legacy adoption 只通过明确 Catalog 映射进行。`project_actions`、`project_action_events`、`project_action_state`、`feedback` 和 `decision_events` 的原始 action/value、`occurred_at`/`created_at` 与真实阶段原样保留；确定性 legacy 幂等键继续复用，不从 State 补造 Event，也不推断 owner 转移、仓库改名或缺失的历史。除 exact disposition policy 明确隔离、保留并写入 immutable ledger 的来源行外，任一 slug 无匹配或多匹配、映射冲突、非法行动或无法解析的时间都会返回稳定错误并阻止 `project_identity_runtime` 切换，不能静默跳过后声称迁移完成。
+
+旧 `project_actions`、`project_action_events`、`project_action_state`、`feedback`、`decision_events` 及其触发器不会删除。`project_action_events_v2_legacy_projection` 和 feedback 的 legacy projection 把 canonical 写入投影到旧 slug 边界；`project_action_events_capture_stable` 以及 feedback/decision capture 只在 active generation 存在唯一映射时捕获旧代码写入。跨版本捕获按 device、project identity、action/value、幂等键和等价时间识别已投影事实，不因 UTC 文本格式化或触发器回环制造第二个 Event/history；unresolved identity 不做错误投影。若同一 projectId 的 current Catalog slug 变化，adoption 会在上述同一个原子 batch 内仅把 mutable `project_action_state`、`feedback`、`project_action_state_v2` 与 `feedback_v2` 重键到当前 slug/generation；`project_actions`、两套 append-only Action Event 和两套 decision history 的原始 slug、时间及行数不变。目标 slug 已存在另一条 State/feedback 时整批 `conflicting_project_projection`，不会先切 active row；成功后的重复 adoption 为 no-op。
+
+应用代码回滚不执行破坏性 down migration，也不删除 canonical 或 legacy 表。回滚前的新写入以及 generation slug 切换后的 mutable State 已投影到 current slug，旧代码无需等待新写即可读取最近按钮与反馈状态；旧代码期间实际成功保存的行动和反馈会在再次升级后被捕获。旧版本仍受其全生命周期唯一约束，所以回滚期间无法保存的同阶段重复行动不会被补造。immutable legacy Events 会保留它们发生时的历史 slug；若旧代码回滚后又在当前别名产生行动，旧版按 slug 去重的周指标可能把同一 Stable ID 的多个别名分别计数，canonical v2 指标仍按 projectId 正确去重。迁移不会为了修饰旧版指标而改写或补造 Event。
+
+只回滚 P1-6B 应用代码到仍支持 Catalog v3 的 PR #8 时，可保留当前 pointer 与 additive D1，前提是先停止写入、备份 D1，并确认当前 generation 的 legacy State/feedback 投影完成。完整回滚 Stable ID 到 pre-v3 时，还必须先降级 flat staging；在 P1-6B 代码仍运行时显式 rollback 到健康 Catalog v1/v2，并在目标 Runtime 的实际 D1 上发起一次预期会执行 adoption 的受控 GET，让 `project_identity_runtime` 验证并激活目标 generation，随后执行 Schema/Audit、停止 Runtime，最后才回滚应用代码。不得让旧代码在 D1 active mapping 仍指向另一代时接管写入。
 
 ## 兼容与迁移
 
@@ -203,7 +259,7 @@ Event INSERT 在同一 SQLite 语句的 `AFTER INSERT` 触发器内更新 State�
 9. Catalog v1 generation 保持字节、Schema 和历史审计语义不变，可继续显式回滚。评分语义迭代中派生的 v2 generation 不采集新 GitHub 事实、不修改 snapshot/history，也不把缺失证据补造成分数；只按 `evidence-v2` 重建 catalog 与依赖 catalog 的 Codex queue，并由完整 generation gate 发布。
 10. P1-6A 不改写 retained generations。Catalog v1/v2、static evidence v0/v1、project enrichment v0/v1 和 Queue v1 保留各自 validator、audit 与显式 rollback；新 refresh/derive 才生成 Catalog v3、static evidence v2、project enrichment v2 和 Queue v2。
 11. flat staging 可用 `python -m pipeline.migrate_project_identity --data-dir data` 预检和 dry-run，再显式加 `--apply` 迁移可信 v1 artifact；无法机械升级的 legacy v0 只报告并保留。应用代码回滚前，显式 `--to-legacy-v1` 模式（同样默认 dry-run，写入还需 `--apply`）把 static evidence/project enrichment v2 机械降为 v1：`schemaVersion: 2 → 1`、移除 `projectIdVersion`/`projectId`、恢复 legacy slug 文件名，其他事实、时间和内容原样保留。两个方向都只处理 `data/analysis` 与 `data/enrichment`，不跟随 symlink/junction，不访问或修改 current、retained generations、candidates、manifest，也不发布 generation。完整 preflight 必须在任何写入前发现 legacy slug collision、非等价目标、归属冲突和路径逃逸；apply 先原子写入并验证全部目标，再删除源。等价目标不重写，写入或源清理中断后可安全重试，完整执行后的重复 apply 为 no-op。
-12. P1-6A 仍保留 D1 的 `project_slug`、Action API 与页面 slug 路由。它们分别由 P1-6B 和 P1-6C 迁移；旧 slug 在这些边界完成前不是新 JSON 产物的唯一身份。
+12. P1-6B 增加 canonical Stable Project ID D1/API 边界，同时完整保留旧 `project_slug` 表与兼容投影用于旧代码回滚。页面路由、链接、React key 和组件身份仍由 P1-6C 迁移；legacy slug 只能经本次请求的 verified Catalog 唯一解析，不能成为 canonical 事实主键。
 
 ### 显式 staging artifact 冲突解析
 
@@ -228,7 +284,7 @@ resolver 的信任边界固定为：
 
 Schema 与 generation 验证不执行候选仓库代码、不安装其依赖、不读取用户 Git 配置，也不改变静态分析的资源上限。generation ID、manifest 产物路径与符号链接都经过逃逸检查；路径必须留在当前 data/generations 根内。
 
-回滚 Stable ID 应用代码不能忽略 flat staging 中的 v2 artifact。顺序固定为：停止写入任务 → 备份 flat staging → 执行 `--to-legacy-v1` dry-run → 显式 `--to-legacy-v1 --apply` → 验证全部 staging 均为旧代码可读取的 v0/v1 → 回滚应用代码 → 显式 rollback 到健康的 Catalog v1/v2 retained generation → 运行 Schema/Audit → 恢复 Runtime。逆向 staging 迁移不接触 generation；后续 generation rollback 仍沿用下述严格目标验证与原子 pointer 协议。
+回滚 Stable ID 应用代码不能忽略 flat staging 中的 v2 artifact。顺序固定为：停止写入任务 → 备份 flat staging 与 D1 → 执行 `--to-legacy-v1` dry-run → 显式 `--to-legacy-v1 --apply` → 验证全部 staging 均为旧代码可读取的 v0/v1 → 在 P1-6B 代码仍运行时显式 rollback 到健康的 Catalog v1/v2 retained generation → 在目标 Runtime 的实际 D1 上发起一次预期会执行 adoption 的受控 GET，并核验 `project_identity_runtime` → 运行 Schema/Audit → 停止 Runtime → 回滚应用代码 → 恢复 Runtime。逆向 staging 迁移不接触 generation；后续 generation rollback 仍沿用下述严格目标验证与原子 pointer 协议。
 
 显式回滚和灾难恢复都使用 `npm run data:generation:rollback -- <generation-id>`。目标验证失败时返回结构化错误，旧 `current.json` 的原始字节保持不变。目标健康后，若当前 generation 仍可严格解析，则继续沿用正常回滚逻辑。
 
@@ -240,4 +296,4 @@ Schema 与 generation 验证不执行候选仓库代码、不安装其依赖、�
 
 本地管理器在启动任何子服务前检查声明的 Python 运行依赖。缺失时只输出 `python -m pip install -r requirements.txt` 并退出，不自动安装，也不启动会持续失败重启的 scheduler。
 
-Schema 不能单独解决跨文件一致性、历史增长、缓存新鲜度或身份碰撞。前三项由 generation audit、manifest/hash 和请求级 generation 边界处理；Stable Project ID 由 identity v1 重算、跨产物审计和 collision/unresolved 门禁共同保证。追加式行动事件已由 PR #5 完成，评分语义已由 PR #6、提交 `ab34119` 完成，verify/CI 已由 PR #7、提交 `3430e30` 完成。P1-6A 当前只迁移 JSON 数据层；P1-6 整体须在后续 P1-6B 与 P1-6C 完成后才能关闭。
+Schema 不能单独解决跨文件一致性、历史增长、缓存新鲜度或身份碰撞。前三项由 generation audit、manifest/hash 和请求级 generation 边界处理；Stable Project ID 由 identity v1 重算、跨产物审计和 collision/unresolved 门禁共同保证。追加式行动事件已由 PR #5 完成，评分语义已由 PR #6、提交 `ab34119` 完成，verify/CI 已由 PR #7、提交 `3430e30` 完成，P1-6A JSON 身份层已由 PR #8、提交 `d41033f` 完成。P1-6B 当前只在独立 Draft PR 中迁移 D1/API 身份，合并前不视为 `main` 完成；P1-6 整体须在后续 P1-6C 完成后才能关闭。

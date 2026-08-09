@@ -151,6 +151,22 @@ def _ready_refresh_candidate(data_dir: Path, identifier: str):
             None,
             True,
         )
+    # The refresh protocol requires one byte-exact archive of the published
+    # current snapshot.  JSON reserialization normalizes line endings on Linux,
+    # while checked-out repository fixtures may contain CRLF bytes.  Restore the
+    # exact source bytes before finalize hashes the ready candidate.
+    source_snapshot = current.root / "snapshots/latest.json"
+    captured_at = snapshot.get("captured_at")
+    matching_archives = [
+        path
+        for path in (candidate.path / "snapshots/history").glob("*.json")
+        if _read(path).get("captured_at") == captured_at
+    ]
+    if len(matching_archives) != 1:
+        raise AssertionError(
+            "refresh test fixture must contain exactly one current snapshot archive"
+        )
+    matching_archives[0].write_bytes(source_snapshot.read_bytes())
     finalize_candidate_generation(candidate)
     return candidate, current
 

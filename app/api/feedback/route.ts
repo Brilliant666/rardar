@@ -1,71 +1,117 @@
-import { and, eq, ne, sql } from "drizzle-orm";
-import { getDb } from "../../../db";
+import { env } from "cloudflare:workers";
 import { ensureDecisionSchema } from "../../../db/ensure";
-import { feedback } from "../../../db/schema";
+import {
+  readStableFeedback,
+  upsertStableFeedback,
+} from "../../../db/stable-project-decisions.mjs";
+import {
+  ProjectIdentityError,
+  createProjectIdentityContext,
+  projectIdentityErrorResponse,
+  resolveProjectSelector,
+  selectorFromRecord,
+  selectorFromSearchParams,
+  withCurrentProjectIdentity,
+  withCurrentProjectIdentityIfPresent,
+} from "../../project-identity.mjs";
 import { loadPublishedData } from "../../server-data";
 import { readJsonObject, trimmedString } from "../validation";
 
-const allowedValues = new Set(["有用", "无用", "复用", "待确定"]);
+const feedbackValues = ["有用", "无用", "复用", "待确定"] as const;
+type FeedbackValue = (typeof feedbackValues)[number];
+const allowedValues = new Set<string>(feedbackValues);
 const noStoreHeaders = { "cache-control": "no-store" };
 
+function rejectClientEvidence(value: URLSearchParams | Record<string, unknown>) {
+  const has = value instanceof URLSearchParams
+    ? (key: string) => value.has(key)
+    : (key: string) => Object.hasOwn(value, key);
+  if (has("repository") || has("repo") || has("occurredAt")) {
+    throw new ProjectIdentityError(
+      "client_project_evidence_not_allowed",
+      "repository and occurredAt are server-owned evidence",
+      400,
+    );
+  }
+}
+
 export async function GET(request: Request) {
-  const { projects } = await loadPublishedData();
-  const projectSlugs = new Set(projects.map((project) => project.slug));
-  const url = new URL(request.url);
-  const deviceId = url.searchParams.get("deviceId")?.trim();
-  const projectSlug = url.searchParams.get("projectSlug")?.trim();
-  if (!deviceId || deviceId.length > 200) {
-    return Response.json({ error: "deviceId is required" }, { status: 400 });
-  }
-  if (projectSlug && !projectSlugs.has(projectSlug)) {
-    return Response.json({ error: "unknown project" }, { status: 404 });
-  }
+  try {
+    const published = await loadPublishedData();
+    const identityContext = await createProjectIdentityContext(
+      published.generationId,
+      published.catalog,
+      published.publishedAt,
+    );
+    const url = new URL(request.url);
+    rejectClientEvidence(url.searchParams);
+    const deviceId = url.searchParams.get("deviceId")?.trim();
+    if (!deviceId || deviceId.length > 200) {
+      return Response.json({ error: "deviceId is required" }, { status: 400 });
+    }
+    const project = resolveProjectSelector(
+      identityContext,
+      selectorFromSearchParams(url.searchParams),
+      { required: false },
+    );
 
-  await ensureDecisionSchema();
-  const db = getDb();
-  if (projectSlug) {
-    const [row] = await db.select().from(feedback).where(and(eq(feedback.deviceId, deviceId), eq(feedback.projectSlug, projectSlug))).limit(1);
-    return Response.json({ feedback: row ?? null }, { headers: noStoreHeaders });
+    await ensureDecisionSchema(identityContext.identityCatalog);
+    const rows = (await readStableFeedback(env.DB, deviceId, project?.projectId ?? null))
+      .map((row) => withCurrentProjectIdentityIfPresent(identityContext, row))
+      .filter((row) => row !== null);
+    if (project) {
+      return Response.json({ feedback: rows[0] ?? null }, { headers: noStoreHeaders });
+    }
+    return Response.json({ feedback: rows }, { headers: noStoreHeaders });
+  } catch (error) {
+    const response = projectIdentityErrorResponse(error);
+    if (response) return response;
+    throw error;
   }
-
-  const rows = await db.select().from(feedback).where(eq(feedback.deviceId, deviceId));
-  return Response.json({ feedback: rows }, { headers: noStoreHeaders });
 }
 
 export async function POST(request: Request) {
-  const { projects } = await loadPublishedData();
-  const projectSlugs = new Set(projects.map((project) => project.slug));
-  const payload = await readJsonObject(request);
-  if (!payload) {
-    return Response.json({ error: "invalid feedback" }, { status: 400 });
+  try {
+    const published = await loadPublishedData();
+    const identityContext = await createProjectIdentityContext(
+      published.generationId,
+      published.catalog,
+      published.publishedAt,
+    );
+    const payload = await readJsonObject(request);
+    if (!payload) {
+      return Response.json({ error: "invalid feedback" }, { status: 400 });
+    }
+    rejectClientEvidence(payload);
+    const project = resolveProjectSelector(identityContext, selectorFromRecord(payload));
+    const deviceId = trimmedString(payload, "deviceId");
+    const value = trimmedString(payload, "value");
+    if (!deviceId || deviceId.length > 200 || !value || !allowedValues.has(value)) {
+      return Response.json({ error: "invalid feedback" }, { status: 400 });
+    }
+
+    await ensureDecisionSchema(identityContext.identityCatalog);
+    const result = await upsertStableFeedback(env.DB, {
+      deviceId,
+      projectIdVersion: 1,
+      projectId: project.projectId,
+      projectSlug: project.projectSlug,
+      catalogGenerationId: published.generationId,
+      value: value as FeedbackValue,
+    });
+    const feedback = withCurrentProjectIdentity(identityContext, result.feedback);
+    return Response.json({
+      ok: true,
+      projectIdVersion: 1,
+      projectId: project.projectId,
+      projectSlug: project.projectSlug,
+      value,
+      changed: result.changed,
+      feedback,
+    }, { headers: noStoreHeaders });
+  } catch (error) {
+    const response = projectIdentityErrorResponse(error);
+    if (response) return response;
+    throw error;
   }
-  const deviceId = trimmedString(payload, "deviceId");
-  const projectSlug = trimmedString(payload, "projectSlug");
-  const value = trimmedString(payload, "value");
-
-  if (
-    !deviceId ||
-    deviceId.length > 200 ||
-    !projectSlug ||
-    !projectSlugs.has(projectSlug) ||
-    !value ||
-    !allowedValues.has(value)
-  ) {
-    return Response.json({ error: "invalid feedback" }, { status: 400 });
-  }
-
-  await ensureDecisionSchema();
-  const db = getDb();
-  const changedRows = await db
-    .insert(feedback)
-    .values({ deviceId, projectSlug, value })
-    .onConflictDoUpdate({
-      target: [feedback.deviceId, feedback.projectSlug],
-      set: { value, updatedAt: sql`CURRENT_TIMESTAMP` },
-      setWhere: ne(feedback.value, value),
-    })
-    .returning({ id: feedback.id });
-
-  const changed = changedRows.length === 1;
-  return Response.json({ ok: true, value, changed });
 }

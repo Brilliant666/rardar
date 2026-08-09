@@ -1,26 +1,49 @@
-import { eq } from "drizzle-orm";
-import { getDb } from "../../../db";
+import { env } from "cloudflare:workers";
 import { ensureDecisionSchema } from "../../../db/ensure";
-import { feedback } from "../../../db/schema";
+import { readStableFeedback } from "../../../db/stable-project-decisions.mjs";
 import { rankProjects } from "../../personalization";
+import {
+  createProjectIdentityContext,
+  projectIdentityErrorResponse,
+  withCurrentProjectIdentityIfPresent,
+} from "../../project-identity.mjs";
 import { loadPublishedData } from "../../server-data";
 
 export async function GET(request: Request) {
-  const { projects } = await loadPublishedData();
-  const url = new URL(request.url);
-  const deviceId = url.searchParams.get("deviceId")?.trim();
-  if (!deviceId || deviceId.length > 200) {
-    return Response.json({ error: "deviceId is required" }, { status: 400 });
+  try {
+    const published = await loadPublishedData();
+    const identityContext = await createProjectIdentityContext(
+      published.generationId,
+      published.catalog,
+      published.publishedAt,
+    );
+    const url = new URL(request.url);
+    const deviceId = url.searchParams.get("deviceId")?.trim();
+    if (!deviceId || deviceId.length > 200) {
+      return Response.json({ error: "deviceId is required" }, { status: 400 });
+    }
+    if (
+      url.searchParams.has("repository")
+      || url.searchParams.has("repo")
+      || url.searchParams.has("occurredAt")
+    ) {
+      return Response.json(
+        { error: "client_project_evidence_not_allowed" },
+        { status: 400, headers: { "cache-control": "no-store" } },
+      );
+    }
+
+    await ensureDecisionSchema(identityContext.identityCatalog);
+    const rows = (await readStableFeedback(env.DB, deviceId))
+      .map((row) => withCurrentProjectIdentityIfPresent(identityContext, row))
+      .filter((row) => row !== null);
+    const projects = identityContext.stableProjects(published.projects);
+    return Response.json(rankProjects(projects, rows), {
+      headers: { "cache-control": "no-store" },
+    });
+  } catch (error) {
+    const response = projectIdentityErrorResponse(error);
+    if (response) return response;
+    throw error;
   }
-
-  await ensureDecisionSchema();
-  const db = getDb();
-  const rows = await db
-    .select({ projectSlug: feedback.projectSlug, value: feedback.value })
-    .from(feedback)
-    .where(eq(feedback.deviceId, deviceId));
-
-  return Response.json(rankProjects(projects, rows), {
-    headers: { "cache-control": "no-store" },
-  });
 }

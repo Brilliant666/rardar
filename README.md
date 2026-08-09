@@ -32,7 +32,23 @@ Catalog v2 使用 `evidence-v2` 评分模型：Attention 只回答是否值得�
 
 首页推荐默认以关注优先级为主；存在当前静态证据时，再有限纳入工程就绪度。浏览器产生反馈后，`/api/recommendations` 会生成匿名设备偏好画像：标记“无用”的项目和相近特征会降低曝光，“有用 / 复用”会提高相似未处理项目的机会，已处理项目本身会减少重复推荐；个性化只做有限调整，不覆盖事实、风险与证据边界。这里的“复用”是用户已经发生的反馈事实，不是系统预测的 Reuse Fit。
 
-真实行动使用 D1 中分离的 Event 与 State：`project_action_events` 只追加“发生过什么”，`project_action_state` 保存当前最高阶段和每个真实点击阶段的最近时间。客户端为一次行动意图生成幂等键，并在网络重试中复用；同键重试不会重复写 Event，同一项目和行动在以后再次发生时使用新键，仍会成为新的历史事实。按钮与观察列表只读取 State，近 7 天指标只读取 Event。旧 `project_actions` 会在运行时按原始 `created_at` 逐行迁移且继续保留为回滚兼容投影；新 Event 会把该投影推进到同阶段的最近真实时间，并规范化为旧版周指标可安全比较的 UTC SQLite 时间文本，但不会补造缺失阶段或历史事件。
+真实行动使用 D1 中分离的 canonical v2 Event 与 State：所有新写入使用 `projectIdVersion: 1` 和 `projectId`，Event 只追加“发生过什么”，State 保存当前最高阶段和每个真实点击阶段的最近时间。客户端为一次行动意图生成幂等键并在网络重试中复用；同键、同项目和同行动是安全重放，同键绑定不同 projectId 或行动会冲突，成功后的下一次真实行动使用新键并继续追加。按钮与观察列表只读取 State，近 7 天指标只读取 Event，并在同一服务端时间窗口内按不同 projectId 去重。
+
+Action、feedback、recommendation 与 metrics API 从一次请求加载的同一个 verified Catalog 建立 generation-bound 身份映射。Catalog v3 会核对携带的 projectId 与 repository，retained Catalog v1/v2 则从 `repo` 机械计算 identity v1；current pointer 的 `publishedAt` 同时作为 D1 active-generation 的单调激活顺序，旧慢请求不能回退 legacy capture 边界，而带有更新发布时间的显式 rollback 仍可重新激活 retained generation。全部 retained mappings 还必须保持 projectId ↔ canonical repository 一对一，且同一 legacy slug 不能跨代改绑另一个 projectId；预检、正式触发器和事务内 guard 任一发现碰撞都返回 `project_identity_collision`。当前 UI 仍可发送 legacy slug，但只在该 Catalog 中唯一匹配时才转换，不能直接哈希 slug、信任客户端 repository 或使用陈旧 D1 映射。凡返回当前项目记录的 canonical 响应都返回 projectId，并把已验证历史记录的兼容 slug 投影为当前 Catalog 值，暂时供 P1-6C 使用；collection GET 可省略 selector 返回该设备在 current Catalog 中的记录。合法的历史 projectId 即使暂时退出 Catalog 仍保留在 D1 与追加式历史中，但不会出现在当前集合或推荐中；全局反馈 State 聚合和近 7 天 Event/decision 周指标仍直接按 projectId 计入。畸形或版本错误的 stored identity 继续让请求 fail closed，不能被静默过滤。metrics 继续返回聚合值并按 projectId 计算；反馈当前状态和 decision history 也使用相同 canonical 项目身份，推荐不再以可碰撞的 slug 关联偏好。
+
+迁移保持 additive 和 rollback-safe：正式 `drizzle/0004_stable_project_identity.sql` 定义版本化 DDL、反馈历史链和完整触发器边界，runtime bootstrap 直接拆分并重放该文件，不维护第二份 stable DDL；既有 `project_actions`、`project_action_events`、`project_action_state`、feedback、decision history 和兼容触发器均保留，不执行破坏性 down migration。legacy 行只通过明确 Catalog 映射机械迁移，原始发生时间、行动阶段和反馈事实保持不变，不从 State 补造 Event；除 exact disposition policy 明确隔离且保留原事实的行外，无匹配、多匹配、非法行动或非法时间都会明确阻止完成。新 canonical 写入投影到旧 slug 边界，旧代码期间成功写入的事实会在再次升级后被捕获，双向投影使用稳定身份和时间去重，不能制造第二个 Event。若同一 projectId 在新 generation 只改变兼容 slug，adoption 会在同一个原子 batch 内把 mutable `project_action_state`、`feedback` 及对应 canonical State 重键到当前 slug/generation；append-only Action Event、`project_actions` 和 decision history 保留原始 slug 与时间。目标 slug 已被其他 State/feedback 占用时整批 fail closed，重复 adoption 为 no-op，因此旧代码无需等待下一次写入即可读到回滚前的按钮和反馈状态。
+
+旧代码仍按 legacy slug 计算它自己的周指标。若一个 Stable Project ID 的历史 Event 跨多个兼容 slug 保留，且回滚后又在当前别名产生行动，旧版指标可能把这些别名分别计数；canonical v2 Weekly Acted Projects 始终按 projectId 去重，不受此限制。迁移不会为修饰旧指标而改写 append-only Event 或补造历史。
+
+### Historical Identity Bundle 与 unresolved legacy 隔离
+
+Stable D1 首次 adoption 不再只看 current Catalog。Vite host 会在同一个 data lock 中严格验证 `current.json` 和全部可见 retained final generation，逐代复核 ready manifest、manifest digest、全部 artifact hash、JSON Schema 与跨文件 Audit，再生成一次性的 Historical Identity Bundle。Bundle 用独立 `generations` 清单保存每一代 provenance，因此合法的空 Catalog 也不会丢失 generation 证据；`mappings` 只保存项目关系并必须与所属 generation 精确一致。Catalog v1/v2 只从已验证的 `repo` 机械计算 identity v1；Catalog v3 必须按 repository 重算并与携带的 Stable ID 完全一致。flat staging、`.candidates` 和隐藏目录不属于历史证据；任一可见 final 损坏、碰撞或把同一 legacy slug 改绑给另一项目时，整个 Bundle 与 adoption 都 fail closed。
+
+`publishedAt` 是 pointer 的激活事实，不是 generation 的不可变创建事实。Bundle 只给 active occurrence 写入 current pointer 的真实 `publishedAt`，retained occurrence 明确为 `null`；D1 的 immutable generation evidence 只持久化 manifest `createdAt`、manifest SHA-256 和 Catalog Schema 版本。这样 generation 从 active 变为 retained、再由带有更新 pointer 时间的 rollback 重新激活时，不会伪造历史或毒化不可变证据。
+
+首次 backfill 可以在事务内使用唯一、已验证的 retained mapping，但仅限原 legacy 行的机械投影。临时 adoption session 和精确 allowlist 在同一个 D1 batch 内建立并清理；inactive generation 的插入还必须逐字段匹配真实 legacy source。普通 Action/feedback 写入继续只能使用 current generation，不能借 recovery 通道向 retired 项目写新事实。
+
+正式 disposition policy `2026-07-18.1` 只处理已经人工确认的 `officecli` legacy feedback：没有 current 或 retained repository 证据，因此不生成 repository/projectId，不迁移到 canonical 表，也不进入 Stable metrics 或 recommendations。原 feedback/history 保持原样；`project_identity_unresolved_legacy` 只记录 source table/key、exact slug、reason、policy version、首次见到的 generation 与审计时间，不保存 device ID。ledger 拒绝 UPDATE/DELETE；以后只有新的显式 resolution migration 才能处理该事实。`oomol-lab--open-connector` 则只通过 retained generation 中唯一验证的 `oomol-lab/open-connector` mapping 迁移。policy 内容有任何变化都必须提升 `policyVersion`，不能复用既有版本表达不同处置。
 
 ## 开发
 
@@ -159,7 +175,7 @@ npm run data:generation:rollback -- <generation-id>
 
 兼容规则不会伪造历史事实：GitHub snapshot v1 保留既有 `schema_version` 字段和早期 history 形状；两份因对应静态证据缺少可信 `analyzed_at` 而无法绑定的画像，以及一份早于当前静态证据的历史画像，显式保留为 `schemaVersion: 0`，永远不视为当前证据；signal enrichment v1 继续允许旧条目使用顶层 `generatedAt` 作为分析时间回退。Catalog v1/v2、静态证据 v0/v1、项目画像 v0/v1 和 Queue v1 generation 保持原字节与原 Schema，仍可严格验证、审计和显式 rollback；只有新生成的 Catalog v3、静态证据 v2、项目画像 v2 与 Queue v2 采用 Stable ID。网页对旧评分继续保守归一化，未知版本 fail closed。旧 flat 树只在 `current.json` 尚不存在时用于一次迁移或作为受控 staging，网页和增长基线不会绕过 current 指针。详细模型见 `docs/DATA_MODEL.md`。
 
-回滚 Stable ID 应用代码前必须先让 flat staging 回到旧代码可读状态，顺序固定为：停止写入任务 → 备份 flat staging → 执行 `--to-legacy-v1` dry-run → 显式 `--to-legacy-v1 --apply` → 验证全部 staging 均为旧代码可读取的 v0/v1 → 回滚应用代码 → 显式 rollback 到健康的 Catalog v1/v2 retained generation → 运行 Schema/Audit → 恢复 Runtime。存在 v2 staging 时不能只恢复代码；不得跳过备份、降级预检或 generation 验证。
+只回滚 P1-6B 应用代码到已支持 Catalog v3 的 PR #8 时，不做破坏性 D1 down migration：先停止写入并备份 D1，确认当前 generation 的 legacy State/feedback 投影已完成，再让旧代码接管。若要完整回滚 Stable ID 到 pre-v3 数据契约，则还必须让 flat staging 回到旧代码可读状态，并在 P1-6B 代码仍运行时先激活目标 D1 mapping：停止写入任务 → 备份 flat staging 与 D1 → 执行 `--to-legacy-v1` dry-run → 显式 `--to-legacy-v1 --apply` → 验证 staging 为 v0/v1 → 显式 rollback 到健康的 Catalog v1/v2 retained generation → 在目标 Runtime 的实际 D1 上发起一次预期会执行 adoption 的受控 GET，并确认 `project_identity_runtime` 已采用目标 generation → 运行 Schema/Audit → 停止 Runtime → 回滚应用代码 → 恢复 Runtime。存在 v2 staging 时不能只恢复代码；也不能在 D1 active mapping 仍指向另一代时让旧代码接管。
 
 Windows 上可以直接双击项目根目录的 `打开 Rardar.cmd`。它会启动一个隐藏的本地管理器，同时看护网站和每日刷新任务，并打开本地首页。管理器会在任一子服务异常退出后自动重启它；调度器即使进程仍存在，只要心跳持续过期，也会在启动宽限期后被自动恢复。运行心跳、PID 和日志保存在 Windows 本地应用数据目录，不会因频繁写入而触发网站热更新；每份日志超过 5 MB 后滚动，并保留最近两份历史。
 
@@ -208,5 +224,5 @@ npm run data:derive
 - 陌生仓库默认只读分析，禁止自动执行代码。
 - 北极星指标按近 7 天发生“试用 / 浅克隆 / 确认复用”的不同项目数计算；反馈只用于学习排序，不再冒充实际结果。
 - 行动 Event 只追加且由服务端生成发生时间；State 由数据库触发器在同一写入内更新，不能代替历史事件参与周指标。
-- 新 JSON 数据产物以 Stable Project ID 作为唯一项目身份；旧 slug 只保留为显示或 legacy 兼容字段，D1/API 和页面路由的迁移分别留给 P1-6B 与 P1-6C。
+- 新 JSON 数据产物以及 canonical D1/API 状态以 Stable Project ID 作为唯一项目身份；旧 slug 只保留为显示或经 verified Catalog 解析的 legacy 兼容字段。页面组件、路由、链接和旧 URL 迁移仍留给 P1-6C。
 - 官方 RSS 优先；AI News Radar、OpenGithubs 和 HelloGitHub 只作为可归因的补充信号，第三方榜单增长必须由 Rardar 自有快照验证。

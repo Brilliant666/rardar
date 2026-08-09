@@ -29,6 +29,13 @@
       "when": 1783963922354,
       "tag": "0003_flaky_spacker_dave",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1784140578270,
+      "tag": "0004_stable_project_identity",
+      "breakpoints": true
     }
   ]
 }

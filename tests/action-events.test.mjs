@@ -9,6 +9,17 @@ import {
   readWeeklyActionMetrics,
   stateToActionProjection,
 } from "../db/project-actions.mjs";
+import { identityForRepository } from "../app/project-identity.mjs";
+import {
+  adoptStableProjectIdentities,
+  appendStableProjectActionEvent,
+  readStableFeedback,
+  readStableProjectActionState,
+  readStableWeeklyActionMetrics,
+  readStableWeeklyFeedbackMetrics,
+  stableStateToActionProjection,
+  upsertStableFeedback,
+} from "../db/stable-project-decisions.mjs";
 
 class SqliteD1Statement {
   constructor(database, sql, bindings = []) {
@@ -38,6 +49,7 @@ class SqliteD1Statement {
 class SqliteD1Database {
   constructor() {
     this.raw = new DatabaseSync(":memory:");
+    this.batchTail = Promise.resolve();
   }
 
   prepare(sql) {
@@ -45,6 +57,12 @@ class SqliteD1Database {
   }
 
   async batch(statements) {
+    const operation = this.batchTail.then(() => this.runBatch(statements));
+    this.batchTail = operation.catch(() => undefined);
+    return operation;
+  }
+
+  async runBatch(statements) {
     this.raw.exec("BEGIN IMMEDIATE");
     try {
       const results = [];
@@ -66,6 +84,10 @@ async function ensureActionSchema(database) {
   await database.batch(prepareProjectActionSchema(database));
 }
 
+async function ensureStableSchema(database) {
+  await applyMigration(database, "../drizzle/0004_stable_project_identity.sql");
+}
+
 async function applyMigration(database, relativePath) {
   const sql = await readFile(new URL(relativePath, import.meta.url), "utf8");
   for (const statement of sql.split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean)) {
@@ -76,6 +98,128 @@ async function applyMigration(database, relativePath) {
 function rows(database, sql, ...bindings) {
   return database.raw.prepare(sql).all(...bindings).map((row) => ({ ...row }));
 }
+
+async function ensureLegacyDecisionTables(database, { triggers = true } = {}) {
+  await applyMigration(database, "../drizzle/0000_organic_the_professor.sql");
+  await applyMigration(database, "../drizzle/0001_melted_surge.sql");
+  if (!triggers) return;
+  database.raw.exec(`
+    CREATE TRIGGER IF NOT EXISTS feedback_insert_decision_event
+    AFTER INSERT ON feedback
+    BEGIN
+      INSERT INTO decision_events (device_id, project_slug, value, created_at)
+      VALUES (NEW.device_id, NEW.project_slug, NEW.value, NEW.updated_at);
+    END;
+    CREATE TRIGGER IF NOT EXISTS feedback_update_decision_event
+    AFTER UPDATE OF value ON feedback
+    WHEN OLD.value <> NEW.value
+    BEGIN
+      INSERT INTO decision_events (device_id, project_slug, value, created_at)
+      VALUES (NEW.device_id, NEW.project_slug, NEW.value, NEW.updated_at);
+    END;
+  `);
+}
+
+async function ensureLegacyProjectTables(database) {
+  await applyMigration(database, "../drizzle/0002_broken_zaladane.sql");
+  await applyMigration(database, "../drizzle/0003_flaky_spacker_dave.sql");
+  await ensureActionSchema(database);
+}
+
+async function ensureLegacyDecisionSchema(database, options) {
+  await ensureLegacyDecisionTables(database, options);
+  await ensureLegacyProjectTables(database);
+}
+
+async function identityCatalog(
+  generationId,
+  projects = [{ repository: "Owner/Project", projectSlug: "owner/project" }],
+  publishedAt = "2026-07-16T00:00:00.000000Z",
+) {
+  return {
+    generationId,
+    publishedAt,
+    projects: await Promise.all(projects.map(async ({ repository, projectSlug }) => {
+      const identity = await identityForRepository(repository);
+      return {
+        projectIdVersion: identity.projectIdVersion,
+        projectId: identity.projectId,
+        projectSlug,
+        repository,
+      };
+    })),
+  };
+}
+
+async function historicalIdentityBundle(activeCatalog, retainedCatalogs = []) {
+  const catalogs = [...retainedCatalogs, activeCatalog];
+  const generations = catalogs.map((catalog, catalogIndex) => ({
+    generationId: catalog.generationId,
+    generationCreatedAt: catalog.generationCreatedAt
+      ?? `2026-07-${String(10 + catalogIndex).padStart(2, "0")}T00:00:00Z`,
+    publishedAt: catalog === activeCatalog ? activeCatalog.publishedAt : null,
+    manifestSha256: catalog.manifestSha256 ?? String(catalogIndex + 1).repeat(64),
+    catalogSchemaVersion: catalog.catalogSchemaVersion
+      ?? (catalog === activeCatalog ? 3 : 2),
+    active: catalog === activeCatalog,
+  }));
+  const generationById = new Map(generations.map((generation) => [generation.generationId, generation]));
+  const mappings = catalogs.flatMap((catalog) => catalog.projects.map((project) => ({
+    ...generationById.get(catalog.generationId),
+    projectIdVersion: project.projectIdVersion,
+    projectId: project.projectId,
+    canonicalRepository: project.repository.toLowerCase(),
+    projectSlug: project.projectSlug,
+  })));
+  return {
+    schemaVersion: 1,
+    activeGenerationId: activeCatalog.generationId,
+    activePublishedAt: activeCatalog.publishedAt,
+    generationCount: catalogs.length,
+    mappingCount: mappings.length,
+    generations,
+    mappings,
+  };
+}
+
+function quarantinePolicy(projectSlug, sourceTables = ["feedback"]) {
+  return {
+    schemaVersion: 1,
+    policyVersion: "2026-07-18.99",
+    entries: [{
+      projectSlug,
+      disposition: "quarantine",
+      reasonCode: "no_verified_repository_in_current_or_retained_catalogs",
+      sourceTables,
+    }],
+  };
+}
+
+function stableIdentity(catalog, index = 0) {
+  const project = catalog.projects[index];
+  return {
+    projectIdVersion: project.projectIdVersion,
+    projectId: project.projectId,
+    projectSlug: project.projectSlug,
+    catalogGenerationId: catalog.generationId,
+  };
+}
+
+function tableCounts(database, tableNames) {
+  return Object.fromEntries(tableNames.map((table) => [
+    table,
+    Number(rows(database, `SELECT COUNT(*) AS count FROM ${table}`)[0].count),
+  ]));
+}
+
+const ADOPTION_TABLES = Object.freeze([
+  "project_identity_catalog",
+  "project_identity_runtime",
+  "project_action_events_v2",
+  "project_action_state_v2",
+  "feedback_v2",
+  "decision_events_v2",
+]);
 
 test("migrates legacy actions with their original times and keeps rollback compatibility", async () => {
   const database = new SqliteD1Database();
@@ -420,6 +564,1555 @@ test("keeps Event append-only while its trigger updates State atomically", async
     assert.equal(
       rows(database, "SELECT project_slug FROM project_action_events")[0].project_slug,
       "owner/project",
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("records canonical stable actions and feedback while preserving every legacy projection", async () => {
+  const database = new SqliteD1Database();
+  try {
+    database.raw.exec("PRAGMA recursive_triggers = ON");
+    await ensureLegacyDecisionSchema(database);
+    await ensureStableSchema(database);
+    const catalog = await identityCatalog("generation-empty-adoption");
+    const identity = stableIdentity(catalog);
+
+    assert.deepEqual(await adoptStableProjectIdentities(database, catalog), {
+      status: "ready",
+      generationId: catalog.generationId,
+      projectCount: 1,
+      migratedProjectCount: 0,
+      migratedFactCount: 0,
+      quarantinedSlugCount: 0,
+      quarantinedFactCount: 0,
+      unresolvedBlockingCount: 0,
+    });
+    assert.deepEqual(tableCounts(database, ADOPTION_TABLES), {
+      project_identity_catalog: 1,
+      project_identity_runtime: 1,
+      project_action_events_v2: 0,
+      project_action_state_v2: 0,
+      feedback_v2: 0,
+      decision_events_v2: 0,
+    });
+
+    const input = {
+      deviceId: "stable-empty-device",
+      ...identity,
+      action: "tried",
+      idempotencyKey: "stable-empty-tried-0001",
+    };
+    const first = await appendStableProjectActionEvent(database, input, "2026-07-16T01:02:03Z");
+    const replay = await appendStableProjectActionEvent(database, input, "2026-07-16T02:00:00Z");
+    const conflict = await appendStableProjectActionEvent(
+      database,
+      { ...input, action: "cloned" },
+      "2026-07-16T03:00:00Z",
+    );
+    assert.equal(first.status, "recorded");
+    assert.equal(replay.status, "replayed");
+    assert.equal(replay.event.occurredAt, first.event.occurredAt);
+    assert.equal(conflict.status, "conflict");
+
+    const [state] = await readStableProjectActionState(database, input.deviceId, identity.projectId);
+    assert.equal(state.highestStage, "tried");
+    assert.equal(state.triedAt, "2026-07-16T01:02:03Z");
+    assert.deepEqual(
+      stableStateToActionProjection([state]).map((item) => item.action),
+      ["tried"],
+    );
+    assert.equal(rows(database, "SELECT COUNT(*) AS count FROM project_action_events")[0].count, 1);
+    assert.equal(rows(database, "SELECT COUNT(*) AS count FROM project_action_state")[0].count, 1);
+    assert.equal(rows(database, "SELECT COUNT(*) AS count FROM project_actions")[0].count, 1);
+
+    const concurrentInput = {
+      ...input,
+      action: "reused",
+      idempotencyKey: "stable-concurrent-reused-0001",
+    };
+    const concurrent = await Promise.all([
+      appendStableProjectActionEvent(database, concurrentInput, "2026-07-16T03:10:00Z"),
+      appendStableProjectActionEvent(database, concurrentInput, "2026-07-16T03:11:00Z"),
+    ]);
+    assert.deepEqual(concurrent.map((result) => result.status).sort(), ["recorded", "replayed"]);
+    assert.equal(
+      rows(
+        database,
+        "SELECT id FROM project_action_events_v2 WHERE idempotency_key = ?",
+        concurrentInput.idempotencyKey,
+      ).length,
+      1,
+    );
+
+    const useful = await upsertStableFeedback(
+      database,
+      { deviceId: input.deviceId, ...identity, value: "有用" },
+      "2026-07-16T04:00:00Z",
+    );
+    const usefulReplay = await upsertStableFeedback(
+      database,
+      { deviceId: input.deviceId, ...identity, value: "有用" },
+      "2026-07-16T04:30:00Z",
+    );
+    const reused = await upsertStableFeedback(
+      database,
+      { deviceId: input.deviceId, ...identity, value: "复用" },
+      "2026-07-16T05:00:00Z",
+    );
+    assert.equal(useful.changed, true);
+    assert.equal(usefulReplay.changed, false);
+    assert.equal(usefulReplay.feedback.updatedAt, "2026-07-16T04:00:00Z");
+    assert.equal(reused.changed, true);
+    assert.equal((await readStableFeedback(database, input.deviceId))[0].value, "复用");
+    assert.deepEqual(rows(database, "SELECT value FROM feedback"), [{ value: "复用" }]);
+    assert.deepEqual(
+      rows(database, "SELECT value, created_at FROM decision_events ORDER BY id"),
+      [
+        { value: "有用", created_at: "2026-07-16T04:00:00Z" },
+        { value: "复用", created_at: "2026-07-16T05:00:00Z" },
+      ],
+    );
+    assert.equal(rows(database, "SELECT id FROM decision_events_v2").length, 2);
+    assert.deepEqual(
+      await readStableWeeklyFeedbackMetrics(database, input.deviceId, "2026-07-16T06:00:00Z"),
+      { effectiveDecisions: 1, reuseDecisions: 1, feedbackChanges: 2 },
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("captures rollback-era legacy writes into stable storage with recursive triggers enabled", async () => {
+  const database = new SqliteD1Database();
+  try {
+    database.raw.exec("PRAGMA recursive_triggers = ON");
+    await ensureLegacyDecisionSchema(database);
+    await ensureStableSchema(database);
+    const catalog = await identityCatalog("generation-rollback-capture");
+    const identity = stableIdentity(catalog);
+    await adoptStableProjectIdentities(database, catalog);
+
+    await appendProjectActionEvent(
+      database,
+      {
+        deviceId: "rollback-device",
+        projectSlug: identity.projectSlug,
+        action: "cloned",
+        idempotencyKey: "rollback-cloned-0001",
+      },
+      "2026-07-16T06:00:00Z",
+    );
+    const [capturedAction] = rows(database, `SELECT project_id AS projectId,
+      catalog_generation_id AS generationId, action FROM project_action_events_v2`);
+    assert.deepEqual(capturedAction, {
+      projectId: identity.projectId,
+      generationId: catalog.generationId,
+      action: "cloned",
+    });
+
+    database.raw.prepare(`INSERT INTO feedback (
+      device_id, project_slug, value, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)`).run(
+      "rollback-device",
+      identity.projectSlug,
+      "待确定",
+      "2026-07-16T06:30:00Z",
+      "2026-07-16T06:30:00Z",
+    );
+    database.raw.prepare(`UPDATE feedback SET value = ?, updated_at = ?
+      WHERE device_id = ? AND project_slug = ?`).run(
+      "无用",
+      "2026-07-16T07:00:00Z",
+      "rollback-device",
+      identity.projectSlug,
+    );
+    const [capturedFeedback] = await readStableFeedback(database, "rollback-device");
+    assert.equal(capturedFeedback.projectId, identity.projectId);
+    assert.equal(capturedFeedback.value, "无用");
+    assert.equal(capturedFeedback.createdAt, "2026-07-16T06:30:00Z");
+    assert.equal(capturedFeedback.updatedAt, "2026-07-16T07:00:00Z");
+    assert.deepEqual(
+      rows(database, `SELECT value, occurred_at AS occurredAt
+        FROM decision_events_v2 ORDER BY id`),
+      [
+        { value: "待确定", occurredAt: "2026-07-16T06:30:00Z" },
+        { value: "无用", occurredAt: "2026-07-16T07:00:00Z" },
+      ],
+    );
+
+    assert.throws(
+      () => database.raw.prepare("UPDATE project_action_events_v2 SET action = 'reused'").run(),
+      /append-only/,
+    );
+    assert.throws(
+      () => database.raw.prepare("DELETE FROM project_action_events_v2").run(),
+      /append-only/,
+    );
+    assert.throws(
+      () => database.raw.prepare(`INSERT OR REPLACE INTO project_action_events_v2 (
+        id, device_id, project_id_version, project_id, project_slug,
+        catalog_generation_id, action, occurred_at, idempotency_key
+      ) VALUES (1, ?, 1, ?, ?, ?, 'reused', ?, ?)`)
+        .run("rollback-device", identity.projectId, identity.projectSlug,
+          catalog.generationId, "2026-07-16T08:00:00Z", "rollback-replace-0001"),
+      /identity is immutable/,
+    );
+    assert.throws(
+      () => database.raw.prepare("UPDATE decision_events_v2 SET value = '有用'").run(),
+      /append-only/,
+    );
+    assert.throws(
+      () => database.raw.prepare("DELETE FROM decision_events_v2").run(),
+      /append-only/,
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("adopts legacy action and decision facts with original times and is idempotent", async () => {
+  const database = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionTables(database, { triggers: false });
+    await ensureLegacyProjectTables(database);
+    await appendProjectActionEvent(
+      database,
+      {
+        deviceId: "migration-device",
+        projectSlug: "owner/project",
+        action: "reused",
+        idempotencyKey: "migration-reused-0001",
+      },
+      "2026-06-30T01:02:03Z",
+    );
+    database.raw.prepare(`INSERT INTO feedback (
+      device_id, project_slug, value, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)`).run(
+      "migration-device", "owner/project", "有用",
+      "2026-06-29T00:00:00Z", "2026-06-30T02:00:00Z",
+    );
+    database.raw.prepare(`INSERT INTO decision_events (
+      device_id, project_slug, value, created_at
+    ) VALUES (?, ?, ?, ?)`).run(
+      "migration-device", "owner/project", "有用", "2026-06-30T02:00:00Z",
+    );
+
+    await ensureStableSchema(database);
+    const catalog = await identityCatalog("generation-migrate-existing");
+    await adoptStableProjectIdentities(database, catalog);
+    const firstCounts = tableCounts(database, ADOPTION_TABLES);
+
+    assert.deepEqual(
+      rows(database, `SELECT action, occurred_at AS occurredAt,
+        idempotency_key AS idempotencyKey FROM project_action_events_v2`),
+      [{
+        action: "reused",
+        occurredAt: "2026-06-30T01:02:03Z",
+        idempotencyKey: "migration-reused-0001",
+      }],
+    );
+    assert.deepEqual(
+      rows(database, `SELECT value, created_at AS createdAt, updated_at AS updatedAt
+        FROM feedback_v2`),
+      [{
+        value: "有用",
+        createdAt: "2026-06-29T00:00:00Z",
+        updatedAt: "2026-06-30T02:00:00Z",
+      }],
+    );
+    assert.deepEqual(
+      rows(database, "SELECT value, occurred_at AS occurredAt FROM decision_events_v2"),
+      [{ value: "有用", occurredAt: "2026-06-30T02:00:00Z" }],
+    );
+    assert.equal((await readStableProjectActionState(database, "migration-device"))[0].reusedAt,
+      "2026-06-30T01:02:03Z");
+
+    await adoptStableProjectIdentities(database, catalog);
+    assert.deepEqual(tableCounts(database, ADOPTION_TABLES), firstCounts);
+  } finally {
+    database.close();
+  }
+});
+
+test("adopts empty current and retained Catalog generations from explicit provenance", async () => {
+  const database = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionSchema(database);
+    await ensureStableSchema(database);
+
+    const emptyCurrent = await identityCatalog(
+      "generation-empty-current",
+      [],
+      "2026-07-18T00:00:00.000001Z",
+    );
+    emptyCurrent.generationCreatedAt = "2026-07-17T00:00:00.000001Z";
+    emptyCurrent.manifestSha256 = "a".repeat(64);
+    emptyCurrent.catalogSchemaVersion = 3;
+    const emptyResult = await adoptStableProjectIdentities(
+      database,
+      await historicalIdentityBundle(emptyCurrent),
+    );
+    assert.equal(emptyResult.projectCount, 0);
+    assert.equal(emptyResult.status, "ready");
+    assert.deepEqual(
+      rows(database, "SELECT generation_id AS generationId FROM project_identity_runtime"),
+      [{ generationId: emptyCurrent.generationId }],
+    );
+    assert.equal(rows(database, "SELECT * FROM project_identity_catalog").length, 0);
+    assert.deepEqual(
+      rows(database, `SELECT generation_id AS generationId
+        FROM project_identity_generation_evidence`),
+      [{ generationId: emptyCurrent.generationId }],
+    );
+
+    const populatedCurrent = await identityCatalog(
+      "generation-populated-current",
+      [{ repository: "owner/project", projectSlug: "owner/project" }],
+      "2026-07-18T00:00:00.000002Z",
+    );
+    populatedCurrent.generationCreatedAt = "2026-07-17T00:00:00.000002Z";
+    populatedCurrent.manifestSha256 = "b".repeat(64);
+    populatedCurrent.catalogSchemaVersion = 3;
+    const bundle = await historicalIdentityBundle(populatedCurrent, [emptyCurrent]);
+    const populatedResult = await adoptStableProjectIdentities(database, bundle);
+    assert.equal(populatedResult.projectCount, 1);
+    assert.equal(rows(database, "SELECT * FROM project_identity_catalog").length, 1);
+    assert.deepEqual(
+      rows(database, `SELECT generation_id AS generationId
+        FROM project_identity_generation_evidence ORDER BY generation_id`),
+      [
+        { generationId: emptyCurrent.generationId },
+        { generationId: populatedCurrent.generationId },
+      ],
+    );
+    const counts = tableCounts(database, [
+      "project_identity_catalog",
+      "project_identity_generation_evidence",
+      "project_identity_runtime",
+    ]);
+    assert.deepEqual(await adoptStableProjectIdentities(database, bundle), populatedResult);
+    assert.deepEqual(tableCounts(database, [
+      "project_identity_catalog",
+      "project_identity_generation_evidence",
+      "project_identity_runtime",
+    ]), counts);
+
+  } finally {
+    database.close();
+  }
+});
+
+test("legacy inline adoption constructs provenance for an empty Catalog", async () => {
+  const database = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionSchema(database);
+    await ensureStableSchema(database);
+    const catalog = await identityCatalog(
+      "generation-legacy-inline-empty",
+      [],
+      "2026-07-18T00:00:00.000001Z",
+    );
+    const result = await adoptStableProjectIdentities(database, catalog);
+    assert.equal(result.projectCount, 0);
+    assert.equal(rows(database, "SELECT * FROM project_identity_catalog").length, 0);
+    assert.deepEqual(
+      rows(database, `SELECT generation_id AS generationId, manifest_sha256 AS manifestSha256
+        FROM project_identity_generation_evidence`),
+      [{ generationId: catalog.generationId, manifestSha256: "0".repeat(64) }],
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("backfills a uniquely verified retired identity and quarantines only exact legacy rows", async () => {
+  const database = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionTables(database, { triggers: false });
+    await ensureLegacyProjectTables(database);
+    const insertFeedback = database.raw.prepare(`INSERT INTO feedback (
+      device_id, project_slug, value, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)`);
+    insertFeedback.run(
+      "historical-device", "oomol-lab--open-connector", "复用",
+      "2026-07-01T01:00:00Z", "2026-07-02T02:00:00Z",
+    );
+    insertFeedback.run(
+      "private-device-value", "officecli", "待确定",
+      "2026-07-03T03:00:00Z", "2026-07-03T03:00:00Z",
+    );
+    database.raw.prepare(`INSERT INTO decision_events (
+      device_id, project_slug, value, created_at
+    ) VALUES (?, ?, ?, ?)`).run(
+      "historical-device", "oomol-lab--open-connector", "复用", "2026-07-02T02:00:00Z",
+    );
+    const legacyBefore = {
+      feedback: rows(database, "SELECT * FROM feedback ORDER BY id"),
+      decisions: rows(database, "SELECT * FROM decision_events ORDER BY id"),
+    };
+
+    await ensureStableSchema(database);
+    const active = await identityCatalog("generation-current", [
+      { repository: "owner/current", projectSlug: "owner/current" },
+    ], "2026-07-18T00:00:00.000001Z");
+    const retired = await identityCatalog("generation-retained", [
+      { repository: "oomol-lab/open-connector", projectSlug: "oomol-lab--open-connector" },
+    ], "2026-07-11T00:00:00.000001Z");
+    const bundle = await historicalIdentityBundle(active, [retired]);
+    const policy = quarantinePolicy("officecli");
+    const result = await adoptStableProjectIdentities(database, bundle, policy);
+    assert.deepEqual(result, {
+      status: "ready_with_quarantine",
+      generationId: active.generationId,
+      projectCount: 1,
+      migratedProjectCount: 1,
+      migratedFactCount: 2,
+      quarantinedSlugCount: 1,
+      quarantinedFactCount: 1,
+      unresolvedBlockingCount: 0,
+    });
+    assert.deepEqual(rows(database, `SELECT project_slug AS projectSlug,
+      catalog_generation_id AS generationId, created_at AS createdAt,
+      updated_at AS updatedAt FROM feedback_v2`), [{
+      projectSlug: "oomol-lab--open-connector",
+      generationId: retired.generationId,
+      createdAt: "2026-07-01T01:00:00Z",
+      updatedAt: "2026-07-02T02:00:00Z",
+    }]);
+    assert.deepEqual(rows(database, `SELECT project_slug AS projectSlug,
+      catalog_generation_id AS generationId, occurred_at AS occurredAt
+      FROM decision_events_v2`), [{
+      projectSlug: "oomol-lab--open-connector",
+      generationId: retired.generationId,
+      occurredAt: "2026-07-02T02:00:00Z",
+    }]);
+    const unresolvedLedger = rows(database, `SELECT source_table AS sourceTable,
+      source_key AS sourceKey, project_slug AS projectSlug, disposition,
+      reason_code AS reasonCode, policy_version AS policyVersion
+      FROM project_identity_unresolved_legacy`);
+    assert.deepEqual(unresolvedLedger, [{
+      sourceTable: "feedback",
+      sourceKey: String(legacyBefore.feedback[1].id),
+      projectSlug: "officecli",
+      disposition: "quarantine",
+      reasonCode: "no_verified_repository_in_current_or_retained_catalogs",
+      policyVersion: "2026-07-18.99",
+    }]);
+    assert.doesNotMatch(JSON.stringify(unresolvedLedger), /private-device-value/);
+    assert.ok(rows(database, "PRAGMA table_info(project_identity_unresolved_legacy)")
+      .every((column) => !/device/i.test(String(column.name))));
+    assert.deepEqual(rows(database, "SELECT * FROM feedback ORDER BY id"), legacyBefore.feedback);
+    assert.deepEqual(rows(database, "SELECT * FROM decision_events ORDER BY id"), legacyBefore.decisions);
+    assert.equal(rows(database, `SELECT * FROM feedback_v2 WHERE project_slug = 'officecli'`).length, 0);
+    assert.equal(rows(database, `SELECT * FROM decision_events_v2 WHERE project_slug = 'officecli'`).length, 0);
+    assert.deepEqual(
+      await readStableFeedback(database, "private-device-value"),
+      [],
+      "quarantined feedback must not enter Stable-ID current state",
+    );
+    assert.deepEqual(
+      await readStableWeeklyFeedbackMetrics(
+        database,
+        "private-device-value",
+        "2026-07-04T00:00:00Z",
+      ),
+      { effectiveDecisions: 0, reuseDecisions: 0, feedbackChanges: 0 },
+    );
+    assert.deepEqual(
+      await readStableWeeklyFeedbackMetrics(
+        database,
+        "historical-device",
+        "2026-07-04T00:00:00Z",
+      ),
+      { effectiveDecisions: 1, reuseDecisions: 1, feedbackChanges: 1 },
+      "retired verified history must remain in Stable-ID metrics",
+    );
+    assert.equal(rows(database, "SELECT * FROM project_identity_adoption_session").length, 0);
+    assert.equal(rows(database, "SELECT * FROM project_identity_adoption_allowed_mapping").length, 0);
+
+    const counts = tableCounts(database, [
+      "feedback_v2", "decision_events_v2", "project_identity_unresolved_legacy",
+    ]);
+    assert.deepEqual(await adoptStableProjectIdentities(database, bundle, policy), result);
+    assert.deepEqual(tableCounts(database, [
+      "feedback_v2", "decision_events_v2", "project_identity_unresolved_legacy",
+    ]), counts);
+    assert.throws(
+      () => database.raw.prepare("UPDATE project_identity_unresolved_legacy SET reason_code = reason_code").run(),
+      /immutable/,
+    );
+    assert.throws(
+      () => database.raw.prepare("DELETE FROM project_identity_unresolved_legacy").run(),
+      /immutable/,
+    );
+    const ledgerBeforeReplacement = rows(
+      database,
+      "SELECT * FROM project_identity_unresolved_legacy",
+    );
+    const ledger = ledgerBeforeReplacement[0];
+    for (const recursive of ["OFF", "ON"]) {
+      database.raw.exec(`PRAGMA recursive_triggers = ${recursive}`);
+      for (const replacement of [
+        { firstSeenGenerationId: "forged-generation", createdAt: ledger.created_at },
+        {
+          firstSeenGenerationId: ledger.first_seen_generation_id,
+          createdAt: "2099-01-01T00:00:00Z",
+        },
+      ]) {
+        assert.throws(
+          () => database.raw.prepare(`INSERT OR REPLACE INTO project_identity_unresolved_legacy (
+            source_table, source_key, project_slug, disposition, reason_code,
+            policy_version, first_seen_generation_id, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+            ledger.source_table,
+            ledger.source_key,
+            ledger.project_slug,
+            ledger.disposition,
+            ledger.reason_code,
+            ledger.policy_version,
+            replacement.firstSeenGenerationId,
+            replacement.createdAt,
+          ),
+          /immutable/,
+        );
+      }
+      assert.deepEqual(
+        rows(database, "SELECT * FROM project_identity_unresolved_legacy"),
+        ledgerBeforeReplacement,
+      );
+    }
+
+    const retiredIdentity = stableIdentity(retired);
+    await assert.rejects(
+      appendStableProjectActionEvent(database, {
+        deviceId: "inactive-write-device",
+        ...retiredIdentity,
+        action: "opened",
+        idempotencyKey: "inactive-write-opened-0001",
+      }, "2026-07-18T01:00:00Z"),
+      (error) => error?.code === "stale_project_identity_generation",
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("an exact quarantine policy never hides a different unresolved orphan", async () => {
+  const database = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionTables(database, { triggers: false });
+    await ensureLegacyProjectTables(database);
+    const insert = database.raw.prepare(`INSERT INTO feedback (
+      device_id, project_slug, value, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)`);
+    insert.run(
+      "quarantine-device",
+      "officecli",
+      "待确定",
+      "2026-07-01T00:00:00Z",
+      "2026-07-01T00:00:00Z",
+    );
+    insert.run(
+      "blocking-device",
+      "unlisted-orphan",
+      "无用",
+      "2026-07-01T00:00:00Z",
+      "2026-07-01T00:00:00Z",
+    );
+    await ensureStableSchema(database);
+    const catalog = await identityCatalog("generation-current");
+    const before = rows(database, "SELECT * FROM feedback ORDER BY id");
+    await assert.rejects(
+      adoptStableProjectIdentities(
+        database,
+        await historicalIdentityBundle(catalog),
+        quarantinePolicy("officecli"),
+      ),
+      (error) => error?.code === "unresolved_project_identity",
+    );
+    assert.deepEqual(rows(database, "SELECT * FROM feedback ORDER BY id"), before);
+    assert.equal(rows(database, "SELECT * FROM feedback_v2").length, 0);
+    assert.equal(rows(database, "SELECT * FROM project_identity_unresolved_legacy").length, 0);
+    assert.equal(rows(database, "SELECT * FROM project_identity_adoption_session").length, 0);
+    assert.equal(rows(database, "SELECT * FROM project_identity_adoption_allowed_mapping").length, 0);
+  } finally {
+    database.close();
+  }
+});
+
+test("selects the newest retained witness with microsecond precision", async () => {
+  const database = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionSchema(database);
+    database.raw.prepare(`INSERT INTO feedback (
+      device_id, project_slug, value, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)`).run(
+      "microsecond-witness-device",
+      "retired/project",
+      "有用",
+      "2026-07-01T00:00:00Z",
+      "2026-07-01T00:00:00Z",
+    );
+    await ensureStableSchema(database);
+
+    const active = await identityCatalog(
+      "generation-current",
+      [{ repository: "owner/current", projectSlug: "owner/current" }],
+      "2026-07-18T00:00:00.000003Z",
+    );
+    active.generationCreatedAt = "2026-07-18T00:00:00.000003Z";
+    const older = await identityCatalog(
+      "z-generation-older",
+      [{ repository: "retired/project", projectSlug: "retired/project" }],
+      "2026-07-17T00:00:00.000001Z",
+    );
+    older.generationCreatedAt = "2026-07-17T00:00:00.000001Z";
+    const newer = await identityCatalog(
+      "a-generation-newer",
+      [{ repository: "retired/project", projectSlug: "retired/project" }],
+      "2026-07-17T00:00:00.000002Z",
+    );
+    newer.generationCreatedAt = "2026-07-17T00:00:00.000002Z";
+
+    await adoptStableProjectIdentities(
+      database,
+      await historicalIdentityBundle(active, [older, newer]),
+    );
+    assert.deepEqual(
+      rows(database, `SELECT catalog_generation_id AS generationId FROM feedback_v2`),
+      [{ generationId: newer.generationId }],
+      "the retained witness must not fall back to generationId ordering within one millisecond",
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("reactivates a retained Historical Bundle generation without mutating immutable evidence", async () => {
+  const database = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionSchema(database);
+    await ensureStableSchema(database);
+    const generationA = await identityCatalog(
+      "historical-generation-a",
+      [{ repository: "owner/project", projectSlug: "owner/project" }],
+      "2026-07-18T00:00:00.000001Z",
+    );
+    generationA.generationCreatedAt = "2026-07-17T00:00:00.000001Z";
+    generationA.manifestSha256 = "a".repeat(64);
+    generationA.catalogSchemaVersion = 3;
+    await adoptStableProjectIdentities(
+      database,
+      await historicalIdentityBundle(generationA),
+    );
+
+    const generationB = await identityCatalog(
+      "historical-generation-b",
+      [{ repository: "owner/project", projectSlug: "owner/project" }],
+      "2026-07-18T00:00:00.000002Z",
+    );
+    generationB.generationCreatedAt = "2026-07-17T00:00:00.000002Z";
+    generationB.manifestSha256 = "b".repeat(64);
+    generationB.catalogSchemaVersion = 3;
+    await adoptStableProjectIdentities(
+      database,
+      await historicalIdentityBundle(generationB, [generationA]),
+    );
+
+    const reactivatedA = {
+      ...generationA,
+      publishedAt: "2026-07-18T00:00:00.000003Z",
+    };
+    await adoptStableProjectIdentities(
+      database,
+      await historicalIdentityBundle(reactivatedA, [generationB]),
+    );
+    assert.deepEqual(
+      rows(database, `SELECT generation_id AS generationId, published_at AS publishedAt
+        FROM project_identity_runtime`),
+      [{
+        generationId: generationA.generationId,
+        publishedAt: reactivatedA.publishedAt,
+      }],
+    );
+    assert.deepEqual(
+      rows(database, `SELECT generation_id AS generationId,
+        generation_created_at AS generationCreatedAt
+        FROM project_identity_generation_evidence ORDER BY generation_id`),
+      [
+        {
+          generationId: generationA.generationId,
+          generationCreatedAt: generationA.generationCreatedAt,
+        },
+        {
+          generationId: generationB.generationId,
+          generationCreatedAt: generationB.generationCreatedAt,
+        },
+      ],
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("rejects provenance-less catalog or evidence rows outside the verified bundle", async (t) => {
+  for (const orphanKind of ["catalog", "evidence"]) {
+    await t.test(orphanKind, async () => {
+      const database = new SqliteD1Database();
+      try {
+        await ensureLegacyDecisionSchema(database);
+        await ensureStableSchema(database);
+        const catalog = await identityCatalog("generation-current");
+        const project = catalog.projects[0];
+        if (orphanKind === "catalog") {
+          database.raw.prepare(`INSERT INTO project_identity_catalog (
+            generation_id, project_id_version, project_id, canonical_repository, project_slug
+          ) VALUES (?, ?, ?, ?, ?)`).run(
+            "orphan-generation",
+            project.projectIdVersion,
+            project.projectId,
+            project.repository.toLowerCase(),
+            project.projectSlug,
+          );
+        } else {
+          database.raw.prepare(`INSERT INTO project_identity_generation_evidence (
+            generation_id, generation_created_at, manifest_sha256, catalog_schema_version
+          ) VALUES (?, ?, ?, ?)`).run(
+            "orphan-generation",
+            "2026-07-17T00:00:00Z",
+            "f".repeat(64),
+            3,
+          );
+        }
+        await assert.rejects(
+          adoptStableProjectIdentities(database, catalog),
+          (error) => error?.code === "unverified_project_identity_evidence",
+        );
+        assert.equal(rows(database, "SELECT * FROM project_identity_runtime").length, 0);
+      } finally {
+        database.close();
+      }
+    });
+  }
+});
+
+test("replaying 0004 replaces pre-session integrity triggers safely", async () => {
+  const database = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionSchema(database);
+    await ensureStableSchema(database);
+    database.raw.exec(`
+      DROP TRIGGER project_action_events_v2_validate_active_generation;
+      CREATE TRIGGER project_action_events_v2_validate_active_generation
+      BEFORE INSERT ON project_action_events_v2
+      WHEN NOT EXISTS (
+        SELECT 1 FROM project_identity_runtime AS runtime
+        WHERE runtime.singleton = 1 AND runtime.generation_id = NEW.catalog_generation_id
+      ) BEGIN SELECT RAISE(ABORT, 'stale stable project generation'); END;
+      DROP TRIGGER project_identity_unresolved_legacy_reject_replacement;
+      CREATE TRIGGER project_identity_unresolved_legacy_reject_replacement
+      BEFORE INSERT ON project_identity_unresolved_legacy
+      WHEN EXISTS (
+        SELECT 1 FROM project_identity_unresolved_legacy AS existing
+        WHERE existing.source_table = NEW.source_table
+          AND existing.source_key = NEW.source_key
+          AND existing.project_slug IS NOT NEW.project_slug
+      ) BEGIN SELECT RAISE(ABORT, 'project identity unresolved disposition is immutable'); END;
+    `);
+    await ensureStableSchema(database);
+    const trigger = rows(database, `SELECT sql FROM sqlite_master
+      WHERE type = 'trigger' AND name = 'project_action_events_v2_validate_active_generation'`)[0].sql;
+    assert.match(trigger, /project_identity_adoption_allowed_mapping/);
+    const ledgerTrigger = rows(database, `SELECT sql FROM sqlite_master
+      WHERE type = 'trigger'
+        AND name = 'project_identity_unresolved_legacy_reject_replacement'`)[0].sql;
+    assert.match(ledgerTrigger, /first_seen_generation_id/);
+    assert.match(ledgerTrigger, /created_at/);
+    assert.equal(rows(database, `SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name = 'project_identity_generation_evidence'`).length, 1);
+  } finally {
+    database.close();
+  }
+});
+
+test("keeps formal migration and runtime bootstrap interoperable in both orders", async () => {
+  for (const order of ["runtime-first", "migration-first"]) {
+    const database = new SqliteD1Database();
+    try {
+      database.raw.exec("PRAGMA recursive_triggers = ON");
+      await ensureLegacyDecisionSchema(database);
+      if (order === "runtime-first") {
+        await ensureStableSchema(database);
+        await applyMigration(database, "../drizzle/0004_stable_project_identity.sql");
+      } else {
+        await applyMigration(database, "../drizzle/0004_stable_project_identity.sql");
+        await ensureStableSchema(database);
+      }
+      const catalog = await identityCatalog(`generation-${order}`);
+      const identity = stableIdentity(catalog);
+      await adoptStableProjectIdentities(database, catalog);
+      await appendStableProjectActionEvent(database, {
+        deviceId: `${order}-device`,
+        ...identity,
+        action: "opened",
+        idempotencyKey: `${order}-opened-0001`,
+      }, "2026-07-16T08:00:00Z");
+      assert.equal(rows(database, "SELECT id FROM project_action_events_v2").length, 1, order);
+      assert.equal(rows(database, "SELECT id FROM project_action_events").length, 1, order);
+      assert.equal(rows(database, "SELECT device_id FROM project_action_state_v2").length, 1, order);
+    } finally {
+      database.close();
+    }
+  }
+});
+
+test("formal 0004 alone installs the complete stable identity integrity boundary", async () => {
+  const database = new SqliteD1Database();
+  try {
+    database.raw.exec("PRAGMA recursive_triggers = ON");
+    await applyMigration(database, "../drizzle/0000_organic_the_professor.sql");
+    await applyMigration(database, "../drizzle/0001_melted_surge.sql");
+    await applyMigration(database, "../drizzle/0002_broken_zaladane.sql");
+    await applyMigration(database, "../drizzle/0003_flaky_spacker_dave.sql");
+    await applyMigration(database, "../drizzle/0004_stable_project_identity.sql");
+
+    const formalSql = await readFile(
+      new URL("../drizzle/0004_stable_project_identity.sql", import.meta.url),
+      "utf8",
+    );
+    const formalTriggerStatements = formalSql
+      .split("--> statement-breakpoint")
+      .map((statement) => statement.trim())
+      .filter((statement) => statement.startsWith("CREATE TRIGGER"))
+      .map((statement) => statement.replace(/\s+/g, " "))
+      .sort();
+    assert.equal(formalTriggerStatements.length, 54);
+    const expectedTriggers = formalTriggerStatements
+      .map((statement) => statement.match(/TRIGGER(?: IF NOT EXISTS)?\s+(\w+)/)?.[1])
+      .filter(Boolean)
+      .sort();
+    assert.equal(new Set(expectedTriggers).size, expectedTriggers.length);
+    for (const required of [
+      "feedback_insert_decision_event",
+      "feedback_update_decision_event",
+      "project_identity_catalog_reject_global_collision",
+      "project_identity_catalog_reject_replacement",
+      "project_action_events_v2_validate_active_generation",
+      "project_action_events_v2_reject_update",
+      "project_action_events_v2_reject_delete",
+      "project_action_state_v2_validate_time_insert",
+      "project_action_state_v2_validate_time_update",
+      "project_action_state_v2_validate_projection_update",
+      "feedback_v2_validate_active_generation_update",
+      "feedback_v2_reject_delete",
+      "decision_events_v2_reject_update",
+      "decision_events_v2_reject_delete",
+    ]) assert.ok(expectedTriggers.includes(required), required);
+    const installedTriggers = rows(
+      database,
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name",
+    ).map((row) => row.name).filter((name) => expectedTriggers.includes(name)).sort();
+    assert.deepEqual(installedTriggers, expectedTriggers);
+
+    const catalog = await identityCatalog("generation-formal-only");
+    const identity = stableIdentity(catalog);
+    await adoptStableProjectIdentities(database, catalog);
+    await appendStableProjectActionEvent(database, {
+      deviceId: "formal-only-device",
+      ...identity,
+      action: "opened",
+      idempotencyKey: "formal-only-opened-0001",
+    }, "2026-07-16T08:00:00Z");
+    assert.equal(rows(database, "SELECT id FROM project_action_events").length, 1);
+    await upsertStableFeedback(database, {
+      deviceId: "formal-only-device",
+      ...identity,
+      value: "有用",
+    });
+    await upsertStableFeedback(database, {
+      deviceId: "formal-only-device",
+      ...identity,
+      value: "复用",
+    });
+    assert.equal(rows(database, "SELECT id FROM decision_events").length, 2);
+    assert.equal(rows(database, "SELECT id FROM decision_events_v2").length, 2);
+    await assert.rejects(
+      Promise.resolve().then(() => database.raw.exec(
+        "UPDATE project_action_events_v2 SET action = 'tried'",
+      )),
+      /append-only/,
+    );
+    await assert.rejects(
+      Promise.resolve().then(() => database.raw.exec(
+        "UPDATE project_action_state_v2 SET highest_stage = 'reused'",
+      )),
+      /not an Event projection/,
+    );
+    const stateBeforeInvalidTime = rows(
+      database,
+      "SELECT * FROM project_action_state_v2 ORDER BY device_id, project_id",
+    );
+    assert.throws(
+      () => database.raw.exec(
+        "UPDATE project_action_state_v2 SET updated_at = 'not-a-time'",
+      ),
+      /invalid timestamp/,
+    );
+    assert.throws(
+      () => database.raw.exec(
+        "UPDATE project_action_state_v2 SET opened_at = 'not-a-time'",
+      ),
+      /invalid timestamp/,
+    );
+    assert.deepEqual(
+      rows(database, "SELECT * FROM project_action_state_v2 ORDER BY device_id, project_id"),
+      stateBeforeInvalidTime,
+      "invalid State timestamps must not change the Event projection",
+    );
+    await assert.rejects(
+      Promise.resolve().then(() => database.raw.exec("DELETE FROM project_identity_catalog")),
+      /immutable/,
+    );
+    for (const recursive of ["OFF", "ON"]) {
+      database.raw.exec(`PRAGMA recursive_triggers = ${recursive}`);
+      await assert.rejects(
+        Promise.resolve().then(() => database.raw.prepare(`INSERT OR REPLACE INTO project_identity_catalog (
+          generation_id, project_id_version, project_id, canonical_repository, project_slug
+        ) VALUES (?, ?, ?, ?, ?)`).run(
+          catalog.generationId,
+          identity.projectIdVersion,
+          identity.projectId,
+          catalog.projects[0].repository.toLowerCase(),
+          "forged/replacement",
+        )),
+        /mapping is immutable/,
+      );
+    }
+    const conflictingSlugCatalog = await identityCatalog("generation-formal-slug-conflict", [
+      { repository: "owner/other", projectSlug: identity.projectSlug },
+    ], "2026-07-16T08:00:00.000001Z");
+    const conflictingSlug = stableIdentity(conflictingSlugCatalog);
+    assert.throws(
+      () => database.raw.prepare(`INSERT INTO project_identity_catalog (
+        generation_id, project_id_version, project_id, canonical_repository, project_slug
+      ) VALUES (?, ?, ?, ?, ?)`).run(
+        conflictingSlugCatalog.generationId,
+        conflictingSlug.projectIdVersion,
+        conflictingSlug.projectId,
+        conflictingSlugCatalog.projects[0].repository.toLowerCase(),
+        conflictingSlug.projectSlug,
+      ),
+      /stable project identity collision/,
+    );
+    assert.equal(
+      rows(database, "SELECT project_slug AS projectSlug FROM project_identity_catalog")[0].projectSlug,
+      identity.projectSlug,
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test("fails identity adoption closed before any write for unresolved, invalid, or unsupported legacy facts", async (t) => {
+  const failureCase = async (name, arrange, expectedCode = "invalid_legacy_project_row") => {
+    await t.test(name, async () => {
+      const database = new SqliteD1Database();
+      try {
+        await ensureLegacyDecisionSchema(database);
+        await ensureStableSchema(database);
+        await arrange(database);
+        const catalog = await identityCatalog(`generation-failure-${name.replaceAll(" ", "-")}`);
+        const before = tableCounts(database, ADOPTION_TABLES);
+        await assert.rejects(
+          adoptStableProjectIdentities(database, catalog),
+          (error) => error?.code === expectedCode,
+        );
+        assert.deepEqual(tableCounts(database, ADOPTION_TABLES), before);
+        assert.equal(rows(database, "SELECT generation_id FROM project_identity_runtime").length, 0);
+        assert.equal(rows(database, "SELECT * FROM project_identity_adoption_session").length, 0);
+        assert.equal(rows(database, "SELECT * FROM project_identity_adoption_allowed_mapping").length, 0);
+      } finally {
+        database.close();
+      }
+    });
+  };
+
+  await failureCase("unresolved slug", async (database) => {
+    await appendProjectActionEvent(database, {
+      deviceId: "unresolved-device",
+      projectSlug: "removed/project",
+      action: "tried",
+      idempotencyKey: "unresolved-tried-0001",
+    }, "2026-07-16T00:00:00Z");
+  }, "unresolved_project_identity");
+
+  await failureCase("invalid feedback", async (database) => {
+    database.raw.prepare(`INSERT INTO feedback (
+      device_id, project_slug, value, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)`).run(
+      "invalid-feedback-device", "owner/project", "invalid",
+      "2026-07-16T00:00:00Z", "2026-07-16T00:00:00Z",
+    );
+  });
+
+  for (const [name, action, occurredAt] of [
+    ["invalid action", "invalid", "2026-07-16T00:00:00Z"],
+    ["invalid action time", "tried", "not-a-timestamp"],
+  ]) {
+    await failureCase(name, async (database) => {
+      database.raw.exec(`
+        DROP TRIGGER project_action_events_sync_state;
+        DROP TRIGGER project_action_events_legacy_projection;
+        PRAGMA ignore_check_constraints = ON;
+      `);
+      database.raw.prepare(`INSERT INTO project_action_events (
+        device_id, project_slug, action, occurred_at, idempotency_key
+      ) VALUES (?, ?, ?, ?, ?)`).run(
+        "invalid-action-device", "owner/project", action, occurredAt, `${name}-0001`,
+      );
+      database.raw.exec("PRAGMA ignore_check_constraints = OFF");
+      await ensureActionSchema(database);
+    });
+  }
+
+  await failureCase("state without event", async (database) => {
+    database.raw.prepare(`INSERT INTO project_action_state (
+      device_id, project_slug, highest_stage, tried_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)`).run(
+      "unsupported-state-device", "owner/project", "tried",
+      "2026-07-16T00:00:00Z", "2026-07-16T00:00:00Z",
+    );
+  });
+});
+
+test("rejects ambiguous catalogs and non-equivalent stable targets without partial adoption", async () => {
+  const ambiguousDatabase = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionSchema(ambiguousDatabase);
+    await ensureStableSchema(ambiguousDatabase);
+    const ambiguous = await identityCatalog("generation-ambiguous", [
+      { repository: "owner/one", projectSlug: "shared/slug" },
+      { repository: "owner/two", projectSlug: "shared/slug" },
+    ]);
+    await assert.rejects(
+      adoptStableProjectIdentities(ambiguousDatabase, ambiguous),
+      (error) => error?.code === "ambiguous_project_identity",
+    );
+    assert.deepEqual(tableCounts(ambiguousDatabase, ADOPTION_TABLES), {
+      project_identity_catalog: 0,
+      project_identity_runtime: 0,
+      project_action_events_v2: 0,
+      project_action_state_v2: 0,
+      feedback_v2: 0,
+      decision_events_v2: 0,
+    });
+  } finally {
+    ambiguousDatabase.close();
+  }
+
+  const conflictDatabase = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionSchema(conflictDatabase);
+    await ensureStableSchema(conflictDatabase);
+    const catalog = await identityCatalog("generation-conflicting-target", [
+      { repository: "owner/project", projectSlug: "owner/project" },
+      { repository: "owner/unrelated", projectSlug: "owner/unrelated" },
+    ], "2026-07-16T00:00:00.000002Z");
+    const identity = stableIdentity(catalog);
+    const seedCatalog = await identityCatalog(
+      "generation-conflicting-seed",
+      undefined,
+      "2026-07-16T00:00:00.000001Z",
+    );
+    const seedIdentity = stableIdentity(seedCatalog);
+    const insertMapping = conflictDatabase.raw.prepare(`INSERT INTO project_identity_catalog (
+      generation_id, project_id_version, project_id, canonical_repository, project_slug
+    ) VALUES (?, ?, ?, ?, ?)`);
+    insertMapping.run(
+      seedCatalog.generationId,
+      seedIdentity.projectIdVersion,
+      seedIdentity.projectId,
+      seedCatalog.projects[0].repository.toLowerCase(),
+      seedIdentity.projectSlug,
+    );
+    conflictDatabase.raw.prepare(`INSERT INTO project_identity_generation_evidence (
+      generation_id, generation_created_at, manifest_sha256, catalog_schema_version
+    ) VALUES (?, ?, ?, ?)`).run(
+      seedCatalog.generationId,
+      "2026-07-15T00:00:00Z",
+      "c".repeat(64),
+      3,
+    );
+    conflictDatabase.raw.prepare(`INSERT INTO project_identity_runtime (
+      singleton, generation_id, published_at, published_at_micros
+    ) VALUES (1, ?, ?, ?)`).run(
+      seedCatalog.generationId,
+      seedCatalog.publishedAt,
+      Date.parse(seedCatalog.publishedAt) * 1000 + 1,
+    );
+    conflictDatabase.raw.exec(`
+      DROP TRIGGER feedback_v2_legacy_projection_insert;
+      DROP TRIGGER feedback_insert_stable_capture;
+    `);
+    conflictDatabase.raw.prepare(`INSERT INTO feedback_v2 (
+      device_id, project_id_version, project_id, project_slug,
+      catalog_generation_id, value, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      "conflict-device", identity.projectIdVersion, identity.projectId, identity.projectSlug,
+      seedCatalog.generationId, "有用", "2026-07-15T00:00:00Z", "2026-07-15T00:00:00Z",
+    );
+    conflictDatabase.raw.prepare(`INSERT INTO feedback (
+      device_id, project_slug, value, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)`).run(
+      "conflict-device", identity.projectSlug, "无用",
+      "2026-07-16T00:00:00Z", "2026-07-16T00:00:00Z",
+    );
+    conflictDatabase.raw.exec("DELETE FROM project_identity_runtime");
+    await ensureStableSchema(conflictDatabase);
+    const before = Object.fromEntries(ADOPTION_TABLES.map((table) => [
+      table,
+      rows(conflictDatabase, `SELECT * FROM ${table} ORDER BY rowid`),
+    ]));
+    await assert.rejects(
+      adoptStableProjectIdentities(conflictDatabase, catalog),
+      (error) => error?.code === "conflicting_project_projection",
+    );
+    const after = Object.fromEntries(ADOPTION_TABLES.map((table) => [
+      table,
+      rows(conflictDatabase, `SELECT * FROM ${table} ORDER BY rowid`),
+    ]));
+    assert.deepEqual(after, before);
+    assert.equal(rows(conflictDatabase, "SELECT generation_id FROM project_identity_runtime").length, 0);
+    assert.equal(
+      rows(conflictDatabase, "SELECT project_id FROM project_identity_catalog").length,
+      1,
+      "a conflict in one project must prevent unrelated current-generation mappings",
+    );
+  } finally {
+    conflictDatabase.close();
+  }
+});
+
+test("rechecks adoption inside the transaction when legacy facts race the preflight", async () => {
+  const database = new SqliteD1Database();
+  try {
+    await ensureLegacyDecisionSchema(database);
+    await ensureStableSchema(database);
+    const catalog = await identityCatalog("generation-raced-adoption");
+    const originalBatch = database.batch.bind(database);
+    let injectBeforeNextBatch = true;
+    database.batch = async (statements) => {
+      if (injectBeforeNextBatch) {
+        injectBeforeNextBatch = false;
+        database.raw.prepare(`INSERT INTO feedback (
+          device_id, project_slug, value, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?)`).run(
+          "raced-device",
+          "removed/project",
+          "有用",
+          "2026-07-16T09:00:00Z",
+          "2026-07-16T09:00:00Z",
+        );
+      }
+      return originalBatch(statements);
+    };
+
+    await assert.rejects(
+      adoptStableProjectIdentities(database, catalog),
+      (error) => error?.code === "unresolved_project_identity",
+    );
+    assert.deepEqual(tableCounts(database, ADOPTION_TABLES), {
+      project_identity_catalog: 0,
+      project_identity_runtime: 0,
+      project_action_events_v2: 0,
+      project_action_state_v2: 0,
+      feedback_v2: 0,
+      decision_events_v2: 0,
+    });
+    assert.equal(rows(database, "SELECT device_id FROM feedback").length, 1);
+    assert.equal(rows(database, "SELECT device_id FROM decision_events").length, 1);
+    assert.equal(rows(database, "SELECT * FROM project_identity_adoption_session").length, 0);
+    assert.equal(rows(database, "SELECT * FROM project_identity_adoption_allowed_mapping").length, 0);
+  } finally {
+    database.close();
+  }
+});
+
+test("rejects retained identity collisions and closes the preflight-to-batch race", async (t) => {
+  await t.test("retained mappings are validated against each other", async () => {
+    const database = new SqliteD1Database();
+    try {
+      await ensureLegacyDecisionSchema(database);
+      await ensureStableSchema(database);
+      database.raw.exec("DROP TRIGGER project_identity_catalog_reject_global_collision");
+      const first = await identityCatalog("generation-corrupt-one", [
+        { repository: "owner/one", projectSlug: "legacy/one" },
+      ]);
+      const second = await identityCatalog("generation-corrupt-two", [
+        { repository: "owner/two", projectSlug: "legacy/two" },
+      ]);
+      const insert = database.raw.prepare(`INSERT INTO project_identity_catalog (
+        generation_id, project_id_version, project_id, canonical_repository, project_slug
+      ) VALUES (?, ?, ?, ?, ?)`);
+      insert.run(first.generationId, 1, first.projects[0].projectId, "owner/shared", "legacy/one");
+      insert.run(second.generationId, 1, second.projects[0].projectId, "owner/shared", "legacy/two");
+      const current = await identityCatalog("generation-unrelated", [
+        { repository: "owner/current", projectSlug: "owner/current" },
+      ], "2026-07-16T00:00:00.000001Z");
+      const before = tableCounts(database, ADOPTION_TABLES);
+      await assert.rejects(
+        adoptStableProjectIdentities(database, current),
+        (error) => error?.code === "project_identity_collision",
+      );
+      assert.deepEqual(tableCounts(database, ADOPTION_TABLES), before);
+      assert.equal(rows(database, "SELECT generation_id FROM project_identity_runtime").length, 0);
+    } finally {
+      database.close();
+    }
+  });
+
+  await t.test("a conflicting retained mapping inserted after preflight aborts the whole adoption", async () => {
+    const database = new SqliteD1Database();
+    try {
+      await ensureLegacyDecisionSchema(database);
+      await ensureStableSchema(database);
+      const current = await identityCatalog("generation-raced-identity", undefined,
+        "2026-07-16T00:00:00.000002Z");
+      const identity = stableIdentity(current);
+      const originalBatch = database.batch.bind(database);
+      let injectBeforeNextBatch = true;
+      database.batch = async (statements) => {
+        if (injectBeforeNextBatch) {
+          injectBeforeNextBatch = false;
+          database.raw.prepare(`INSERT INTO project_identity_catalog (
+            generation_id, project_id_version, project_id, canonical_repository, project_slug
+          ) VALUES (?, ?, ?, ?, ?)`).run(
+            "generation-race-winner",
+            identity.projectIdVersion,
+            identity.projectId,
+            "different/repository",
+            "different/repository",
+          );
+        }
+        return originalBatch(statements);
+      };
+      await assert.rejects(
+        adoptStableProjectIdentities(database, current),
+        (error) => error?.code === "project_identity_collision",
+      );
+      assert.deepEqual(
+        rows(database, "SELECT generation_id AS generationId FROM project_identity_catalog"),
+        [{ generationId: "generation-race-winner" }],
+      );
+      assert.equal(rows(database, "SELECT generation_id FROM project_identity_runtime").length, 0);
+      assert.equal(rows(database, "SELECT id FROM project_action_events_v2").length, 0);
+    } finally {
+      database.close();
+    }
+  });
+});
+
+test("fails a slug rekey closed when the legacy target is occupied", async (t) => {
+  const exercise = async (kind) => {
+    const database = new SqliteD1Database();
+    try {
+      await ensureLegacyDecisionSchema(database);
+      await ensureStableSchema(database);
+      const first = await identityCatalog(`generation-${kind}-rekey-source`, [
+        { repository: "owner/project", projectSlug: "legacy/project" },
+      ], "2026-07-16T00:00:00.000001Z");
+      await adoptStableProjectIdentities(database, first);
+      const identity = stableIdentity(first);
+      if (kind === "state") {
+        await appendStableProjectActionEvent(database, {
+          deviceId: "rekey-conflict-device",
+          ...identity,
+          action: "tried",
+          idempotencyKey: "rekey-conflict-tried-0001",
+        }, "2026-07-16T01:00:00Z");
+        database.raw.prepare(`INSERT INTO project_action_state (
+          device_id, project_slug, highest_stage, reused_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?)`).run(
+          "rekey-conflict-device",
+          "renamed/project",
+          "reused",
+          "2026-07-16T02:00:00Z",
+          "2026-07-16T02:00:00Z",
+        );
+      } else {
+        await upsertStableFeedback(database, {
+          deviceId: "rekey-conflict-device",
+          ...identity,
+          value: "有用",
+        }, "2026-07-16T01:00:00Z");
+        database.raw.prepare(`INSERT INTO feedback (
+          device_id, project_slug, value, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?)`).run(
+          "rekey-conflict-device",
+          "renamed/project",
+          "无用",
+          "2026-07-16T02:00:00Z",
+          "2026-07-16T02:00:00Z",
+        );
+      }
+      const second = await identityCatalog(`generation-${kind}-rekey-target`, [
+        { repository: "owner/project", projectSlug: "renamed/project" },
+      ], "2026-07-16T00:00:00.000002Z");
+      const tracked = [...ADOPTION_TABLES, "project_action_state", "feedback", "decision_events"];
+      const before = Object.fromEntries(tracked.map((table) => [
+        table,
+        rows(database, `SELECT * FROM ${table} ORDER BY rowid`),
+      ]));
+      await assert.rejects(
+        adoptStableProjectIdentities(database, second),
+        (error) => error?.code === "conflicting_project_projection",
+      );
+      const after = Object.fromEntries(tracked.map((table) => [
+        table,
+        rows(database, `SELECT * FROM ${table} ORDER BY rowid`),
+      ]));
+      assert.deepEqual(after, before, `${kind} conflict must not partially switch or rekey`);
+      assert.deepEqual(
+        rows(database, "SELECT generation_id AS generationId FROM project_identity_runtime"),
+        [{ generationId: first.generationId }],
+      );
+    } finally {
+      database.close();
+    }
+  };
+  await t.test("action State", () => exercise("state"));
+  await t.test("feedback State", () => exercise("feedback"));
+});
+
+test("serializes competing Catalog publishers and rejects corrupted activation metadata", async (t) => {
+  await t.test("the newer publisher deterministically owns the active generation", async () => {
+    const database = new SqliteD1Database();
+    try {
+      await ensureLegacyDecisionSchema(database);
+      await ensureStableSchema(database);
+      const older = await identityCatalog("generation-publisher-older", undefined,
+        "2026-07-16T00:00:00.000001Z");
+      const newer = await identityCatalog("generation-publisher-newer", undefined,
+        "2026-07-16T00:00:00.000002Z");
+      const [olderResult, newerResult] = await Promise.allSettled([
+        adoptStableProjectIdentities(database, older),
+        adoptStableProjectIdentities(database, newer),
+      ]);
+      assert.equal(newerResult.status, "fulfilled");
+      if (olderResult.status === "rejected") {
+        assert.ok([
+          "stale_project_identity_generation",
+          "concurrent_project_identity_adoption_conflict",
+        ].includes(olderResult.reason?.code));
+      }
+      assert.deepEqual(
+        rows(database, `SELECT generation_id AS generationId, published_at AS publishedAt
+          FROM project_identity_runtime`),
+        [{ generationId: newer.generationId, publishedAt: newer.publishedAt }],
+      );
+      assert.equal(
+        rows(database, `SELECT COUNT(*) AS count FROM project_identity_catalog
+          WHERE generation_id = ?`, newer.generationId)[0].count,
+        newer.projects.length,
+      );
+    } finally {
+      database.close();
+    }
+  });
+
+  await t.test("publishedAt text and microsecond order must remain an exact pair", async () => {
+    const database = new SqliteD1Database();
+    try {
+      await ensureLegacyDecisionSchema(database);
+      await ensureStableSchema(database);
+      const first = await identityCatalog("generation-runtime-valid", undefined,
+        "2026-07-16T00:00:00.000001Z");
+      await adoptStableProjectIdentities(database, first);
+      database.raw.exec(`UPDATE project_identity_runtime
+        SET published_at_micros = published_at_micros + 1 WHERE singleton = 1`);
+      const before = rows(database, "SELECT * FROM project_identity_runtime");
+      const later = await identityCatalog("generation-runtime-rejected", undefined,
+        "2026-07-16T00:00:00.000002Z");
+      await assert.rejects(
+        adoptStableProjectIdentities(database, later),
+        (error) => error?.code === "invalid_project_identity_runtime",
+      );
+      assert.deepEqual(rows(database, "SELECT * FROM project_identity_runtime"), before);
+      assert.equal(
+        rows(database, "SELECT generation_id FROM project_identity_catalog WHERE generation_id = ?",
+          later.generationId).length,
+        0,
+      );
+    } finally {
+      database.close();
+    }
+  });
+});
+
+test("switches Catalog generations without rewriting stable history or double-counting renamed slugs", async () => {
+  const database = new SqliteD1Database();
+  try {
+    database.raw.exec("PRAGMA recursive_triggers = ON");
+    await ensureLegacyDecisionSchema(database);
+    await ensureStableSchema(database);
+    const firstCatalog = await identityCatalog("generation-before-rename", [
+      { repository: "owner/project", projectSlug: "legacy/project" },
+      { repository: "owner/passive", projectSlug: "owner/passive" },
+    ], "2026-07-16T00:00:00.000001Z");
+    await adoptStableProjectIdentities(database, firstCatalog);
+    const firstIdentity = stableIdentity(firstCatalog);
+    const passiveIdentity = stableIdentity(firstCatalog, 1);
+
+    const record = (identity, action, key, time) => appendStableProjectActionEvent(database, {
+      deviceId: "generation-device",
+      ...identity,
+      action,
+      idempotencyKey: key,
+    }, time);
+    await record(firstIdentity, "tried", "renamed-old-week-0001", "2026-07-08T08:00:00Z");
+    await record(firstIdentity, "tried", "renamed-current-week-0002", "2026-07-15T10:00:00Z");
+    await record(passiveIdentity, "opened", "passive-opened-0001", "2026-07-15T11:00:00Z");
+    await record(passiveIdentity, "saved", "passive-saved-0001", "2026-07-15T12:00:00Z");
+    await upsertStableFeedback(database, {
+      deviceId: "generation-device",
+      ...firstIdentity,
+      value: "有用",
+    }, "2026-07-15T12:30:00Z");
+    const historyBeforeRename = tableCounts(database, [
+      "project_action_events",
+      "project_action_events_v2",
+      "decision_events",
+      "decision_events_v2",
+    ]);
+
+    const secondCatalog = await identityCatalog("generation-after-rename", [
+      { repository: "owner/project", projectSlug: "renamed/project" },
+      { repository: "owner/passive", projectSlug: "owner/passive" },
+    ], "2026-07-16T00:00:00.000002Z");
+    await adoptStableProjectIdentities(database, secondCatalog);
+    const renamedIdentity = stableIdentity(secondCatalog);
+    assert.equal(renamedIdentity.projectId, firstIdentity.projectId);
+    assert.deepEqual(
+      (await readProjectActionState(database, "generation-device", "renamed/project"))
+        .map((row) => ({ ...row })),
+      [{
+        deviceId: "generation-device",
+        projectSlug: "renamed/project",
+        highestStage: "tried",
+        openedAt: null,
+        savedAt: null,
+        triedAt: "2026-07-15T10:00:00Z",
+        clonedAt: null,
+        reusedAt: null,
+        updatedAt: "2026-07-15T10:00:00Z",
+      }],
+      "old code must read the latest action State at the current Catalog slug before any new action",
+    );
+    assert.equal(
+      (await readProjectActionState(database, "generation-device", "legacy/project")).length,
+      0,
+    );
+    assert.deepEqual(
+      rows(database, `SELECT project_slug AS projectSlug, value, created_at AS createdAt,
+        updated_at AS updatedAt FROM feedback WHERE device_id = ?`, "generation-device"),
+      [{
+        projectSlug: "renamed/project",
+        value: "有用",
+        createdAt: "2026-07-15T12:30:00Z",
+        updatedAt: "2026-07-15T12:30:00Z",
+      }],
+      "old code must read the current feedback State without creating a decision Event",
+    );
+    assert.deepEqual(tableCounts(database, [
+      "project_action_events",
+      "project_action_events_v2",
+      "decision_events",
+      "decision_events_v2",
+    ]), historyBeforeRename);
+    const stateAfterRename = rows(database, `SELECT * FROM project_action_state
+      WHERE device_id = ? ORDER BY project_slug`, "generation-device");
+    const feedbackAfterRename = rows(database, `SELECT * FROM feedback
+      WHERE device_id = ? ORDER BY project_slug`, "generation-device");
+    await adoptStableProjectIdentities(database, secondCatalog);
+    assert.deepEqual(rows(database, `SELECT * FROM project_action_state
+      WHERE device_id = ? ORDER BY project_slug`, "generation-device"), stateAfterRename);
+    assert.deepEqual(rows(database, `SELECT * FROM feedback
+      WHERE device_id = ? ORDER BY project_slug`, "generation-device"), feedbackAfterRename);
+    assert.deepEqual(tableCounts(database, [
+      "project_action_events",
+      "project_action_events_v2",
+      "decision_events",
+      "decision_events_v2",
+    ]), historyBeforeRename, "repeated adoption must not fabricate Event/history rows");
+    await assert.rejects(
+      adoptStableProjectIdentities(database, {
+        ...firstCatalog,
+        publishedAt: secondCatalog.publishedAt,
+      }),
+      (error) => error?.code === "conflicting_project_identity_publication",
+      "different generations cannot share one activation order",
+    );
+    await assert.rejects(
+      adoptStableProjectIdentities(database, firstCatalog),
+      (error) => error?.code === "stale_project_identity_generation",
+      "a slow request must not reactivate an older published Catalog",
+    );
+    await assert.rejects(
+      record(firstIdentity, "reused", "stale-generation-reused-0001", "2026-07-16T09:00:00Z"),
+      (error) => error?.code === "stale_project_identity_generation",
+    );
+    await record(renamedIdentity, "cloned", "renamed-cloned-0001", "2026-07-16T10:00:00Z");
+
+    assert.deepEqual(
+      rows(database, `SELECT generation_id AS generationId FROM project_identity_runtime`),
+      [{ generationId: secondCatalog.generationId }],
+    );
+    assert.equal(rows(database, "SELECT generation_id FROM project_identity_catalog").length, 4);
+    assert.deepEqual(
+      rows(database, `SELECT project_slug AS projectSlug, catalog_generation_id AS generationId,
+        action FROM project_action_events_v2
+        WHERE project_id = ? ORDER BY id`, firstIdentity.projectId),
+      [
+        { projectSlug: "legacy/project", generationId: firstCatalog.generationId, action: "tried" },
+        { projectSlug: "legacy/project", generationId: firstCatalog.generationId, action: "tried" },
+        { projectSlug: "renamed/project", generationId: secondCatalog.generationId, action: "cloned" },
+      ],
+    );
+    const [state] = await readStableProjectActionState(
+      database,
+      "generation-device",
+      firstIdentity.projectId,
+    );
+    assert.equal(state.projectSlug, "renamed/project");
+    assert.equal(state.catalogGenerationId, secondCatalog.generationId);
+    assert.equal(state.highestStage, "cloned");
+
+    assert.deepEqual(
+      await readStableWeeklyActionMetrics(database, "generation-device", "2026-07-16T12:00:00Z"),
+      {
+        actedProjects: 1,
+        openedProjects: 1,
+        savedProjects: 1,
+        triedProjects: 1,
+        clonedProjects: 1,
+        reusedProjects: 0,
+      },
+      "weekly action metrics must count stable projectId, not old and renamed slugs",
+    );
+
+    const rollbackCatalog = {
+      ...firstCatalog,
+      publishedAt: "2026-07-16T00:00:00.000003Z",
+    };
+    await adoptStableProjectIdentities(database, rollbackCatalog);
+    await record(firstIdentity, "reused", "rollback-generation-reused-0001", "2026-07-16T11:00:00Z");
+    assert.deepEqual(
+      rows(database, `SELECT generation_id AS generationId, published_at AS publishedAt
+        FROM project_identity_runtime`),
+      [{ generationId: firstCatalog.generationId, publishedAt: rollbackCatalog.publishedAt }],
+      "an explicit rollback may reactivate a retained generation only with a newer pointer time",
     );
   } finally {
     database.close();
