@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pipeline.analyze_repository import analyze_remote
+from pipeline.analyze_repository import RemoteCloneLifecycleError, analyze_remote
 from pipeline.build_catalog import build_catalog
 from pipeline.collect_github import GitHubClient, collect
 from pipeline.collect_signals import HttpClient, collect_signals
@@ -206,6 +206,10 @@ def _refresh_candidate_tree(
         output = analysis_dir / f"{project_id_for_repository(repository)}.json"
         try:
             _write_json(output, asdict(analyze_remote(repository)))
+        except RemoteCloneLifecycleError:
+            # An unconfirmed process-tree or checkout cleanup is a resource
+            # safety failure, not a recoverable missing-evidence warning.
+            raise
         except (RuntimeError, OSError, ValueError) as error:
             failures.append({"repository": repository, "error": str(error)})
 

@@ -532,6 +532,8 @@ def _scheduler_details() -> dict[str, Any]:
         "candidateGenerationId": status.get("candidateGenerationId"),
         "generationStage": status.get("generationStage"),
         "generationErrorCode": status.get("generationErrorCode"),
+        "retryable": status.get("retryable", True),
+        "remoteAnalysisErrorCode": status.get("remoteAnalysisErrorCode"),
     }
 
 

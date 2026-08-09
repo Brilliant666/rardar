@@ -18,7 +18,7 @@ Rardar 是一个证据优先的开源情报与项目复用雷达。它将技术�
 - 公共项目只读浅克隆与静态分析工具
 - 每日生成的本地 Codex 中文深读队列
 
-当前网页只读取 `data/current.json` 指向的不可变 generation。Vinext Cloudflare Worker 不直接读取宿主文件；默认 `vinext dev` 通过仅接受回环请求和随机 token 的 Vite host 数据桥，在每次网页或 API 请求中让 Node host 完整解析一次 current、manifest 和全部 artifact 哈希，再把同一 generation 的一次性 bundle 交给 Worker。桥地址由本地 Vinext 配置固定，不信任或转发外部请求的 `Host`，避免回环 SSRF 与 token 泄露。每个 generation 同时保存真实 GitHub API 快照、目录、技术动态、中文画像和 Codex 队列，因此单个响应不会把不同代的数据混在一起；下一请求会立即观察到原子 pointer 切换，损坏 current 时直接失败而不回退 flat。首次采集只展示明确标注的“创建以来速度代理”；第二次刷新起会自动归档旧快照并计算真实观测区间增长。刷新流程还会对前五名执行隔离用户 Git 配置的只读浅克隆，静态检查代码、测试、文档与许可证，不执行仓库代码；浅克隆不可用时，改用限制下载体积、解压体积和文件数的 GitHub 官方源码归档，并跳过符号链接。技术动态来自官方 RSS 与可归因的社区补充源，先去重、标注信源健康，再由本地 Codex 为前五条生成中文要点。
+当前网页只读取 `data/current.json` 指向的不可变 generation。Vinext Cloudflare Worker 不直接读取宿主文件；默认 `vinext dev` 通过仅接受回环请求和随机 token 的 Vite host 数据桥，在每次网页或 API 请求中让 Node host 完整解析一次 current、manifest 和全部 artifact 哈希，再把同一 generation 的一次性 bundle 交给 Worker。桥地址由本地 Vinext 配置固定，不信任或转发外部请求的 `Host`，避免回环 SSRF 与 token 泄露。每个 generation 同时保存真实 GitHub API 快照、目录、技术动态、中文画像和 Codex 队列，因此单个响应不会把不同代的数据混在一起；下一请求会立即观察到原子 pointer 切换，损坏 current 时直接失败而不回退 flat。首次采集只展示明确标注的“创建以来速度代理”；第二次刷新起会自动归档旧快照并计算真实观测区间增长。刷新流程还会对前五名执行隔离用户 Git 配置的只读浅克隆，静态检查代码、测试、文档与许可证，不执行仓库代码。浅克隆不继承输出管道；Windows 先以 suspended 状态创建进程、纳入禁止 breakaway 的 Job Object 后再恢复，POSIX 使用独立 session/process group。无论 clone 成功、失败还是超时，分析器都在返回前有界确认本次完整进程树已经退出；只有清理已确认时才允许读取 checkout 或改用 GitHub 官方源码归档。Windows Git 若把自有 partial-clone pack 标记为只读，分析器只会在整树退出后，对身份绑定、单链接、普通且确有 `READONLY` 位的自有文件清除该位并重试一次；leaf symlink 只删除链接本身且绝不跟随，ACL、共享占用、硬链接、junction/其他 reparse 或身份变化仍会 fail closed。归档先对最多 100,000 个成员做全量路径和类型预检，再按规范化路径确定性选择最多 12,000 个文件；下载上限为 120 MB，选中内容的解压上限为 600 MB，符号链接和不需要的二进制文件不会物化。技术动态来自官方 RSS 与可归因的社区补充源，先去重、标注信源健康，再由本地 Codex 为前五条生成中文要点。
 
 近期动量与长期高热分开计算。长期高热在历史样本不足时只使用总 Star、仓库年龄、近期维护和 Fork 生态形成明确标注的结构代理，不把一次快照冒充为“长期持续霸榜”。持续性判断使用最近最多 30 次候选快照；同一仓库在至少 7 次快照中出现且覆盖率达到 70% 后，会自动升级为多周期持续热度验证。
 
@@ -137,6 +137,28 @@ python -m pipeline.migrate_project_identity --data-dir data --to-legacy-v1 --app
 
 refresh/derive 的 candidate adoption 也遵循同一无损原则：同一 repository 的 legacy v1 与 stable v2 共存时，先在内存中把 v1 机械转换为预期 v2 payload；只有结果与现有 v2 完全相等，才保留 v2 并清理 v1。任何字段不同都返回 `conflicting_project_artifact_versions`；所有项目完成全量 preflight 前不写入或删除，因此一个项目冲突会使整批 adoption 保持零写入、零删除，不能按 Schema 版本、时间、文件顺序或排名猜测权威版本。
 
+非等价冲突只能在人工完成来源证据审查后，用单仓库显式 resolver 处理。命令必须给出 repository、artifact kind、三种允许结论之一，以及当前 legacy 和已发布 stable reference 的精确 SHA-256；默认只输出 dry-run 报告，只有额外指定 `--apply` 才会改变 flat staging。`keep-stable` 将 legacy 原始字节与两阶段审计记录保存到仓库外的本地归档后，再从 active staging 移除；`promote-legacy` 仅在 legacy 来源时间严格更新且机械 v2 目标可验证时原子写入 stable staging；`blocked` 永远零写入。工具每次只允许处理一个 repository 和一种 artifact，不提供通配符、批量解析或 `newest-wins`：
+
+```bash
+python -m pipeline.resolve_project_artifact_conflict \
+  --data-dir data \
+  --repository owner/repository \
+  --kind analysis \
+  --decision keep-stable \
+  --expected-legacy-sha256 <legacy-sha256> \
+  --expected-stable-sha256 <current-ready-reference-sha256> \
+  --legacy-source-pushed-at <legacy-snapshot-pushed-at> \
+  --stable-source-pushed-at <stable-generation-pushed-at> \
+  --evidence-reference docs/iterations/<review>.md#<artifact>
+
+# 完整核对 dry-run 后，才可显式写入 flat staging / 仓库外审计归档
+python -m pipeline.resolve_project_artifact_conflict <相同参数> --apply
+```
+
+resolver 在 canonical data lock 内每次重新验证 current pointer、ready manifest、全部 generation artifact hash、Schema、跨文件 Audit、repository/projectId/文件名、两个 expected SHA 和来源版本；analysis 还要求把 legacy flat snapshot 与 stable generation snapshot 中的 `pushed_at` 原样传入，并核对 repository URL、repository item 与顶层 snapshot 的同源 `captured_at`。首次决策必须绑定一个真实存在、不含凭据的 `docs/iterations/*.md#anchor`；证据和 snapshot 都通过 no-follow、文件身份绑定读取，审计同时保存文档 SHA-256，后续改写会使重试 fail closed。显式 `blocked` 在来源版本无法证明时返回 `sourceVersions: null` 和退出码 2，但仍严格验证 current、两个 hash、Schema 与项目身份，并保持零写入。
+
+它不会修改 `current.json`、retained generation、candidate、failed candidate 或 manifest。归档默认位于 `%LOCALAPPDATA%/Rardar/artifact-conflict-resolutions/`（非 Windows 使用用户本地 state 目录），保存 legacy 原始字节、严格字段审计记录，以及从 staging 原子移出的 `detached-legacy.json`。prepared/resolved 两阶段记录与同目录原子 quarantine 使归档、stable 创建、legacy 移出或审计推进中断后可以安全重试；quarantine 使用 OS 级 no-replace move，已审查字节隔离后会再次核对当前与 retained generation、flat target、证据 SHA 和来源版本，随后再以 no-replace move 转入同一文件系统上的外部审计目录。resolver 不对这个 retained detached artifact 执行路径 unlink；它是 resolved/no-op 的必备后置条件，因此未知或竞态换入的字节只会被保留或导致安全失败。prepared 记录冻结已审查的 legacy 来源版本，重试只重新验证 retained stable 来源，因此 flat snapshot 正常前进和健康 current 切换不会破坏幂等恢复；损坏 current 则拒绝继续。路径逃逸、跨文件系统归档、symlink、junction、reparse point、非等价或竞态出现的 flat stable target、无法证明的可写决策都会 fail closed。
+
 generation 管理命令：
 
 ```bash
@@ -175,7 +197,7 @@ npm run local:stop
 npm run data:schedule
 ```
 
-默认在 `Asia/Shanghai` 每天 08:00 刷新 GitHub 快照、前五静态检查和技术动态。刷新期间调度器会持续写入运行心跳；若进程中途退出，管理器重启后会在 12 小时窗口内补跑，网络等临时故障则每 5 分钟重试，单轮最多 3 次。守护进程不会部署网站，也不会执行候选仓库代码。
+默认在 `Asia/Shanghai` 每天 08:00 刷新 GitHub 快照、前五静态检查和技术动态。刷新期间调度器会持续写入运行心跳；若进程中途退出，管理器重启后会在 12 小时窗口内补跑，网络等临时故障则每 5 分钟重试，单轮最多 3 次。若 Git 进程树或临时 checkout 的清理无法确认，本轮 candidate 会 fail closed，scheduler 写入 `retryable: false` 和 `remoteAnalysisErrorCode`，不在同一周期自动重试；普通且已安全收口的单仓分析失败仍可记录为 degraded。守护进程不会部署网站，也不会执行候选仓库代码。
 
 “动态”页面从本地管理器的实时心跳读取运行状态；旧状态超过 35 秒就会显示需要重新启动，不再把过期的 `scheduled` 文件误报为正在运行。
 

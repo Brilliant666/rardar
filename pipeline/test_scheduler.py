@@ -7,10 +7,50 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from pipeline.analyze_repository import RemoteCloneLifecycleError
+from pipeline.generations import CandidateGenerationError
 from pipeline.scheduler import committed_refresh_at, next_run_at, parse_clock, run_cycle, should_catch_up, should_retry
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_clone_lifecycle_failure_is_non_retryable(self) -> None:
+        lifecycle_error = RemoteCloneLifecycleError(
+            "remote_clone_process_tree_cleanup_failed", "simulated"
+        )
+
+        def fail_refresh(*_args: object, **_kwargs: object) -> dict[str, object]:
+            raise CandidateGenerationError(
+                "candidate_build_failed",
+                "refresh candidate build failed",
+                generation_id="candidate-1",
+                stage="build",
+            ) from lifecycle_error
+
+        with tempfile.TemporaryDirectory() as directory:
+            status_path = Path(directory) / "scheduler.json"
+            with patch("pipeline.scheduler.refresh", side_effect=fail_refresh):
+                result = run_cycle(Path("unused"), 0, status_path)
+            stored = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result["state"], "failed")
+        self.assertFalse(result["retryable"])
+        self.assertEqual(
+            result["remoteAnalysisErrorCode"],
+            "remote_clone_process_tree_cleanup_failed",
+        )
+        self.assertFalse(stored["retryable"])
+        self.assertEqual(
+            stored["remoteAnalysisErrorCode"],
+            "remote_clone_process_tree_cleanup_failed",
+        )
+        self.assertFalse(
+            should_retry(
+                result["state"],
+                1,
+                retryable=result["retryable"],
+            )
+        )
+
     def test_committed_refresh_allows_later_derived_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -196,6 +236,50 @@ class SchedulerTests(unittest.TestCase):
             )
         )
 
+    def test_nonretryable_failure_does_not_catch_up_in_same_window(self) -> None:
+        now = datetime(2026, 7, 10, 1, 0, tzinfo=timezone.utc)
+        self.assertFalse(
+            should_catch_up(
+                now,
+                "2026-07-10T00:02:00+00:00",
+                "failed",
+                8,
+                0,
+                "Asia/Shanghai",
+                retryable=False,
+            )
+        )
+
+    def test_nonretryable_failure_from_previous_day_catches_up_for_new_cycle(self) -> None:
+        now = datetime(2026, 7, 11, 1, 0, tzinfo=timezone.utc)
+        self.assertTrue(
+            should_catch_up(
+                now,
+                "2026-07-10T00:02:00+00:00",
+                "failed",
+                8,
+                0,
+                "Asia/Shanghai",
+                retryable=False,
+            )
+        )
+
+    def test_nonretryable_failure_without_trustworthy_completion_does_not_catch_up(self) -> None:
+        now = datetime(2026, 7, 11, 1, 0, tzinfo=timezone.utc)
+        for completed in (None, "not-a-timestamp"):
+            with self.subTest(completed=completed):
+                self.assertFalse(
+                    should_catch_up(
+                        now,
+                        completed,
+                        "failed",
+                        8,
+                        0,
+                        "Asia/Shanghai",
+                        retryable=False,
+                    )
+                )
+
     def test_does_not_catch_up_outside_window(self) -> None:
         now = datetime(2026, 7, 10, 13, 0, tzinfo=timezone.utc)  # 21:00 Asia/Shanghai
         self.assertFalse(should_catch_up(now, None, "scheduled", 8, 0, "Asia/Shanghai"))
@@ -205,6 +289,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertTrue(should_retry("failed", 2))
         self.assertFalse(should_retry("failed", 3))
         self.assertFalse(should_retry("healthy", 1))
+        self.assertFalse(should_retry("failed", 1, retryable=False))
 
 
 if __name__ == "__main__":
