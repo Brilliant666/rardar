@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { formatNumber, type Project } from "../data";
+import { canonicalProjectPath } from "../client-project-identity.mjs";
+import { formatNumber, type StableProject } from "../data";
 import { FeedbackButtons } from "./FeedbackButtons";
 
 export function ProjectCard({
@@ -8,7 +9,7 @@ export function ProjectCard({
   compact = false,
   rankingReason = "",
 }: {
-  project: Project;
+  project: StableProject;
   index?: number;
   compact?: boolean;
   rankingReason?: string;
@@ -30,11 +31,11 @@ export function ProjectCard({
       )}
       <div className="project-card-main">
         <div>
-          <Link className="repo-name" href={`/projects/${project.slug}`}>
+          <Link className="repo-name" href={canonicalProjectPath(project)}>
             {project.repo}
           </Link>
           <h2>
-            <Link href={`/projects/${project.slug}`}>{project.title}</Link>
+            <Link href={canonicalProjectPath(project)}>{project.title}</Link>
           </h2>
           <p className="project-description">{project.description}</p>
         </div>
@@ -57,7 +58,12 @@ export function ProjectCard({
         <span>{project.license}</span>
         <span className="action-tag">建议：{project.recommendation}</span>
       </div>
-      {!compact && <FeedbackButtons projectSlug={project.slug} />}
+      {!compact && (
+        <FeedbackButtons
+          projectIdVersion={project.projectIdVersion}
+          projectId={project.projectId}
+        />
+      )}
     </article>
   );
 }

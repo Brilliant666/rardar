@@ -72,19 +72,25 @@ PR #6 已通过提交 `ab34119` 合并到 `main`，评分语义 P1-4 已完成�
 9. 测试至少覆盖 v1/v2 契约互斥、空值边界、静态证据当前性、无任务上下文、风险与许可证门槛、审计篡改、旧版网页兼容、个性化和真实 HTTP 读取。
 10. 不顺带实现 verify/CI、稳定项目 ID、新信源、UI 重设计、第三方代码执行或部署；运行完整验证，创建 Draft PR，然后停止。
 
-## 当前 P1-6B Stable Project Action Identity 工程轮
+## 当前 P1-6C1 Client Stable Project Identity 工程轮
 
-PR #8 已通过提交 `d41033f` 合并到 `main`，P1-6A 身份契约与 JSON 数据层已完成。P1-6 Stable IDs 大阶段仍在进行；本轮唯一目标是：
+PR #9 已通过 Squash merge 提交 `c24b7d6` 合并到 `main`，对应 `main` Verify 已通过。P1-6B 的正式 Primary Runtime D1 adoption、完整重启与重复只读 adoption no-op 也已验证通过；服务端 Stable Project ID、D1 兼容迁移与 API 边界已经完成。
 
-> P1-6B：让 D1 项目行动、反馈、推荐与相关 API 采用 Stable Project ID，同时保持追加式 Event、独立 State、幂等、Weekly Acted Projects 和旧代码回滚兼容。
+P1-6 Stable IDs 大阶段仍在进行；本轮唯一目标是：
+
+> P1-6C1：让网页路由、链接、组件交互、个性化关联和浏览器本地状态使用 Stable Project ID，同时为旧 slug URL 提供严格、无猜测的兼容解析。
 
 当前分支：
 
 ```text
-feat/stable-project-action-ids
+feat/stable-project-ui-identity
 ```
 
-本轮只交付服务端项目身份、D1 兼容迁移与 API 边界。页面路由、链接、React key、组件身份、按钮 props、观察列表本地映射和旧 slug URL 重定向均留给 P1-6C。当前 UI 可以继续发送 legacy slug，但服务端只能通过同一次请求加载的已验证 Catalog 将其唯一映射为 projectId；无匹配、多匹配或同时提交的两种身份不一致时必须 fail closed。P1-6B 只有在对应 PR 合并到 `main` 后才视为完成；P1-6 整体仍未完成，下一项只能是 P1-6C，且本轮不得开始。
+本轮只交付客户端与页面消费边界。所有项目级 UI identity、Action/feedback 请求、recommendation/watch 关联和 React key 都使用 `projectIdVersion: 1` 与 `projectId`；slug 只作为显示字段和 legacy URL 输入。canonical 详情 URL 固定为 `/project/v1/<projectId>`。旧 `/projects/<slug>` 只在同一次请求加载的 verified Catalog 中解析：唯一匹配返回 `302` 且 `Cache-Control: no-store`，未知返回 `404`，歧义返回 `409`；不得选择第一项、哈希 slug、信任客户端 repository 或回退陈旧 D1 映射。
+
+Catalog v1/v2 消费时从 `repo` 机械派生 identity v1，Catalog v3 必须从 repository 重算并核对已发布 projectId。页面一次请求只使用同一个 published generation bundle；current 原子切换后的下一请求必须看到新 generation，退出现行 Catalog 的 projectId 必须 fail closed，而不能显示旧 generation 项目。
+
+P1-6C1 不放宽现有 unresolved legacy slug collision 发布门禁。让新 generation 真正接受相同 legacy slug、处理 retained collision history 和定义兼容 URL 的长期歧义策略属于后续 P1-6C2 独立工程轮。
 
 ## 执行流程
 
@@ -113,31 +119,22 @@ npm run verify
 建议：
 
 ```text
-feat/stable-project-action-ids
+feat/stable-project-ui-identity
 ```
 
 ### 4. 实现
 
 要求：
 
-- 最小改动；
-- 复用 P1-6A 的 identity v1 与共享 golden vectors，不另行发明 slug 哈希或自由解释；
-- 为每次请求从同一个已验证 published Catalog 建立 generation-bound 身份映射：Catalog v3 核对 repository 与 projectId，Catalog v1/v2 从 `repo` 机械计算 projectId；
-- 所有 canonical 写入和响应使用 `projectIdVersion: 1` 与 `projectId`；客户端提交的 repository、发生时间或未经 Catalog 验证的身份均不可信；
-- 以 additive、rollback-safe 方式增加 canonical v2 Event、State、feedback 与 decision history，并保留所有旧表、旧触发器和旧代码读取边界；
-- 由正式 `drizzle/0004_stable_project_identity.sql` 定义版本化 DDL和完整 feedback history 触发器边界；runtime bootstrap 直接重放该文件，只用 verified generation map 执行 preflight、State 重键、backfill 与 adoption，不从 slug 推断身份或维护第二套 stable schema；
-- 只通过明确 Catalog 映射迁移 legacy slug 行；完整预检无匹配、多匹配、非法行动或时间，保留真实时间与阶段，不从 State 补造 Event；
-- 保持 Event 追加式、State 单调、设备内幂等键语义和同一用户意图安全重放；
-- 让 Weekly Acted Projects 只查询 canonical Event，在同一服务端 `now` 的包含下界七天窗口内按不同 projectId 去重；
-- 新 canonical 数据必须投影到旧 slug 边界，generation slug 变化时 mutable Action State/feedback 必须原子重键到 current slug，旧代码成功写入的 legacy 数据在再次升级后必须可捕获；append-only Event/history 不得因重键被改写或补造，unresolved identity 不得错误投影；
-- retained mappings 的 projectId ↔ canonical repository 与 legacy slug 归属必须由 preflight、正式触发器和事务内 guard 共同 fail closed，不能在并发 adoption 中提交碰撞映射；
-- Action、feedback、recommendation 与观察状态 API 中凡返回项目记录者都返回 projectId，同时保留当前 UI 所需的 legacy slug 兼容字段；metrics 继续返回聚合值，但必须按 canonical projectId 计算；
-- 不引入大型框架；
-- 不执行第三方仓库代码；
-- 不修改页面路由、链接、React key、组件 identity 或 legacy URL；
-- 不部署；
-- 不修改 main；
-- 不自动合并。
+- 最小改动，复用 `app/project-identity.mjs` 的 identity v1、resolver 与共享 golden vectors；
+- 服务端页面入口从同一次 verified published bundle 构造 generation-bound identity context；Catalog v1/v2 从 `repo` 机械派生，v3 从 repository 重算并严格核对；
+- 所有页面项目、链接、React key、Action/feedback props 与请求、recommendation 关联和 watch/local 状态以 projectId 为键；slug 仅用于显示和 legacy URL 输入；
+- canonical 详情页为 `/project/v1/<projectId>`，并严格拒绝错误版本、畸形、伪造、未知或已退出 current Catalog 的 ID；
+- `/projects/<slug>` 唯一匹配时返回 `302` 与 `Cache-Control: no-store`，未知返回 `404`，歧义返回 `409`；不得把 redirect 当成 canonical identity；
+- 页面与 API 的一次请求不得分别读取两次 current 或混合 generation；pointer 切换后下一请求读取新 generation；
+- 保持现有 `drizzle/0004_stable_project_identity.sql`、D1 schema、adoption、API legacy selector 和 collision/unresolved 发布门禁不变；
+- 不实现 P1-6C2 collision history，不修改 scheduler 配置，不清理 21 个 failed candidate，不开始 TrendRadar、P2、复杂 Agent 或新信源；
+- 不执行第三方仓库代码，不部署，不修改 `main`，不自动合并。
 
 ### 5. 测试
 
@@ -145,15 +142,15 @@ feat/stable-project-action-ids
 
 至少覆盖：
 
-- 身份 resolver 覆盖 Catalog v3、从 Catalog v1/v2 `repo` 计算、legacy slug 唯一映射、missing、ambiguous、伪造 projectId、错误版本和 projectId/slug 不一致；
-- D1 覆盖空数据库、legacy Actions/Event/State/feedback/history、正式 0004 独立反馈历史、重复初始化、正式 migration 与 runtime initialization 两种顺序、unresolved slug、非法行动/时间和零重复 Event；
-- canonical projectId 写入、legacy slug 兼容、同键重放、跨项目或行动的幂等冲突、State 单调和服务端发生时间；
-- feedback 与 recommendation 使用 projectId，不因相同 legacy slug、历史映射或客户端 repository 串到另一个项目；
-- Weekly Acted Projects 覆盖同项目一周多次、跨周再次行动、不同 projectId、opened/saved 排除、包含下界的七天窗口和 legacy migration 数值保持；
-- 新写入投影给旧代码、旧代码写入再次升级后保留、slug rename 后无新写即可读取 current Action State/feedback、重复 adoption no-op、目标 State 冲突零写入、格式化时间不制造重复、旧表和历史 Event/decision 不被删除；
-- retained mapping 全量碰撞、preflight 后并发 mapping、两个 adoption publisher 竞争、publishedAt 文本/微秒不一致都必须 fail closed 且不留下部分 active generation；
-- 真实 Vinext HTTP 覆盖 canonical/legacy Action、feedback、recommendation、metrics、身份冲突和当前 UI 请求兼容，使用临时 D1、隔离 data 与随机端口；
-- 完整 `npm run verify` 通过且正式数据、Primary Runtime 与 3000 端口不受影响。
+- Catalog v1/v2 的 UI identity 机械派生和 Catalog v3 的已发布 identity 重算核对；
+- canonical URL 构造、详情 SSR、错误版本、畸形/伪造/未知 ID、路径编码与 current Catalog 退役项目；
+- legacy slug 唯一 `302 no-store`、未知 `404`、歧义 `409`，不得猜测目标；
+- 两个项目即使提供相同显示 slug，recommendation、watch 状态、反馈、行动和 React key 仍按不同 projectId 隔离；
+- Action/feedback 客户端 payload 只发送 stable identity pair，不再把 slug 当作 canonical selector；
+- pointer 原子切换后，无需重启的下一次真实 Vinext HTTP 请求读取新 generation，单个响应不混代；
+- Catalog v1 retained rollback 后 canonical/legacy 路由仍可保守读取；
+- 现有 D1/API、Weekly metric、Schema/Audit、Primary Runtime、正式 data 与 3000 端口不回归；
+- 完整 `npm run verify` 通过。
 
 ### 6. 完整验证
 
@@ -174,18 +171,16 @@ PR 描述包含：
 背景
 问题
 修改
-D1 v2 身份结构
-generation-bound Catalog 映射
-Action、feedback 与 recommendation API 兼容
-幂等与 Weekly metric
-legacy 数据迁移与 unresolved 策略
-旧代码回滚与再次升级
+generation-bound UI 身份
+canonical 项目路由
+legacy slug redirect 与错误语义
+Action、feedback、recommendation 与 watch 客户端迁移
+Catalog v1/v2/v3 兼容
 兼容性
 测试
 安全边界
-迁移
 回滚
-P1-6C 非目标
+P1-6C2 非目标
 遗留问题
 ```
 
@@ -202,7 +197,8 @@ P1-6C 非目标
 5. verify 和 GitHub Actions——已由 PR #7（提交 `3430e30`）完成；
 6. 稳定项目 ID——大阶段正在进行：
    - P1-6A 身份契约与 JSON 数据层——已由 PR #8、提交 `d41033f` 完成；
-   - P1-6B D1 与 Action API 采用 `projectId`——当前独立工程轮，仅在对应 PR 合并后完成；
-   - P1-6C UI、页面路由与 legacy URL 兼容——P1-6B 合并后的唯一下一项，本轮不得开始。
+   - P1-6B D1 与 Action API 采用 `projectId`——已由 PR #9、提交 `c24b7d6` 完成，正式 Primary Runtime adoption/restart/no-op 已通过；
+   - P1-6C1 客户端、页面路由与 legacy URL 兼容——当前唯一工程轮；
+   - P1-6C2 collision history 与 legacy slug 发布门禁演进——P1-6C1 合并后的独立候选目标，本轮不得开始。
 
 每轮只做一项，每轮创建 Draft PR，每轮完成后停止。

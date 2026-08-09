@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { canonicalProjectPath } from "../client-project-identity.mjs";
 import { Nav } from "../components/Nav";
 import { formatNumber } from "../data";
 import { loadPublishedData } from "../server-data";
@@ -22,7 +23,7 @@ export default async function CandidatesPage() {
             <span>项目</span><span>类型</span><span>趋势</span><span>关注</span><span>静态就绪</span><span>建议</span>
           </div>
           {projects.map((project) => (
-            <Link href={`/projects/${project.slug}`} key={project.slug} className="candidate-row">
+            <Link href={canonicalProjectPath(project)} key={project.projectId} className="candidate-row">
               <div><strong>{project.repo}</strong><small>★ {formatNumber(project.stars)} · {project.language}</small></div>
               <span>{project.category}<small>{project.heatLabel ?? "近期动量"}</small></span>
               <span className={project.growthValue < 0 ? "trend-down" : "trend-up"}>{project.trend}</span>

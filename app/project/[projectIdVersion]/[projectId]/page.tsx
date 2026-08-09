@@ -1,33 +1,60 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Nav } from "../../components/Nav";
-import { FeedbackButtons } from "../../components/FeedbackButtons";
-import { ProjectActions, TrackedRepositoryLink } from "../../components/ProjectActions";
-import { formatNumber, getProject } from "../../data";
-import { SCORE_DIMENSION_KEYS, SCORE_DIMENSION_LABELS } from "../../score-semantics.mjs";
-import { loadPublishedData } from "../../server-data";
+import { Nav } from "../../../components/Nav";
+import { FeedbackButtons } from "../../../components/FeedbackButtons";
+import { ProjectActions, TrackedRepositoryLink } from "../../../components/ProjectActions";
+import { formatNumber, getProjectById } from "../../../data";
+import {
+  ProjectIdentityError,
+  resolveProjectSelector,
+} from "../../../project-identity.mjs";
+import { SCORE_DIMENSION_KEYS, SCORE_DIMENSION_LABELS } from "../../../score-semantics.mjs";
+import { loadPublishedData } from "../../../server-data";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProjectPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
-  const { catalog, projects } = await loadPublishedData();
-  const project = getProject(projects, slug);
+export default async function ProjectPage({
+  params,
+}: {
+  params: Promise<{ projectIdVersion: string; projectId: string }>;
+}) {
+  const { projectIdVersion, projectId } = await params;
+  if (projectIdVersion !== "v1") notFound();
+  const { generationId, catalog, identityContext, projects } = await loadPublishedData();
+  try {
+    resolveProjectSelector(identityContext, { projectIdVersion: 1, projectId });
+  } catch (error) {
+    if (error instanceof ProjectIdentityError && error.status < 500) notFound();
+    throw error;
+  }
+  const project = getProjectById(projects, projectId);
   if (!project) notFound();
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-generation={generationId} data-project-id={project.projectId}>
       <Nav growthMode={catalog.growthMode} />
       <main className="project-page">
         <div className="project-breadcrumb"><Link href="/discover">发现</Link><span>/</span><span>{project.repo}</span></div>
         <header className="project-detail-hero">
           <div>
             <div className="project-card-topline"><span className="category-pill">{project.category}</span><span className={`heat-pill ${project.heatTrack ?? "recent_momentum"}`}>{project.heatLabel ?? (project.growthKind === "observed" ? "近期动量 · 实际区间" : "近期动量 · 首次代理")}</span><span className="analysis-pill">{project.analysisState}</span></div>
-            <TrackedRepositoryLink projectSlug={project.slug} repository={project.repo} />
+            <TrackedRepositoryLink
+              projectIdVersion={project.projectIdVersion}
+              projectId={project.projectId}
+              repository={project.repo}
+            />
             <h1>{project.title}</h1>
             <p>{project.description}</p>
-            <FeedbackButtons projectSlug={project.slug} />
-            <ProjectActions key={project.slug} projectSlug={project.slug} />
+            <FeedbackButtons
+              key={`feedback:${project.projectId}`}
+              projectIdVersion={project.projectIdVersion}
+              projectId={project.projectId}
+            />
+            <ProjectActions
+              key={`actions:${project.projectId}`}
+              projectIdVersion={project.projectIdVersion}
+              projectId={project.projectId}
+            />
           </div>
           <div className="detail-score-panel">
             <div><strong>{project.attentionScore}</strong><span>关注优先级</span></div>

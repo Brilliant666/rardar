@@ -6,6 +6,8 @@
 
 P1-6A 已由 PR #8、提交 `d41033f` 合并到 `main` 并完成。本文件记录 P1-6B 独立工程轮的协议和验证边界；P1-6B 只有在本轮 Draft PR 合并到 `main` 后才视为完成。P1-6 整体仍未完成，下一项仅为 P1-6C UI、页面路由与 legacy URL 兼容，本轮没有开始 P1-6C。
 
+> 完成状态更新（2026-08-09）：PR #9 已以 Squash merge 提交 `c24b7d6` 合并到 `main`，对应 `main` Verify 通过；下文合并前措辞保留为当时的历史记录。正式 Primary Runtime adoption 结果见本文末尾。
+
 ## D1 v2 身份结构
 
 迁移采用 additive 结构，不删除或改写旧代码依赖的表：
@@ -166,6 +168,16 @@ Draft PR #9 已将最新 `main` 提交 `9b081e4` 合入开发分支，保留 PR 
 - 完整 `npm run verify` 通过：Python 360 项（16 项按平台预期跳过）、Node 64/64、Schema/Audit、production build、依赖安全审计及全部隔离门禁均 healthy。
 
 复演结束后所有临时 Vinext/workerd 进程、随机端口和 detached rollback worktree 均已清理。TrendRadar 只作为 P1-6 完成后的研究候选，本轮未实现，也不改变当前 P1-6B → P1-6C 的治理顺序。
+
+## PR #9 合并与正式 Primary Runtime adoption（2026-08-09）
+
+PR #9 已以 Squash merge 提交 `c24b7d6` 合并到 `main`，`main` 对应 head 的 GitHub Verify 成功。正式 activation 在停止 Runtime、备份完整 `data/` 与 D1 后执行；使用 current generation `20260809T091719453761Z-69c6385c7279`，没有手工 refresh、pointer 修改、failed-candidate 清理或部署。
+
+正式 Historical Identity Bundle 验证 6 个 ready generation 和 180 条 generation mapping。current Catalog 为 30 个项目；全部 retained history 共 60 个 distinct projectId，其中 30 个仅存在于历史 generation。adoption 后 legacy 事实仍为 6 条 Action、6 条 Action Event、2 条 State、4 条 feedback 和 4 条 decision history；canonical 事实为 6 条 Event、2 条 State、3 条 feedback 和 4 条 decision history。current 与历史 repository/projectId/slug 关系无碰撞，session、allowlist 与 guard 均为空。
+
+`oomol-lab--open-connector` 通过唯一 retained witness `20260713T191537075729Z-4e2e9d09fae2` 机械绑定到 `oomol-lab/open-connector`，其 1 条 feedback 与 2 条 decision history 保持一致。`officecli` 在全部 verified Catalog 中都没有 repository 证据，只保留原 legacy feedback 并生成恰好 1 条不含 device ID 的 immutable quarantine ledger；Stable Event、State、feedback 与 decision 事实均为 0。
+
+Runtime 完整停止并重启后，第二次受控只读 GET adoption 为 no-op：legacy/canonical 行数和逻辑摘要保持完全一致，current pointer 与 generation 未推进。Manager、Website、Scheduler、`/api/health`、首页、signals、search 和唯一 3000 监听均 healthy；Schema/Audit healthy。21 个历史 failed candidate 保持原样，未读取、解析或删除。P1-6B 因此正式完成；下一独立工程轮是 P1-6C1 client/UI Stable Identity。
 
 ## P1-6C 明确非目标
 

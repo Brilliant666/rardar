@@ -24,7 +24,7 @@ Rardar 是一个证据优先的开源情报与项目复用雷达。它将技术�
 
 Catalog v2 使用 `evidence-v2` 评分模型：Attention 只回答是否值得先看，Endurance 只回答是否有长期热度线索，Engineering Readiness 只使用与当前推送匹配的只读静态证据。通用目录没有你的具体任务、约束和验收标准，因此 Reuse Fit 保持未知；Evidence Completeness 只描述证据覆盖，不代表质量。每项都公开事实、代理、限制和升级条件。默认流水线从不运行第三方代码，所以最强建议只能是满足许可证与风险门槛后的“隔离试用”，不会把静态文件完整度写成“直接复用”。
 
-新生成的 Catalog v3 在保持 `evidence-v2` 评分语义不变的同时采用 `projectIdVersion: 1`。Stable Project ID 以严格合法的 GitHub `owner/repo` 为输入，按 ASCII 小写规范化，使用最多 64 个字符的可读前缀和规范化 repository 的 SHA-256 前 20 个十六进制字符（80 bit）组成 `<prefix>--<digest>`。因此 `owner/foo.bar` 与 `owner/foo-bar` 得到不同身份；大小写变体是同一身份，owner 转移或仓库改名在 v1 中则是新身份。任何真实 ID 碰撞、规范化 repository 重复或跨产物身份不一致都会阻止候选 generation 发布。在 P1-6C 将现有路由与 UI 消费者迁移到 projectId 之前，两个候选项目仍不得共享同一个 legacy slug；这种情况会作为 unresolved legacy collision 阻止发布，而不是把其中一个项目交给仍以 slug 定位的消费者。
+新生成的 Catalog v3 在保持 `evidence-v2` 评分语义不变的同时采用 `projectIdVersion: 1`。Stable Project ID 以严格合法的 GitHub `owner/repo` 为输入，按 ASCII 小写规范化，使用最多 64 个字符的可读前缀和规范化 repository 的 SHA-256 前 20 个十六进制字符（80 bit）组成 `<prefix>--<digest>`。因此 `owner/foo.bar` 与 `owner/foo-bar` 得到不同身份；大小写变体是同一身份，owner 转移或仓库改名在 v1 中则是新身份。任何真实 ID 碰撞、规范化 repository 重复或跨产物身份不一致都会阻止候选 generation 发布。P1-6C1 把路由与 UI 消费者迁移到 projectId，但不放宽现有 unresolved legacy collision 发布门禁；让新 generation 接受相同 legacy slug 及其 retained history 属于后续 P1-6C2 独立工程轮。
 
 本地 Codex 生成的中文能力画像先发布到 flat staging 区 `data/enrichment/`。运行 `data:derive` 后，当前有效画像才会随完整候选 generation 一起验证并发布。新项目画像 v2 同时绑定 `repository`、重算一致的 `projectId`、仓库推送时间和静态证据分析时间，并使用 `projectId.json` 作为文件名；任一身份或来源版本变化后都不会继续冒充当前结论。画像只覆盖已核对 README 和静态证据的项目，并与 GitHub 事实分层保存。
 
@@ -34,7 +34,9 @@ Catalog v2 使用 `evidence-v2` 评分模型：Attention 只回答是否值得�
 
 真实行动使用 D1 中分离的 canonical v2 Event 与 State：所有新写入使用 `projectIdVersion: 1` 和 `projectId`，Event 只追加“发生过什么”，State 保存当前最高阶段和每个真实点击阶段的最近时间。客户端为一次行动意图生成幂等键并在网络重试中复用；同键、同项目和同行动是安全重放，同键绑定不同 projectId 或行动会冲突，成功后的下一次真实行动使用新键并继续追加。按钮与观察列表只读取 State，近 7 天指标只读取 Event，并在同一服务端时间窗口内按不同 projectId 去重。
 
-Action、feedback、recommendation 与 metrics API 从一次请求加载的同一个 verified Catalog 建立 generation-bound 身份映射。Catalog v3 会核对携带的 projectId 与 repository，retained Catalog v1/v2 则从 `repo` 机械计算 identity v1；current pointer 的 `publishedAt` 同时作为 D1 active-generation 的单调激活顺序，旧慢请求不能回退 legacy capture 边界，而带有更新发布时间的显式 rollback 仍可重新激活 retained generation。全部 retained mappings 还必须保持 projectId ↔ canonical repository 一对一，且同一 legacy slug 不能跨代改绑另一个 projectId；预检、正式触发器和事务内 guard 任一发现碰撞都返回 `project_identity_collision`。当前 UI 仍可发送 legacy slug，但只在该 Catalog 中唯一匹配时才转换，不能直接哈希 slug、信任客户端 repository 或使用陈旧 D1 映射。凡返回当前项目记录的 canonical 响应都返回 projectId，并把已验证历史记录的兼容 slug 投影为当前 Catalog 值，暂时供 P1-6C 使用；collection GET 可省略 selector 返回该设备在 current Catalog 中的记录。合法的历史 projectId 即使暂时退出 Catalog 仍保留在 D1 与追加式历史中，但不会出现在当前集合或推荐中；全局反馈 State 聚合和近 7 天 Event/decision 周指标仍直接按 projectId 计入。畸形或版本错误的 stored identity 继续让请求 fail closed，不能被静默过滤。metrics 继续返回聚合值并按 projectId 计算；反馈当前状态和 decision history 也使用相同 canonical 项目身份，推荐不再以可碰撞的 slug 关联偏好。
+Action、feedback、recommendation 与 metrics API 从一次请求加载的同一个 verified Catalog 建立 generation-bound 身份映射。Catalog v3 会核对携带的 projectId 与 repository，retained Catalog v1/v2 则从 `repo` 机械计算 identity v1；current pointer 的 `publishedAt` 同时作为 D1 active-generation 的单调激活顺序，旧慢请求不能回退 legacy capture 边界，而带有更新发布时间的显式 rollback 仍可重新激活 retained generation。全部 retained mappings 还必须保持 projectId ↔ canonical repository 一对一，且同一 legacy slug 不能跨代改绑另一个 projectId；预检、正式触发器和事务内 guard 任一发现碰撞都返回 `project_identity_collision`。P1-6C1 客户端对 Action/feedback 只提交 stable identity pair，recommendation、watch 状态和 React key 也只按 projectId 关联；API 的 legacy slug selector 仍作为旧客户端兼容边界，并且只有在该 Catalog 中唯一匹配时才转换。凡返回当前项目记录的 canonical 响应都返回 projectId，并把已验证历史记录的兼容 slug 投影为当前 Catalog 值；collection GET 可省略 selector 返回该设备在 current Catalog 中的记录。合法的历史 projectId 即使暂时退出 Catalog 仍保留在 D1 与追加式历史中，但不会出现在当前集合或推荐中；全局反馈 State 聚合和近 7 天 Event/decision 周指标仍直接按 projectId 计入。畸形或版本错误的 stored identity 继续让请求 fail closed，不能被静默过滤。metrics 继续返回聚合值并按 projectId 计算；反馈当前状态和 decision history 也使用相同 canonical 项目身份，推荐不再以可碰撞的 slug 关联偏好。
+
+项目详情 canonical URL 为 `/project/v1/<projectId>`。服务端从该请求已经取得的 verified bundle 构造 identity context：Catalog v1/v2 从 `repo` 机械派生 ID，Catalog v3 从 repository 重算并核对发布值；错误版本、畸形、伪造、未知或已退出 current Catalog 的 ID 都 fail closed。旧 `/projects/<slug>` 不再渲染详情：在同一 Catalog 中唯一匹配时返回 `302` 和 `Cache-Control: no-store` 到 canonical URL，未知返回 `404`，歧义返回 `409`，绝不选择第一项或使用陈旧映射。一次页面请求只消费一个 generation，pointer 原子切换后的下一请求立即读取新代。
 
 迁移保持 additive 和 rollback-safe：正式 `drizzle/0004_stable_project_identity.sql` 定义版本化 DDL、反馈历史链和完整触发器边界，runtime bootstrap 直接拆分并重放该文件，不维护第二份 stable DDL；既有 `project_actions`、`project_action_events`、`project_action_state`、feedback、decision history 和兼容触发器均保留，不执行破坏性 down migration。legacy 行只通过明确 Catalog 映射机械迁移，原始发生时间、行动阶段和反馈事实保持不变，不从 State 补造 Event；除 exact disposition policy 明确隔离且保留原事实的行外，无匹配、多匹配、非法行动或非法时间都会明确阻止完成。新 canonical 写入投影到旧 slug 边界，旧代码期间成功写入的事实会在再次升级后被捕获，双向投影使用稳定身份和时间去重，不能制造第二个 Event。若同一 projectId 在新 generation 只改变兼容 slug，adoption 会在同一个原子 batch 内把 mutable `project_action_state`、`feedback` 及对应 canonical State 重键到当前 slug/generation；append-only Action Event、`project_actions` 和 decision history 保留原始 slug 与时间。目标 slug 已被其他 State/feedback 占用时整批 fail closed，重复 adoption 为 no-op，因此旧代码无需等待下一次写入即可读到回滚前的按钮和反馈状态。
 
@@ -49,6 +51,12 @@ Stable D1 首次 adoption 不再只看 current Catalog。Vite host 会在同一�
 首次 backfill 可以在事务内使用唯一、已验证的 retained mapping，但仅限原 legacy 行的机械投影。临时 adoption session 和精确 allowlist 在同一个 D1 batch 内建立并清理；inactive generation 的插入还必须逐字段匹配真实 legacy source。普通 Action/feedback 写入继续只能使用 current generation，不能借 recovery 通道向 retired 项目写新事实。
 
 正式 disposition policy `2026-07-18.1` 只处理已经人工确认的 `officecli` legacy feedback：没有 current 或 retained repository 证据，因此不生成 repository/projectId，不迁移到 canonical 表，也不进入 Stable metrics 或 recommendations。原 feedback/history 保持原样；`project_identity_unresolved_legacy` 只记录 source table/key、exact slug、reason、policy version、首次见到的 generation 与审计时间，不保存 device ID。ledger 拒绝 UPDATE/DELETE；以后只有新的显式 resolution migration 才能处理该事实。`oomol-lab--open-connector` 则只通过 retained generation 中唯一验证的 `oomol-lab/open-connector` mapping 迁移。policy 内容有任何变化都必须提升 `policyVersion`，不能复用既有版本表达不同处置。
+
+### PR #9 正式 Primary Runtime adoption（2026-08-09）
+
+PR #9 已以 Squash merge 提交 `c24b7d6` 合并到 `main`，对应 `main` Verify 通过。停止 Runtime 并完成 data/D1 备份后，正式 D1 adoption 在 current generation `20260809T091719453761Z-69c6385c7279` 上通过：Historical Identity Bundle 验证 6 个 ready generation、180 条 generation mapping、30 个 current 项目和 60 个历史 distinct projectId（其中 30 个仅存在于 retained history）。`oomol-lab/open-connector` 的唯一 retained witness 迁移通过；无 repository 证据的 `officecli` 仅保留原事实并生成 1 条不含 device ID 的 exact quarantine ledger，没有获得 Stable ID。
+
+完整 Runtime 重启后再次执行同一组只读 GET，canonical/legacy 表计数和逻辑摘要保持不变，证明重复 adoption 为 no-op；Manager、Website、Scheduler、`/api/health` 与 3000 端口均保持 healthy。current pointer、正式 generation 数据和 21 个历史 failed candidate 未被修改或清理。
 
 ## 开发
 
@@ -224,5 +232,5 @@ npm run data:derive
 - 陌生仓库默认只读分析，禁止自动执行代码。
 - 北极星指标按近 7 天发生“试用 / 浅克隆 / 确认复用”的不同项目数计算；反馈只用于学习排序，不再冒充实际结果。
 - 行动 Event 只追加且由服务端生成发生时间；State 由数据库触发器在同一写入内更新，不能代替历史事件参与周指标。
-- 新 JSON 数据产物以及 canonical D1/API 状态以 Stable Project ID 作为唯一项目身份；旧 slug 只保留为显示或经 verified Catalog 解析的 legacy 兼容字段。页面组件、路由、链接和旧 URL 迁移仍留给 P1-6C。
+- 新 JSON 数据产物、canonical D1/API 状态以及 P1-6C1 页面组件、路由、链接和客户端关联都以 Stable Project ID 作为唯一项目身份；旧 slug 只保留为显示或经 verified Catalog 严格解析的 legacy 兼容字段。跨 retained history 放宽 slug collision 门禁仍留给 P1-6C2。
 - 官方 RSS 优先；AI News Radar、OpenGithubs 和 HelloGitHub 只作为可归因的补充信号，第三方榜单增长必须由 Rardar 自有快照验证。

@@ -32,11 +32,16 @@ test("contains the complete Rardar home experience", async () => {
     dailyList,
     projectCard,
     projectActions,
+    feedbackButtons,
+    deviceId,
     projectPage,
+    legacyProjectRoute,
     candidatesPage,
+    discoverPage,
     watchlist,
     personalization,
     projectIdentity,
+    clientProjectIdentity,
     scoreSemantics,
     schema,
     ensure,
@@ -69,11 +74,16 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/components/PersonalizedDailyList.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/ProjectCard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/ProjectActions.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/projects/[slug]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/FeedbackButtons.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/device-id.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/project/[projectIdVersion]/[projectId]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/projects/[slug]/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/candidates/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/discover/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/WatchlistClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/personalization.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/project-identity.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/client-project-identity.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/score-semantics.mjs", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/ensure.ts", import.meta.url), "utf8"),
@@ -107,6 +117,9 @@ test("contains the complete Rardar home experience", async () => {
   assert.doesNotMatch(data, /starsToday/);
   assert.match(serverData, /await loadPublishedBundleFromBridge/);
   assert.match(serverData, /normalizeCatalogSnapshot\(bundle\.catalog\)/);
+  assert.match(serverData, /createProjectIdentityContext\(/);
+  assert.match(serverData, /identityContext\.stableProjects\(normalizedCatalog\.projects\)/);
+  assert.match(serverData, /identityContext,/);
   assert.match(serverData, /projects\.slice\(0, 5\)/);
   assert.match(publishedLoader, /current\.json/);
   assert.match(publishedLoader, /manifestSha256/);
@@ -168,26 +181,74 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(projectActions, /inFlightActions/);
   assert.match(projectActions, /retryKeys/);
   assert.match(projectActions, /createProjectActionIdempotencyKey/);
-  assert.match(projectActions, /projectSlug=\$\{encodeURIComponent\(projectSlug\)\}/);
-  assert.match(projectActions, /recordProjectAction\(requestProjectSlug, action, idempotencyKey\)/);
-  assert.match(projectPage, /<ProjectActions key=\{project\.slug\}/);
-  assert.match(projectPage, /projectSlug=\{project\.slug\}/);
+  assert.match(projectActions, /stableProjectSelector\(\{ projectIdVersion, projectId \}\)/);
+  assert.match(projectActions, /projectIdVersion: String\(project\.projectIdVersion\)/);
+  assert.match(projectActions, /projectId: project\.projectId/);
+  assert.match(projectActions, /recordProjectAction\(requestProject, action, idempotencyKey\)/);
+  assert.doesNotMatch(projectActions, /projectSlug|requestProjectSlug/);
+  assert.match(feedbackButtons, /stableProjectSelector\(\{ projectIdVersion, projectId \}\)/);
+  assert.match(feedbackButtons, /projectIdVersion: String\(project\.projectIdVersion\)/);
+  assert.match(feedbackButtons, /projectId: project\.projectId/);
+  assert.match(feedbackButtons, /body: JSON\.stringify\(\{[\s\S]*\.\.\.project,[\s\S]*value,/);
+  assert.match(feedbackButtons, /detail: \{ \.\.\.project, value \}/);
+  assert.match(feedbackButtons, /if \(saveInFlight\.current\) return/);
+  assert.match(feedbackButtons, /saveInFlight\.current = true/);
+  assert.match(feedbackButtons, /saveInFlight\.current = false/);
+  assert.match(feedbackButtons, /disabled=\{saving\}/);
+  assert.match(feedbackButtons, /mutationVersionAtStart = successfulMutationVersion\.current/);
+  assert.match(feedbackButtons, /isFreshClientRead\(/);
+  assert.match(feedbackButtons, /successfulMutationVersion\.current \+= 1/);
+  assert.match(feedbackButtons, /successfulMutationVersion\.current \+= 1;[\s\S]*setSelected\(value\)/);
+  assert.doesNotMatch(feedbackButtons, /projectSlug/);
+  assert.match(deviceId, /type ClientProjectIdentity = \{ projectIdVersion: 1; projectId: string \}/);
+  assert.match(deviceId, /body: JSON\.stringify\(\{ deviceId, \.\.\.project, action, idempotencyKey \}\)/);
+  assert.match(deviceId, /detail: \{ \.\.\.project, action \}/);
+  assert.doesNotMatch(deviceId, /projectSlug/);
+  assert.match(projectPage, /projectIdVersion !== "v1"\) notFound\(\)/);
+  assert.match(projectPage, /resolveProjectSelector\(identityContext, \{ projectIdVersion: 1, projectId \}\)/);
+  assert.match(projectPage, /data-generation=\{generationId\}/);
+  assert.match(projectPage, /<FeedbackButtons[\s\S]*key=\{`feedback:\$\{project\.projectId\}`\}/);
+  assert.match(projectPage, /<ProjectActions[\s\S]*key=\{`actions:\$\{project\.projectId\}`\}/);
+  assert.match(projectPage, /projectIdVersion=\{project\.projectIdVersion\}/);
+  assert.match(projectPage, /projectId=\{project\.projectId\}/);
+  assert.match(legacyProjectRoute, /resolveProjectSelector\(identityContext, \{ projectSlug: slug \}\)/);
+  assert.match(legacyProjectRoute, /status: 302/);
+  assert.match(legacyProjectRoute, /"cache-control": "no-store"/);
+  assert.match(legacyProjectRoute, /location: canonicalProjectPath\(project\)/);
+  assert.match(legacyProjectRoute, /projectIdentityErrorResponse/);
   assert.doesNotMatch(projectActions, /if \(selected\.has\(action\)\) return/);
-  assert.match(watchlist, /item\.action !== "saved"/);
-  assert.match(watchlist, /next\[item\.projectSlug\]/);
-  assert.match(watchlist, /statusBySlug\[project\.slug\]/);
+  assert.match(watchlist, /collectWatchStatusesByProjectId/);
+  assert.match(watchlist, /statusByProjectId\.has\(project\.projectId\)/);
+  assert.match(watchlist, /statusByProjectId\.get\(project\.projectId\)/);
+  assert.match(watchlist, /key=\{project\.projectId\}/);
+  assert.doesNotMatch(watchlist, /statusBySlug|next\[item\.projectSlug\]/);
   assert.match(watchlist, /已收藏/);
   assert.match(recommendationsRoute, /rankProjects/);
   assert.match(recommendationsRoute, /createProjectIdentityContext/);
   assert.match(recommendationsRoute, /identityContext\.stableProjects\(published\.projects\)/);
   assert.match(recommendationsRoute, /readStableFeedback/);
   assert.match(recommendationsRoute, /ensureDecisionSchema\(identityContext\.identityCatalog\)/);
+  assert.match(recommendationsRoute, /generationId: published\.generationId/);
   assert.match(dailyList, /rardar:feedback|feedbackEventName/);
   assert.match(dailyList, /currentRequestVersion = \+\+requestVersion\.current/);
   assert.match(dailyList, /currentRequestVersion !== requestVersion\.current/);
-  assert.match(dailyList, /projectBySlug/);
-  assert.match(dailyList, /key=\{project\.slug\}/);
-  assert.match(projectCard, /href=\{`\/projects\/\$\{project\.slug\}`\}/);
+  assert.match(dailyList, /resultState\?\.generationId === generationId/);
+  assert.match(dailyList, /resultForGeneration\(generationId, responseResult\)/);
+  assert.match(dailyList, /setResultState\(\{ generationId: nextResult\.generationId, result: nextResult \}\)/);
+  assert.match(dailyList, /\}, \[generationId\]\)/);
+  assert.match(dailyList, /associateProjectsById\(projects, result\.recommendations\)/);
+  assert.match(dailyList, /key=\{project\.projectId\}/);
+  assert.doesNotMatch(dailyList, /projectBySlug|recommendation\.slug/);
+  assert.match(page, /generationId=\{generationId\}/);
+  assert.match(page, /href=\{canonicalProjectPath\(leadProject\)\}/);
+  assert.match(projectCard, /href=\{canonicalProjectPath\(project\)\}/);
+  assert.doesNotMatch(projectCard, /\/projects\/\$\{project\.slug\}/);
+  assert.match(candidatesPage, /href=\{canonicalProjectPath\(project\)\}/);
+  assert.match(candidatesPage, /key=\{project\.projectId\}/);
+  assert.match(discoverPage, /key=\{project\.projectId\}/);
+  assert.match(searchWorkbench, /href=\{canonicalProjectPath\(project\)\}/);
+  assert.match(searchWorkbench, /key=\{project\.projectId\}/);
+  assert.doesNotMatch(`${page}\n${candidatesPage}\n${discoverPage}\n${searchWorkbench}`, /\/projects\/\$\{project\.slug\}/);
   assert.match(personalization, /降低重复曝光/);
   assert.match(personalization, /evidenceBaseScore\(project\)/);
   assert.doesNotMatch(personalization, /globalScore|reuseScore/);
@@ -212,6 +273,16 @@ test("contains the complete Rardar home experience", async () => {
   assert.doesNotMatch(projectIdentity, /stored_project_identity_mismatch/);
   assert.match(projectIdentity, /identityCatalog/);
   assert.doesNotMatch(projectIdentity, /node:crypto|createHash/);
+  assert.match(clientProjectIdentity, /export function canonicalProjectPath/);
+  assert.match(clientProjectIdentity, /`\/project\/v1\/\$\{encodeURIComponent\(identity\.projectId\)\}`/);
+  assert.match(clientProjectIdentity, /export function stableProjectSelector/);
+  assert.match(clientProjectIdentity, /export function isFreshClientRead/);
+  assert.match(clientProjectIdentity, /export function resultForGeneration/);
+  assert.match(clientProjectIdentity, /export function indexStableProjectsById/);
+  assert.match(clientProjectIdentity, /export function associateProjectsById/);
+  assert.match(clientProjectIdentity, /export function collectWatchStatusesByProjectId/);
+  assert.match(clientProjectIdentity, /item\?\.action === "saved"/);
+  assert.doesNotMatch(clientProjectIdentity, /projectSlug/);
   assert.match(scoreSemantics, /schemaVersion === 1/);
   assert.match(scoreSemantics, /schemaVersion === 2/);
   assert.match(scoreSemantics, /engineeringReadiness: null/);

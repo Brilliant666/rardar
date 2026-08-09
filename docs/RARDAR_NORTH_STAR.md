@@ -73,7 +73,7 @@ Rardar 的价值不以页面浏览量衡量，而以是否帮助用户采取有�
 - 网络重试不得造成重复计数；
 - 反馈“有用/无用”不能冒充工程行动。
 
-实现边界：每次真实行动写入以 `projectIdVersion: 1` 与 `projectId` 为项目身份的追加式 canonical Event，同一设备内以客户端为一次用户意图生成的幂等键去重；canonical State 仅保存当前最高阶段和各真实阶段的最近发生时间。周指标只查询 Event 的服务端时间窗口并按不同 projectId 去重，按钮和观察列表只查询 State。当前 UI 在 P1-6C 前仍可提交 legacy slug，但服务端只能通过同一次请求加载的已验证 Catalog 唯一映射到 projectId；无匹配、多匹配或身份不一致时必须失败。State 不得反向补造 Event，也不得因为已经到达某阶段而永久阻止以后再次记录同一种真实行动。
+实现边界：每次真实行动写入以 `projectIdVersion: 1` 与 `projectId` 为项目身份的追加式 canonical Event，同一设备内以客户端为一次用户意图生成的幂等键去重；canonical State 仅保存当前最高阶段和各真实阶段的最近发生时间。周指标只查询 Event 的服务端时间窗口并按不同 projectId 去重，按钮和观察列表只查询 State。P1-6C1 页面、按钮、反馈、推荐关联、观察列表和 React key 都使用 Stable Project ID；legacy slug 只作为显示和旧 URL 输入，并且只能由同一次请求加载的已验证 Catalog 严格解析。无匹配、多匹配或身份不一致时必须失败。State 不得反向补造 Event，也不得因为已经到达某阶段而永久阻止以后再次记录同一种真实行动。
 
 ## 3.2 辅助指标
 
@@ -185,7 +185,7 @@ AI 判断不得覆盖、改写或伪造事实层。
 - 指标基于事件，并按 projectId 而不是 legacy slug 识别不同项目。
 - UI 状态基于 State。
 - 不得用唯一状态表代替时间序列事件。
-- legacy slug 只允许作为经当前 verified Catalog 唯一映射的兼容输入；不得直接哈希 slug、猜测仓库归属或使用陈旧映射。
+- canonical 项目 URL 使用 `/project/v1/<projectId>`；legacy slug 只允许作为经当前 verified Catalog 严格解析的旧 URL 输入，唯一匹配重定向、未知和歧义都显式失败，不得直接哈希 slug、猜测仓库归属或使用陈旧映射。
 
 ## 4.7 个性化不能覆盖事实主干
 

@@ -79,15 +79,16 @@ git remote -v
 5. 统一 verify 和 GitHub Actions——已由 PR #7、提交 `3430e30` 完成；
 6. 稳定项目 ID——大阶段正在进行，必须依次拆成独立工程轮：
    - P1-6A 身份契约与 JSON 数据层——已由 PR #8、提交 `d41033f` 完成；
-   - P1-6B D1 与 Action API 采用 `projectId`——当前第一个未完成项，只由当前独立 Draft PR 交付；
-   - P1-6C UI、页面路由与 legacy URL 兼容——P1-6B 合并后的唯一下一项；
+   - P1-6B D1 与 Action API 采用 `projectId`——已由 PR #9、提交 `c24b7d6` 完成，正式 Primary Runtime adoption/restart/no-op 已通过；
+   - P1-6C1 client/UI、页面路由与 legacy URL 兼容——当前第一个未完成项，只由当前独立 Draft PR 交付；
+   - P1-6C2 collision history 与 legacy slug 发布门禁演进——P1-6C1 合并后的独立候选目标；
 7. 环境和开源治理文档；
 8. 静态能力识别升级；
 9. 任务到项目匹配；
 10. 用户项目上下文；
 11. 隔离验证闭环。
 
-P1-6B 合并前不得开始 P1-6C；P1-6A 合并不代表整个 P1-6 完成，当前 P1-6B Draft PR 也不代表 `main` 已完成 P1-6B。每次合并后仍需从最新 `main` 和迭代记录重新确认状态，再按“选择列表中第一个尚未完成的目标”规则建立独立分支。
+P1-6C1 合并前不得开始 P1-6C2；PR #9 合并只代表 P1-6B 完成，不代表整个 P1-6 完成，当前 P1-6C1 Draft PR 也不能解释为 `main` 已完成客户端迁移。P1-6C1 必须保持现有 unresolved legacy slug collision 发布门禁，P1-6C2 才能在独立证据和回滚协议下处理 collision history。每次合并后仍需从最新 `main` 和迭代记录重新确认状态，再按“选择列表中第一个尚未完成的目标”规则建立独立分支。
 
 不得跳过可信数据基线，直接构建复杂 Agent、向量检索或自动执行系统。
 

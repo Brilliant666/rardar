@@ -2,11 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { Project } from "../data";
+import {
+  canonicalProjectPath,
+  collectWatchStatusesByProjectId,
+} from "../client-project-identity.mjs";
+import type { StableProject } from "../data";
 import { getDeviceId } from "./device-id";
 
-export function WatchlistClient({ projects }: { projects: Project[] }) {
-  const [statusBySlug, setStatusBySlug] = useState<Record<string, string[]>>({});
+export function WatchlistClient({ projects }: { projects: StableProject[] }) {
+  const [statusByProjectId, setStatusByProjectId] = useState<Map<string, string[]>>(new Map());
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -24,21 +28,16 @@ export function WatchlistClient({ projects }: { projects: Project[] }) {
 
     request
       .then(([feedbackPayload, actionPayload]) => {
-        const next: Record<string, string[]> = {};
-        for (const item of feedbackPayload.feedback ?? []) {
-          if (item.value === "待确定") next[item.projectSlug] = ["待确定"];
-        }
-        for (const item of actionPayload.actions ?? []) {
-          if (item.action !== "saved") continue;
-          next[item.projectSlug] = [...(next[item.projectSlug] ?? []), "已收藏"];
-        }
-        setStatusBySlug(next);
+        setStatusByProjectId(collectWatchStatusesByProjectId(
+          feedbackPayload.feedback,
+          actionPayload.actions,
+        ));
       })
-      .catch(() => setStatusBySlug({}))
+      .catch(() => setStatusByProjectId(new Map()))
       .finally(() => setLoaded(true));
   }, []);
 
-  const watched = projects.filter((project) => statusBySlug[project.slug]);
+  const watched = projects.filter((project) => statusByProjectId.has(project.projectId));
 
   if (!loaded) return <div className="empty-state">正在读取观察列表…</div>;
   if (!watched.length) {
@@ -55,8 +54,8 @@ export function WatchlistClient({ projects }: { projects: Project[] }) {
   return (
     <div className="watch-grid">
       {watched.map((project) => (
-        <Link key={project.slug} href={`/projects/${project.slug}`} className="watch-card">
-          <span>{statusBySlug[project.slug].join(" · ")} · {project.category}</span>
+        <Link key={project.projectId} href={canonicalProjectPath(project)} className="watch-card">
+          <span>{statusByProjectId.get(project.projectId)?.join(" · ")} · {project.category}</span>
           <strong>{project.repo}</strong>
           <p>{project.whyNow}</p>
         </Link>
