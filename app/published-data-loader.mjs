@@ -12,6 +12,7 @@ const RFC3339_WITH_TIMEZONE =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const REQUIRED_ARTIFACTS = Object.freeze({
+  snapshot: "snapshots/latest.json",
   catalog: "catalog/latest.json",
   signals: "signals/latest.json",
   signalEnrichment: "signals/enrichment.json",
@@ -283,11 +284,17 @@ export function loadPublishedBundle(dataDirectory = process.env.RARDAR_DATA_DIR 
   const buffers = readVerifiedArtifacts(realGenerationRoot, artifacts, manifest.hashes);
 
   const parseArtifact = (path) => readJsonBuffer(buffers.get(path), path);
+  const snapshot = parseArtifact(REQUIRED_ARTIFACTS.snapshot);
+  const snapshotCapturedAt = requireTimestamp(
+    snapshot.captured_at,
+    `${REQUIRED_ARTIFACTS.snapshot} captured_at`,
+  );
   return deepFreeze({
     generationId,
     publishedAt: pointer.publishedAt,
     previousGenerationId: pointer.previousGenerationId,
     manifest,
+    snapshotCapturedAt,
     catalog: parseArtifact(REQUIRED_ARTIFACTS.catalog),
     signals: parseArtifact(REQUIRED_ARTIFACTS.signals),
     signalEnrichment: parseArtifact(REQUIRED_ARTIFACTS.signalEnrichment),

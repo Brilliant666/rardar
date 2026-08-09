@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import { loadPublishedBundleFromBridge } from "./published-data-client";
 import type { CatalogSnapshot, StableProject } from "./data";
 import {
@@ -5,6 +6,13 @@ import {
   type ProjectIdentityContext,
 } from "./project-identity.mjs";
 import { normalizeCatalogSnapshot } from "./score-semantics.mjs";
+import {
+  evaluateDataFreshness,
+  parseRfc3339Instant,
+  runtimeReadinessConfig,
+  type DataFreshness,
+  type RuntimeReadinessConfig,
+} from "./runtime-readiness.mjs";
 import {
   applySignalEnrichments,
   type CodexQueueSnapshot,
@@ -16,6 +24,8 @@ export type PublishedData = {
   generationId: string;
   publishedAt: string;
   previousGenerationId: string | null;
+  dataFreshness: DataFreshness;
+  runtimeReadiness: RuntimeReadinessConfig;
   catalog: Omit<CatalogSnapshot, "projects"> & { projects: StableProject[] };
   identityContext: ProjectIdentityContext;
   projects: StableProject[];
@@ -37,6 +47,17 @@ export async function loadPublishedData(): Promise<PublishedData> {
   }
   const bundle = await loadPublishedBundleFromBridge();
   const normalizedCatalog = normalizeCatalogSnapshot(bundle.catalog) as unknown as CatalogSnapshot;
+  if (
+    parseRfc3339Instant(normalizedCatalog.capturedAt)
+    !== parseRfc3339Instant(bundle.snapshotCapturedAt)
+  ) {
+    throw new Error("published generation is unavailable: snapshot and Catalog capturedAt do not match");
+  }
+  const runtimeReadiness = runtimeReadinessConfig(env as unknown as Record<string, unknown>);
+  const dataFreshness = evaluateDataFreshness(
+    bundle.snapshotCapturedAt,
+    runtimeReadiness.staleAfterSeconds,
+  );
   const identityContext = await createProjectIdentityContext(
     bundle.generationId,
     normalizedCatalog,
@@ -53,6 +74,8 @@ export async function loadPublishedData(): Promise<PublishedData> {
     generationId: bundle.generationId,
     publishedAt: bundle.publishedAt,
     previousGenerationId: bundle.previousGenerationId,
+    dataFreshness,
+    runtimeReadiness,
     catalog,
     identityContext,
     projects,

@@ -142,3 +142,13 @@ npm run verify
 ## 合并门槛与下一目标
 
 本轮必须完成行为测试、完整 `npm run verify`、文档与 Draft PR 后停止。只有 Draft PR 人工审查并合并到 `main` 后，P1-6C1 才完成；此前不得开始 P1-6C2。P1-6C2 仍需独立定义 collision history、迁移、兼容 URL 和回滚协议，不能在本轮顺带实现。
+
+## 合并后状态更新（2026-08-10）
+
+以上 Draft、门槛与“尚未进入 main”的措辞保留为工程轮当时的历史记录。随后事实为：
+
+- PR #13 已在 head `b463d2b9bbb1d7c97eb15aa4902caa3360bdb48c` 上完成 required Verify，并于 2026-08-10 00:22:06 `Asia/Shanghai` Squash merge；
+- Squash merge 提交为 `dfed8f0ffbb67ff080dc783839f57514dfa05e87`，PR head tree 与 merge tree 精确一致；
+- PR Verify run `31320900294` 与 main push Verify run `31323603841` 均为 `SUCCESS`；
+- Primary Runtime 随后只同步应用代码；current generation 仍为 `20260809T091719453761Z-69c6385c7279`，snapshot 仍为 `2026-08-09T09:17:18.220502Z`，D1 facts 与 21 个历史 failed candidate 均未改变，也未执行 refresh；
+- 因此 P1-6C1 已完成。P1-6C2 仍未完成且当前 deferred；legacy slug collision gate 未放宽。

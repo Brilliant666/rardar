@@ -80,15 +80,15 @@ git remote -v
 6. 稳定项目 ID——大阶段正在进行，必须依次拆成独立工程轮：
    - P1-6A 身份契约与 JSON 数据层——已由 PR #8、提交 `d41033f` 完成；
    - P1-6B D1 与 Action API 采用 `projectId`——已由 PR #9、提交 `c24b7d6` 完成，正式 Primary Runtime adoption/restart/no-op 已通过；
-   - P1-6C1 client/UI、页面路由与 legacy URL 兼容——当前第一个未完成项，只由当前独立 Draft PR 交付；
-   - P1-6C2 collision history 与 legacy slug 发布门禁演进——P1-6C1 合并后的独立候选目标；
+   - P1-6C1 client/UI、页面路由与 legacy URL 兼容——已由 PR #13、提交 `dfed8f0` 完成；
+   - P1-6C2 collision history 与 legacy slug 发布门禁演进——仍未完成，当前经用户明确决策 deferred；
 7. 环境和开源治理文档；
 8. 静态能力识别升级；
 9. 任务到项目匹配；
 10. 用户项目上下文；
 11. 隔离验证闭环。
 
-P1-6C1 合并前不得开始 P1-6C2；PR #9 合并只代表 P1-6B 完成，不代表整个 P1-6 完成，当前 P1-6C1 Draft PR 也不能解释为 `main` 已完成客户端迁移。P1-6C1 必须保持现有 unresolved legacy slug collision 发布门禁，P1-6C2 才能在独立证据和回滚协议下处理 collision history。每次合并后仍需从最新 `main` 和迭代记录重新确认状态，再按“选择列表中第一个尚未完成的目标”规则建立独立分支。
+PR #13 合并只代表 P1-6C1 完成，不代表整个 P1-6 完成；现有 unresolved legacy slug collision 发布门禁继续保持，只有未来独立的 P1-6C2 才能在完整证据和回滚协议下处理 collision history。默认优先级仍会把 P1-6C2 视为后续未完成项，但用户可按本协议明确指定另一个有边界的目标；当前 Runtime Operational Readiness 即为这样的显式 override，完成后不能被解释为 P1-6C2 已完成或优先级永久改写。每次合并后仍需从最新 `main` 和迭代记录重新确认状态。
 
 不得跳过可信数据基线，直接构建复杂 Agent、向量检索或自动执行系统。
 

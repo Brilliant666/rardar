@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import math
 import os
 import re
 import shutil
@@ -21,6 +22,20 @@ from http.client import HTTPConnection, HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+from pipeline.runtime_settings import (
+    DEFAULT_SCHEDULE_AT,
+    DEFAULT_SCHEDULE_TIMEZONE,
+    DEFAULT_STALE_AFTER_HOURS,
+    SCHEDULER_ALREADY_RUNNING_EXIT_CODE,
+    RuntimeSettings,
+    RuntimeSettingsError,
+    RuntimeTimezoneDatabaseError,
+    default_runtime_settings,
+    load_runtime_settings,
+    validate_schedule_at,
+    validate_schedule_timezone,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +62,7 @@ LOCAL_URL = "http://127.0.0.1:3000/"
 STATUS_HOST = "127.0.0.1"
 STATUS_PORT = 3002
 MINIMUM_NODE = (22, 13, 0)
-REQUIRED_PYTHON_MODULES = ("jsonschema",)
+REQUIRED_PYTHON_MODULES = ("jsonschema", "tzdata")
 PYTHON_DEPENDENCY_INSTALL_COMMAND = "python -m pip install -r requirements.txt"
 MAX_LOG_BYTES = 5 * 1024 * 1024
 LOG_BACKUP_COUNT = 2
@@ -59,8 +74,12 @@ WEBSITE_HEALTH_MAX_BYTES = 64 * 1024
 GENERATION_ID_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
 )
+RFC3339_WITH_TIMEZONE_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+)
 _latest_status: dict[str, Any] = {}
 _latest_status_lock = threading.Lock()
+_UNBOUND_SCHEDULER_PROCESS = object()
 
 
 def acquire_manager_lock(path: Path = LOCK_PATH) -> Any | None:
@@ -399,6 +418,12 @@ class WebsiteHealth:
     state: str
     generation_id: str | None = None
     error: str | None = None
+    data_freshness: str | None = None
+    snapshot_captured_at: str | None = None
+    snapshot_age_seconds: float | None = None
+    stale_after_seconds: int | None = None
+    schedule_at: str | None = None
+    schedule_timezone: str | None = None
 
 
 def _short_health_error(value: object, limit: int = 240) -> str:
@@ -422,13 +447,70 @@ def parse_website_health(status: int, body: bytes) -> WebsiteHealth:
             error=_short_health_error(f"health endpoint returned HTTP {status}: {detail}"),
         )
     generation_id = payload.get("generationId")
+    data = payload.get("data")
+    schedule = payload.get("schedule")
     if (
-        payload.get("status") != "healthy"
+        payload.get("schemaVersion") != 1
+        or payload.get("status") not in {"healthy", "degraded"}
         or not isinstance(generation_id, str)
         or GENERATION_ID_PATTERN.fullmatch(generation_id) is None
+        or not isinstance(data, dict)
+        or not isinstance(schedule, dict)
     ):
         return WebsiteHealth("degraded", error="health endpoint returned an invalid contract")
-    return WebsiteHealth("healthy", generation_id=generation_id)
+    freshness = data.get("freshness")
+    snapshot_captured_at = data.get("snapshotCapturedAt")
+    age_seconds = data.get("ageSeconds")
+    stale_after_seconds = data.get("staleAfterSeconds")
+    if (
+        freshness not in {"fresh", "stale"}
+        or not isinstance(snapshot_captured_at, str)
+        or isinstance(age_seconds, bool)
+        or not isinstance(age_seconds, (int, float))
+        or not math.isfinite(age_seconds)
+        or age_seconds < 0
+        or isinstance(stale_after_seconds, bool)
+        or not isinstance(stale_after_seconds, int)
+        or stale_after_seconds < 1
+    ):
+        return WebsiteHealth("degraded", error="health endpoint returned an invalid contract")
+    captured = (
+        _parse_utc_timestamp(snapshot_captured_at)
+        if RFC3339_WITH_TIMEZONE_PATTERN.fullmatch(snapshot_captured_at)
+        else None
+    )
+    if captured is None:
+        return WebsiteHealth("degraded", error="health endpoint returned an invalid contract")
+    observed_age = (datetime.now(timezone.utc) - captured).total_seconds()
+    if observed_age < -300 or abs(max(0, observed_age) - float(age_seconds)) > 15:
+        return WebsiteHealth("degraded", error="health endpoint returned an invalid contract")
+    # Validate freshness against the age measured by the Worker for this
+    # response. The manager clock is necessarily a little later and may cross
+    # the exact threshold while the response is in flight.
+    expected_freshness = "fresh" if float(age_seconds) <= stale_after_seconds else "stale"
+    expected_status = "healthy" if expected_freshness == "fresh" else "degraded"
+    expected_reason = None if expected_freshness == "fresh" else "published_data_stale"
+    try:
+        schedule_at = validate_schedule_at(schedule.get("at"))
+        schedule_timezone = validate_schedule_timezone(schedule.get("timezone"))
+    except RuntimeSettingsError:
+        return WebsiteHealth("degraded", error="health endpoint returned an invalid contract")
+    if (
+        freshness != expected_freshness
+        or payload.get("status") != expected_status
+        or payload.get("reason") != expected_reason
+    ):
+        return WebsiteHealth("degraded", error="health endpoint returned an invalid contract")
+    return WebsiteHealth(
+        "healthy",
+        generation_id=generation_id,
+        data_freshness=freshness,
+        snapshot_captured_at=snapshot_captured_at,
+        snapshot_age_seconds=float(age_seconds),
+        stale_after_seconds=stale_after_seconds,
+        schedule_at=schedule_at,
+        schedule_timezone=schedule_timezone,
+    )
 
 
 def probe_website_health(
@@ -514,14 +596,30 @@ def _service_payload(service: ManagedService, state: str) -> dict[str, Any]:
     }
 
 
-def _scheduler_details() -> dict[str, Any]:
-    status = _read_json(SCHEDULER_STATUS_PATH) or {}
+def _effective_schedule(settings: RuntimeSettings) -> dict[str, str]:
+    return {"time": settings.schedule_at, "timezone": settings.schedule_timezone}
+
+
+def _scheduler_details(
+    settings: RuntimeSettings | None = None,
+    expected_process_id: int | None | object = _UNBOUND_SCHEDULER_PROCESS,
+) -> dict[str, Any]:
+    stored = _read_json(SCHEDULER_STATUS_PATH) or {}
+    resolved = settings or default_runtime_settings()
+    reported_process_id = stored.get("processId")
+    telemetry_trusted = expected_process_id is _UNBOUND_SCHEDULER_PROCESS or (
+        isinstance(expected_process_id, int) and reported_process_id == expected_process_id
+    )
+    status = stored if telemetry_trusted else {}
     return {
         "refreshState": status.get("state", "scheduled"),
-        "schedule": status.get("schedule", {"time": "08:00", "timezone": "Asia/Shanghai"}),
+        # The manager configuration is authoritative. The scheduler status is
+        # telemetry and can never reconfigure a running child.
+        "schedule": _effective_schedule(resolved),
         "nextRunAt": status.get("nextRunAt"),
         "lastRunStartedAt": status.get("lastRunStartedAt"),
         "lastRunCompletedAt": status.get("lastRunCompletedAt"),
+        "lastSuccessfulRefreshAt": status.get("lastSuccessfulRefreshAt"),
         "lastError": status.get("lastError"),
         "retryAttempt": status.get("retryAttempt"),
         "heartbeatAt": status.get("heartbeatAt"),
@@ -534,22 +632,43 @@ def _scheduler_details() -> dict[str, Any]:
         "generationErrorCode": status.get("generationErrorCode"),
         "retryable": status.get("retryable", True),
         "remoteAnalysisErrorCode": status.get("remoteAnalysisErrorCode"),
+        "telemetryTrusted": telemetry_trusted,
+        "reportedProcessId": reported_process_id,
     }
 
 
-def _stopped_status(message: str = "本地运行管理器未启动") -> dict[str, Any]:
+def _stopped_status(
+    message: str = "本地运行管理器未启动",
+    settings: RuntimeSettings | None = None,
+) -> dict[str, Any]:
+    resolved = settings or default_runtime_settings()
     return {
         "schemaVersion": 1,
         "state": "stopped",
         "checkedAt": utc_now(),
         "message": message,
         "managerPid": None,
+        "data": {
+            "freshness": "invalid",
+            "currentGenerationId": None,
+            "snapshotCapturedAt": None,
+            "snapshotAgeSeconds": None,
+            "staleAfterSeconds": resolved.stale_after_seconds,
+            "lastSuccessfulRefreshAt": None,
+            "lastSuccessfulSnapshotAt": None,
+            "warning": None,
+        },
+        "schedule": {
+            "at": resolved.schedule_at,
+            "timezone": resolved.schedule_timezone,
+            "nextRunAt": None,
+        },
         "services": {
             "website": {"state": "stopped", "pid": None, "url": LOCAL_URL},
             "scheduler": {
                 "state": "stopped",
                 "pid": None,
-                **_scheduler_details(),
+                **_scheduler_details(resolved, None),
             },
         },
     }
@@ -562,6 +681,7 @@ def _run_manager() -> int:
     if isinstance(existing_pid, int) and existing_pid != current_pid and process_is_alive(existing_pid):
         return 0
 
+    settings = load_runtime_settings()
     node = find_node()
     environment = os.environ.copy()
     environment["PATH"] = str(node.parent) + os.pathsep + environment.get("PATH", "")
@@ -571,6 +691,9 @@ def _run_manager() -> int:
     # interpreter that passed the manager dependency preflight instead of
     # relying on a potentially different global ``python`` on PATH.
     environment["RARDAR_PYTHON"] = sys.executable
+    environment["RARDAR_SCHEDULE_AT"] = settings.schedule_at
+    environment["RARDAR_SCHEDULE_TIMEZONE"] = settings.schedule_timezone
+    environment["RARDAR_STALE_AFTER_HOURS"] = str(settings.stale_after_hours)
 
     website = ManagedService(
         "website",
@@ -586,9 +709,9 @@ def _run_manager() -> int:
             "--data-dir",
             "data",
             "--at",
-            "08:00",
+            settings.schedule_at,
             "--timezone",
-            "Asia/Shanghai",
+            settings.schedule_timezone,
             "--analyze-top",
             "5",
             "--status-path",
@@ -608,7 +731,7 @@ def _run_manager() -> int:
     signal.signal(signal.SIGTERM, request_stop)
     _write_json(CONTROL_PATH, {"pid": current_pid, "startedAt": utc_now()})
 
-    starting_status = _stopped_status("网站与每日刷新正在启动")
+    starting_status = _stopped_status("网站与每日刷新正在启动", settings)
     starting_status.update({"state": "starting", "managerPid": current_pid})
     starting_status["services"]["website"]["state"] = "starting"
     starting_status["services"]["scheduler"]["state"] = "starting"
@@ -626,6 +749,12 @@ def _run_manager() -> int:
                     if service._log_handle:
                         service._log_handle.close()
                         service._log_handle = None
+                    if (
+                        service.name == "scheduler"
+                        and exit_code == SCHEDULER_ALREADY_RUNNING_EXIT_CODE
+                    ):
+                        service.last_error = "another scheduler owns the managed data directory"
+                        continue
                     time.sleep(2)
                     service.start(environment)
 
@@ -634,21 +763,51 @@ def _run_manager() -> int:
                 website_health = probe_website_health()
             website_state = website_health.state
             website.last_error = website_health.error
-            scheduler_details = _scheduler_details()
+            if (
+                website_health.state == "healthy"
+                and (
+                    website_health.schedule_at != settings.schedule_at
+                    or website_health.schedule_timezone != settings.schedule_timezone
+                    or website_health.stale_after_seconds != settings.stale_after_seconds
+                )
+            ):
+                website_health = WebsiteHealth(
+                    "degraded",
+                    error="health endpoint reported runtime settings that differ from the manager",
+                )
+                website_state = "degraded"
+                website.last_error = website_health.error
+            scheduler_process_id = (
+                scheduler.process.pid
+                if scheduler.process is not None and scheduler.poll() is None
+                else None
+            )
+            scheduler_details = _scheduler_details(settings, scheduler_process_id)
+            scheduler_exit_code = scheduler.poll()
             scheduler_state = (
                 scheduler_heartbeat_state(
                     scheduler_details.get("heartbeatAt"),
                     scheduler.started_at,
                 )
-                if scheduler.poll() is None
-                else "restarting"
+                if scheduler_exit_code is None
+                else (
+                    "blocked"
+                    if scheduler_exit_code == SCHEDULER_ALREADY_RUNNING_EXIT_CODE
+                    else "restarting"
+                )
             )
             if scheduler_state == "stale":
                 scheduler.last_error = "scheduler heartbeat became stale"
                 scheduler.stop()
                 scheduler.start(environment)
                 scheduler_state = "restarting"
-            overall_state = "healthy" if website_state == scheduler_state == "healthy" else "degraded"
+            data_freshness = website_health.data_freshness or "invalid"
+            services_healthy = website_state == scheduler_state == "healthy"
+            overall_state = (
+                "healthy"
+                if services_healthy and data_freshness == "fresh"
+                else "degraded"
+            )
             scheduler_payload = _service_payload(scheduler, scheduler_state)
             scheduler_payload.update(scheduler_details)
             scheduler_payload["processError"] = scheduler.last_error
@@ -657,15 +816,40 @@ def _run_manager() -> int:
                 "state": overall_state,
                 "checkedAt": utc_now(),
                 "message": (
-                    "网站与每日刷新均由本地管理器看护"
+                    "网站、每日刷新与已发布数据均正常"
                     if overall_state == "healthy"
                     else (
+                        "网站与调度正常，但已发布数据超过新鲜度阈值"
+                        if services_healthy and data_freshness == "stale"
+                        else (
                         "网站健康检查失败，进程保持运行并等待数据恢复"
                         if website_state == "degraded"
                         else "服务正在启动或恢复"
+                        )
                     )
                 ),
                 "managerPid": current_pid,
+                "data": {
+                    "freshness": data_freshness,
+                    "currentGenerationId": website_health.generation_id,
+                    "snapshotCapturedAt": website_health.snapshot_captured_at,
+                    "snapshotAgeSeconds": website_health.snapshot_age_seconds,
+                    "staleAfterSeconds": settings.stale_after_seconds,
+                    "lastSuccessfulRefreshAt": scheduler_details.get(
+                        "lastSuccessfulRefreshAt"
+                    ),
+                    "lastSuccessfulSnapshotAt": website_health.snapshot_captured_at,
+                    "warning": (
+                        "Data freshness: STALE"
+                        if data_freshness == "stale"
+                        else None
+                    ),
+                },
+                "schedule": {
+                    "at": settings.schedule_at,
+                    "timezone": settings.schedule_timezone,
+                    "nextRunAt": scheduler_details.get("nextRunAt"),
+                },
                 "services": {
                     "website": {
                         **_service_payload(website, website_state),
@@ -682,7 +866,7 @@ def _run_manager() -> int:
         status_server.server_close()
         for service in reversed(services):
             service.stop()
-        write_runtime_status(_stopped_status("本地运行管理器已停止"))
+        write_runtime_status(_stopped_status("本地运行管理器已停止", settings))
         try:
             CONTROL_PATH.unlink(missing_ok=True)
         except OSError:
@@ -695,25 +879,86 @@ def run_manager() -> int:
     if manager_lock is None:
         return 0
     try:
-        return _run_manager()
+        try:
+            return _run_manager()
+        except RuntimeSettingsError as error:
+            print(f"Rardar runtime configuration error: {error}")
+            return 2
     finally:
         release_manager_lock(manager_lock)
 
 
-def start_manager(open_browser: bool = False) -> int:
-    control = _read_json(CONTROL_PATH) or {}
-    manager_pid = control.get("pid")
-    existing_status = _read_json(STATUS_PATH) or {}
-    manager_active = (
-        isinstance(manager_pid, int)
-        and process_is_alive(manager_pid)
-        and heartbeat_is_fresh(existing_status.get("checkedAt"))
+def _active_runtime_settings(status: dict[str, Any]) -> tuple[object, object, object]:
+    schedule = status.get("schedule") if isinstance(status.get("schedule"), dict) else {}
+    services = status.get("services") if isinstance(status.get("services"), dict) else {}
+    scheduler = services.get("scheduler") if isinstance(services.get("scheduler"), dict) else {}
+    legacy_schedule = (
+        scheduler.get("schedule") if isinstance(scheduler.get("schedule"), dict) else {}
     )
+    data = status.get("data") if isinstance(status.get("data"), dict) else {}
+    return (
+        schedule.get("at", legacy_schedule.get("time", DEFAULT_SCHEDULE_AT)),
+        schedule.get(
+            "timezone", legacy_schedule.get("timezone", DEFAULT_SCHEDULE_TIMEZONE)
+        ),
+        data.get("staleAfterSeconds", DEFAULT_STALE_AFTER_HOURS * 60 * 60),
+    )
+
+
+def _manager_status_matches_control(
+    status: dict[str, Any],
+    control: dict[str, Any],
+) -> bool:
+    manager_pid = status.get("managerPid")
+    return (
+        isinstance(manager_pid, int)
+        and control.get("pid") == manager_pid
+        and process_is_alive(manager_pid)
+        and heartbeat_is_fresh(status.get("checkedAt"))
+    )
+
+
+def start_manager(open_browser: bool = False) -> int:
+    try:
+        requested_settings = load_runtime_settings()
+    except RuntimeTimezoneDatabaseError as error:
+        if not python_dependencies_are_ready():
+            return 1
+        print(f"Rardar runtime configuration error: {error}")
+        return 2
+    except RuntimeSettingsError as error:
+        print(f"Rardar runtime configuration error: {error}")
+        return 2
+    control = _read_json(CONTROL_PATH) or {}
+    existing_status = _read_json(STATUS_PATH) or {}
+    manager_active = _manager_status_matches_control(existing_status, control)
     if manager_active:
+        requested = (
+            requested_settings.schedule_at,
+            requested_settings.schedule_timezone,
+            requested_settings.stale_after_seconds,
+        )
+        if _active_runtime_settings(existing_status) != requested:
+            print(
+                "Rardar runtime configuration changes require "
+                "npm run local:stop followed by npm run local:start; "
+                "the active runtime was not changed"
+            )
+            return 1
         if existing_status.get("state") == "healthy":
             print(f"Rardar is already managed at {LOCAL_URL}")
             if open_browser:
                 webbrowser.open(LOCAL_URL)
+            return 0
+        data = existing_status.get("data") or {}
+        services = existing_status.get("services") or {}
+        website_state = (services.get("website") or {}).get("state")
+        scheduler_state = (services.get("scheduler") or {}).get("state")
+        if (
+            data.get("freshness") == "stale"
+            and website_state == scheduler_state == "healthy"
+        ):
+            print(f"Rardar is running at {LOCAL_URL}, but published data is stale")
             return 0
         website = ((existing_status.get("services") or {}).get("website") or {})
         detail = website.get("lastError") or existing_status.get("message") or "health check failed"
@@ -740,7 +985,7 @@ def start_manager(open_browser: bool = False) -> int:
         )
     command = [sys.executable, "-m", "pipeline.runtime", "run"]
     try:
-        subprocess.Popen(
+        manager_process = subprocess.Popen(
             command,
             cwd=ROOT,
             stdin=subprocess.DEVNULL,
@@ -758,7 +1003,7 @@ def start_manager(open_browser: bool = False) -> int:
             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
             | getattr(subprocess, "CREATE_NO_WINDOW", 0)
         )
-        subprocess.Popen(
+        manager_process = subprocess.Popen(
             command,
             cwd=ROOT,
             stdin=subprocess.DEVNULL,
@@ -772,8 +1017,27 @@ def start_manager(open_browser: bool = False) -> int:
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         status = _read_json(STATUS_PATH) or {}
-        if status.get("state") == "healthy" and heartbeat_is_fresh(status.get("checkedAt")):
+        active_control = _read_json(CONTROL_PATH) or {}
+        status_data = status.get("data") or {}
+        status_services = status.get("services") or {}
+        data_only_degraded = (
+            status.get("state") == "degraded"
+            and status_data.get("freshness") == "stale"
+            and (status_services.get("website") or {}).get("state") == "healthy"
+            and (status_services.get("scheduler") or {}).get("state") == "healthy"
+        )
+        if (
+            (status.get("state") == "healthy" or data_only_degraded)
+            and status.get("managerPid") == manager_process.pid
+            and active_control.get("pid") == manager_process.pid
+            and heartbeat_is_fresh(status.get("checkedAt"))
+        ):
             print(f"Rardar is running at {LOCAL_URL}")
+            if data_only_degraded:
+                print(
+                    "Warning: published data is STALE "
+                    f"(threshold {requested_settings.stale_after_hours}h)"
+                )
             if open_browser:
                 webbrowser.open(LOCAL_URL)
             return 0
@@ -807,10 +1071,8 @@ def stop_manager() -> int:
 
 def show_status() -> int:
     status = _read_json(STATUS_PATH) or _stopped_status()
-    manager_pid = status.get("managerPid")
-    fresh = heartbeat_is_fresh(status.get("checkedAt"))
-    manager_alive = isinstance(manager_pid, int) and process_is_alive(manager_pid)
-    if not fresh or not manager_alive:
+    control = _read_json(CONTROL_PATH) or {}
+    if not _manager_status_matches_control(status, control):
         status = {**status, "state": "stale", "message": "运行心跳已过期，服务状态不可信"}
     print(json.dumps(status, ensure_ascii=False, indent=2))
     return 0 if status.get("state") == "healthy" else 1

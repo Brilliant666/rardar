@@ -72,25 +72,33 @@ PR #6 已通过提交 `ab34119` 合并到 `main`，评分语义 P1-4 已完成�
 9. 测试至少覆盖 v1/v2 契约互斥、空值边界、静态证据当前性、无任务上下文、风险与许可证门槛、审计篡改、旧版网页兼容、个性化和真实 HTTP 读取。
 10. 不顺带实现 verify/CI、稳定项目 ID、新信源、UI 重设计、第三方代码执行或部署；运行完整验证，创建 Draft PR，然后停止。
 
-## 当前 P1-6C1 Client Stable Project Identity 工程轮
+## 当前 Runtime Operational Readiness 工程轮
 
-PR #9 已通过 Squash merge 提交 `c24b7d6` 合并到 `main`，对应 `main` Verify 已通过。P1-6B 的正式 Primary Runtime D1 adoption、完整重启与重复只读 adoption no-op 也已验证通过；服务端 Stable Project ID、D1 兼容迁移与 API 边界已经完成。
+P1-6C1 已由 PR #13 通过 Squash merge 提交 `dfed8f0` 合并到 `main`，PR head 与 main push Verify 均通过，Primary Runtime 也已在不执行 refresh、不改变 current generation、snapshot 或 D1 facts 的前提下完成代码同步。P1-6C2 collision history 仍未完成，但经用户明确决策暂时 deferred，不作为本轮上线前运维可靠性工作的 blocker，也不得被解释为已经完成。
 
-P1-6 Stable IDs 大阶段仍在进行；本轮唯一目标是：
+本轮唯一目标是：
 
-> P1-6C1：让网页路由、链接、组件交互、个性化关联和浏览器本地状态使用 Stable Project ID，同时为旧 slug URL 提供严格、无猜测的兼容解析。
+> 让 Managed Runtime 的每日 schedule 成为显式、可验证且只有一个 owner 的配置，并从当前 verified generation 所绑定的 snapshot `capturedAt` 主动暴露 data freshness，区分“服务存活但数据陈旧”与“published data 已损坏”。
 
 当前分支：
 
 ```text
-feat/stable-project-ui-identity
+feat/runtime-operational-readiness
 ```
 
-本轮只交付客户端与页面消费边界。所有项目级 UI identity、Action/feedback 请求、recommendation/watch 关联和 React key 都使用 `projectIdVersion: 1` 与 `projectId`；slug 只作为显示字段和 legacy URL 输入。canonical 详情 URL 固定为 `/project/v1/<projectId>`。旧 `/projects/<slug>` 只在同一次请求加载的 verified Catalog 中解析：唯一匹配返回 `302` 且 `Cache-Control: no-store`，未知返回 `404`，歧义返回 `409`；不得选择第一项、哈希 slug、信任客户端 repository 或回退陈旧 D1 映射。
+配置契约固定为：
 
-Catalog v1/v2 消费时从 `repo` 机械派生 identity v1，Catalog v3 必须从 repository 重算并核对已发布 projectId。页面一次请求只使用同一个 published generation bundle；current 原子切换后的下一请求必须看到新 generation，退出现行 Catalog 的 projectId 必须 fail closed，而不能显示旧 generation 项目。
+```text
+RARDAR_SCHEDULE_AT=08:00
+RARDAR_SCHEDULE_TIMEZONE=Asia/Shanghai
+RARDAR_STALE_AFTER_HOURS=36
+```
 
-P1-6C1 不放宽现有 unresolved legacy slug collision 发布门禁。让新 generation 真正接受相同 legacy slug、处理 retained collision history 和定义兼容 URL 的长期歧义策略属于后续 P1-6C2 独立工程轮。
+环境缺失时使用以上默认值；时间必须是 canonical `HH:MM`，timezone 必须是可加载的 IANA 名称，阈值必须是正整数小时。非法配置在创建或停止任何进程、写入 Runtime 状态之前失败。Manager 启动时只读取一次配置并把显式参数传给唯一 Scheduler；运行中改变环境不会热更新，必须完整 `local:stop` / `local:start`。`nextRunAt` 仍只由 Scheduler 计算，status JSON 只是 telemetry，不是配置来源。对同一个 canonical data directory，第二个 Scheduler 必须在写 status 或 refresh 前失败。
+
+freshness 的唯一权威是 verified current generation 的 `snapshots/latest.json captured_at`，并要求与同 generation Catalog `capturedAt` 表示同一 UTC instant。年龄不使用文件 mtime、进程启动时间、heartbeat 或 current.json mtime。默认阈值为 36 小时：小于或等于阈值是 `fresh`；超过阈值是 `stale`；非法时间、超出五分钟时钟偏差的未来时间、current/manifest/hash/snapshot 解析失败都是 `invalid` 并保持 fail closed。
+
+仅 stale 时网页继续可读，`/api/health` 返回 HTTP 200、overall `degraded` 和结构化 freshness；`local:status` 必须显示 effective schedule、timezone、next run、last successful refresh、current generation、snapshot time/age/threshold 与 `STALE`；首页只显示轻量提示，不阻断浏览。结构损坏继续返回 503/页面错误，不得伪装成 stale。
 
 ## 执行流程
 
@@ -119,22 +127,21 @@ npm run verify
 建议：
 
 ```text
-feat/stable-project-ui-identity
+feat/runtime-operational-readiness
 ```
 
 ### 4. 实现
 
 要求：
 
-- 最小改动，复用 `app/project-identity.mjs` 的 identity v1、resolver 与共享 golden vectors；
-- 服务端页面入口从同一次 verified published bundle 构造 generation-bound identity context；Catalog v1/v2 从 `repo` 机械派生，v3 从 repository 重算并严格核对；
-- 所有页面项目、链接、React key、Action/feedback props 与请求、recommendation 关联和 watch/local 状态以 projectId 为键；slug 仅用于显示和 legacy URL 输入；
-- canonical 详情页为 `/project/v1/<projectId>`，并严格拒绝错误版本、畸形、伪造、未知或已退出 current Catalog 的 ID；
-- `/projects/<slug>` 唯一匹配时返回 `302` 与 `Cache-Control: no-store`，未知返回 `404`，歧义返回 `409`；不得把 redirect 当成 canonical identity；
-- 页面与 API 的一次请求不得分别读取两次 current 或混合 generation；pointer 切换后下一请求读取新 generation；
-- 保持现有 `drizzle/0004_stable_project_identity.sql`、D1 schema、adoption、API legacy selector 和 collision/unresolved 发布门禁不变；
-- 不实现 P1-6C2 collision history，不修改 scheduler 配置，不清理 21 个 failed candidate，不开始 TrendRadar、P2、复杂 Agent 或新信源；
-- 不执行第三方仓库代码，不部署，不修改 `main`，不自动合并。
+- schedule 的 Python/Manager/Scheduler 参数使用一份严格配置契约，默认行为仍为 `08:00 Asia/Shanghai`；
+- Manager 是托管模式下唯一 Scheduler owner；scheduler status 必须绑定当前 child PID 与 frozen config，外来或旧 telemetry 不得冒充 healthy；
+- current generation loader 继续验证 pointer、manifest、artifact hashes 与 audit，并只把同 generation snapshot 的时间标量传入 Worker；
+- freshness 使用固定 36 小时默认阈值与五分钟未来偏差，边界可注入时钟测试但生产没有跳过验证的入口；
+- stale 与 corrupt 分流：stale 只降低 data readiness，不重启仍存活的网站；corrupt 继续 fail closed；
+- `local:start`、`local:status`、`/api/health` 和首页展示同一个 effective schedule 与 freshness 事实；
+- 不实现新的 missed-run catch-up，不改变 refresh/candidate/publish 算法，不启动第二 Scheduler；
+- 不实现 P1-6C2，不修改 `0004`/D1/adoption，不清理 21 个 failed candidate，不部署，不开始 TrendRadar/P2、新信源或复杂 Agent。
 
 ### 5. 测试
 
@@ -142,15 +149,14 @@ feat/stable-project-ui-identity
 
 至少覆盖：
 
-- Catalog v1/v2 的 UI identity 机械派生和 Catalog v3 的已发布 identity 重算核对；
-- canonical URL 构造、详情 SSR、错误版本、畸形/伪造/未知 ID、路径编码与 current Catalog 退役项目；
-- legacy slug 唯一 `302 no-store`、未知 `404`、歧义 `409`，不得猜测目标；
-- 两个项目即使提供相同显示 slug，recommendation、watch 状态、反馈、行动和 React key 仍按不同 projectId 隔离；
-- Action/feedback 客户端 payload 只发送 stable identity pair，不再把 slug 当作 canonical selector；
-- pointer 原子切换后，无需重启的下一次真实 Vinext HTTP 请求读取新 generation，单个响应不混代；
-- Catalog v1 retained rollback 后 canonical/legacy 路由仍可保守读取；
-- 现有 D1/API、Weekly metric、Schema/Audit、Primary Runtime、正式 data 与 3000 端口不回归；
-- 完整 `npm run verify` 通过。
+- 默认/custom/非法 schedule、timezone 与 stale threshold，以及 CLI override 优先级；
+- Manager child argv/env、完整 restart 后采用新配置、运行中不热更新、status 不能反向改 schedule；
+- canonical data directory 的 Scheduler 单实例锁与外来 PID telemetry 拒绝；
+- `<36h`、`=36h`、`>36h`、非法/未来 snapshot 时间；
+- pointer switch 同时更新 generation 与 snapshot freshness，损坏 pointer/manifest/hash 不降级成 stale；
+- stale 时 health HTTP 200/degraded、local status STALE、首页 banner；fresh 时不显示 banner；
+- 真实隔离 Vinext HTTP 使用随机 loopback 端口且不占 3000/3002，结束后无残留进程或状态；
+- 完整 `npm run verify`、production audit、正式 data/Git/Primary Runtime 隔离门禁通过。
 
 ### 6. 完整验证
 
@@ -171,11 +177,11 @@ PR 描述包含：
 背景
 问题
 修改
-generation-bound UI 身份
-canonical 项目路由
-legacy slug redirect 与错误语义
-Action、feedback、recommendation 与 watch 客户端迁移
-Catalog v1/v2/v3 兼容
+schedule 配置来源与默认值
+Scheduler 单一 ownership
+snapshot freshness 权威与边界
+stale / corrupt HTTP 语义
+local status 与首页提示
 兼容性
 测试
 安全边界
@@ -198,7 +204,8 @@ P1-6C2 非目标
 6. 稳定项目 ID——大阶段正在进行：
    - P1-6A 身份契约与 JSON 数据层——已由 PR #8、提交 `d41033f` 完成；
    - P1-6B D1 与 Action API 采用 `projectId`——已由 PR #9、提交 `c24b7d6` 完成，正式 Primary Runtime adoption/restart/no-op 已通过；
-   - P1-6C1 客户端、页面路由与 legacy URL 兼容——当前唯一工程轮；
-   - P1-6C2 collision history 与 legacy slug 发布门禁演进——P1-6C1 合并后的独立候选目标，本轮不得开始。
+   - P1-6C1 客户端、页面路由与 legacy URL 兼容——已由 PR #13、提交 `dfed8f0` 完成；
+   - P1-6C2 collision history 与 legacy slug 发布门禁演进——仍未完成，但经用户明确选择在本轮 deferred。
+7. Runtime Operational Readiness——当前用户明确授权的唯一工程轮；完成 Draft PR 后停止。
 
 每轮只做一项，每轮创建 Draft PR，每轮完成后停止。

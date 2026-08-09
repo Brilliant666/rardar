@@ -84,6 +84,7 @@ function requireBundle(value: unknown): RawPublishedBundle {
   if (
     !isRecord(value.manifest) ||
     value.manifest.generationId !== generationId ||
+    !isTimestamp(value.snapshotCapturedAt) ||
     !isRecord(value.catalog) ||
     !isRecord(value.signals) ||
     !isRecord(value.signalEnrichment) ||

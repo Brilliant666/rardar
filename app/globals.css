@@ -2131,6 +2131,28 @@ input:focus-visible {
   line-height: 1.75;
 }
 
+.data-freshness-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.25rem 0 0;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(181, 117, 27, 0.34);
+  border-radius: 0.85rem;
+  background: rgba(255, 241, 210, 0.68);
+  color: #6f460d;
+  font-size: 0.86rem;
+}
+
+.data-freshness-warning strong {
+  white-space: nowrap;
+}
+
+.data-freshness-warning span {
+  text-align: right;
+}
+
 .score-explanation-list {
   display: grid;
   gap: 12px;

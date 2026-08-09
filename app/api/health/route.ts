@@ -9,14 +9,30 @@ function shortError(error: unknown): string {
 
 export async function GET() {
   try {
-    const { generationId } = await loadPublishedData();
+    const { generationId, dataFreshness, runtimeReadiness } = await loadPublishedData();
+    const stale = dataFreshness.freshness === "stale";
     return Response.json(
-      { status: "healthy", generationId },
+      {
+        schemaVersion: 1,
+        status: stale ? "degraded" : "healthy",
+        ...(stale ? { reason: "published_data_stale" } : {}),
+        generationId,
+        data: dataFreshness,
+        schedule: {
+          at: runtimeReadiness.scheduleAt,
+          timezone: runtimeReadiness.scheduleTimezone,
+        },
+      },
       { status: 200, headers: noStoreHeaders },
     );
   } catch (error) {
     return Response.json(
-      { status: "degraded", error: shortError(error) },
+      {
+        schemaVersion: 1,
+        status: "degraded",
+        reason: "published_generation_unavailable",
+        error: shortError(error),
+      },
       { status: 503, headers: noStoreHeaders },
     );
   }

@@ -5,6 +5,7 @@ import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { publishedDataBridge } from "./build/published-data-bridge";
 import { sites } from "./build/sites-vite-plugin";
+import { runtimeReadinessConfig } from "./app/runtime-readiness.mjs";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
@@ -50,6 +51,7 @@ export default defineConfig(async () => {
   ensureLoopbackBypassesProxy();
 
   const localPort = localPortFromEnvironment();
+  const readiness = runtimeReadinessConfig(process.env);
   const bridgeOrigin = `http://127.0.0.1:${localPort}`;
   const bridgeToken = randomBytes(32).toString("hex");
   const localBindingConfig = {
@@ -58,6 +60,9 @@ export default defineConfig(async () => {
     vars: {
       RARDAR_DATA_BRIDGE_ORIGIN: bridgeOrigin,
       RARDAR_DATA_BRIDGE_TOKEN: bridgeToken,
+      RARDAR_SCHEDULE_AT: readiness.scheduleAt,
+      RARDAR_SCHEDULE_TIMEZONE: readiness.scheduleTimezone,
+      RARDAR_STALE_AFTER_HOURS: String(readiness.staleAfterHours),
     },
     d1_databases: d1
       ? [
