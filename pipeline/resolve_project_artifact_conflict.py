@@ -27,9 +27,10 @@ from typing import Any, Iterator, Sequence
 
 from pipeline.data_lock import data_dir_lock
 from pipeline.generations import (
+    CandidateGenerationError,
     GenerationProtocolError,
-    _verify_rollback_target,
     resolve_current_generation,
+    verify_retained_generation,
 )
 from pipeline.migrate_project_identity import (
     ProjectIdentityMigrationError,
@@ -1366,17 +1367,19 @@ def _load_stable_reference(
         manifest = current.manifest
     else:
         try:
-            root, manifest, _audit, _digest = _verify_rollback_target(
+            verified = verify_retained_generation(
                 data_dir,
                 retained_generation,
             )
-        except GenerationProtocolError as error:
+        except (CandidateGenerationError, GenerationProtocolError) as error:
             raise ArtifactConflictResolutionError(
                 "invalid_archived_stable_reference",
                 "the retained stable generation bound to the audit record failed "
                 f"strict validation: {error}",
             ) from None
-        generation_id = retained_generation
+        generation_id = verified.generation_id
+        root = verified.root
+        manifest = verified.manifest
 
     relative = f"{kind_name}/{project_id}.json"
     artifacts = manifest.get("artifacts")
