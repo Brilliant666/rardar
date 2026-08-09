@@ -152,6 +152,21 @@ generation 只改变同一 projectId 的兼容 slug 时，adoption 仅原子重�
 
 本修正仍属于 Draft PR #9 的 P1-6B 范围，不开始 P1-6C。完整本地 Verify 与 GitHub Verify 仍以本轮实际执行结果为准。
 
+## Latest main integration 与真实副本复演（2026-08-09）
+
+Draft PR #9 已将最新 `main` 提交 `9b081e4` 合入开发分支，保留 PR #10 的 staging conflict resolver、PR #11 的依赖安全升级和 PR #12 的有界远程分析生命周期。合并提交为 `3dbfc1c`；随后以 `1943285` 将 resolver 从已移除的私有 generation verifier 迁移到公开、严格的 `verify_retained_generation`，没有放松 ready manifest、artifact hash、Schema、Audit 或路径安全边界。P1-6B 当前仍是“实现与复演完成、等待 Draft PR 人工审查”，只有 PR #9 合并到 `main` 后才视为完成。
+
+本次复演使用 Primary Runtime 的只读一致副本：正式 Runtime 全程保持运行，正式 D1、`data/`、3000 端口和 current pointer 均未修改。副本来源 generation 为 `20260809T091719453761Z-69c6385c7279`，snapshot 为 `2026-08-09T09:17:18.220502+00:00`。结果如下：
+
+- Historical Identity Bundle 严格验证 6 个 visible ready generation、180 条 mapping；current Catalog 为 30 个项目，另有 30 个只存在于历史 generation 的 retired identity，projectId、repository 与 legacy slug 关系均无冲突；
+- legacy 事实保持 6 条 Action、6 条 Action Event、2 条 State、4 条 feedback 和 4 条 decision history；adoption 后 canonical 事实为 6 条 Event、2 条 State、3 条 feedback 和 4 条 decision history，State 与 Event 投影完全一致；
+- `oomol-lab--open-connector` 的 1 条 feedback 和 2 条 decision history 绑定到最近 verified witness `20260713T191537075729Z-4e2e9d09fae2`；`officecli` 仅生成 1 条 exact feedback quarantine ledger，未生成 Stable Event、State、feedback 或周指标事实；
+- 首次只读 adoption、完整停止后重复 adoption、latest-main `9b081e4` 读取已迁移副本、PR #8 `d41033f` 读取同一副本，以及两次重新升级均成功；legacy 与 Stable 逻辑摘要保持不变，没有 destructive down migration 或部分写入；
+- PR #10 兼容复核确认 current generation 严格解析、Schema/Audit、Historical Bundle、resolver dry-run 和 scratch candidate adoption 均通过；scratch 中 active staging conflict 为 0，正式 21 个 failed candidate 未读取、清理或修改；
+- 完整 `npm run verify` 通过：Python 360 项（16 项按平台预期跳过）、Node 64/64、Schema/Audit、production build、依赖安全审计及全部隔离门禁均 healthy。
+
+复演结束后所有临时 Vinext/workerd 进程、随机端口和 detached rollback worktree 均已清理。TrendRadar 只作为 P1-6 完成后的研究候选，本轮未实现，也不改变当前 P1-6B → P1-6C 的治理顺序。
+
 ## P1-6C 明确非目标
 
 本轮不修改页面 route、链接、React key、组件 identity、按钮 props、观察列表本地映射或 legacy URL redirect。P1-6B Draft PR 合并前不得开始 P1-6C；合并后仍须从最新 `main` 创建独立工程轮。
