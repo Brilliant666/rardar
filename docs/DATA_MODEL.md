@@ -134,6 +134,10 @@ Catalog v3 只能配 Queue v2；Catalog v1/v2 继续配 Queue v1。未知组合�
 
 独立采集器和静态扫描器在共享锁外完成网络与磁盘扫描，并先验证候选 payload；锁内只重复边界验证、比较产物时间和执行原子替换。时间早于现有正式文件的候选会被拒绝，项目画像/静态证据也不能覆盖已属于另一个仓库的碰撞文件名，因此慢任务不会以旧结果回写，也不会长期占用数据锁。
 
+远程静态分析把“证据获取失败”和“资源生命周期无法证明”分开处理。浅克隆不捕获 stdout/stderr 管道；Windows 在 clone 主线程执行前把 suspended process 纳入设置了 `KILL_ON_JOB_CLOSE`、不允许 breakaway 的独立 Job Object，POSIX 使用独立 session/process group。成功、非零退出、超时或 wait 异常都必须在固定截止时间内确认整树清空，才能读取 checkout、删除 partial checkout 或进入官方 archive fallback；成功根进程留下后代也会作为 lifecycle 异常拒绝。Windows partial clone 的 promisor pack 可能带 `FILE_ATTRIBUTE_READONLY`；整树退出后，清理器只对身份未变的自有根内、单链接、普通且确有只读位的文件清除此位并重试一次，不修改 ACL/所有权，不处理共享占用，也不跟随 symlink、junction 或其他 reparse point。无法确认 Job/process group、checkout 或分析临时目录清理时抛出稳定 lifecycle error，refresh 立即使 candidate 在 build 阶段失败，current 不变；scheduler 将该次运行标记为不可自动重试，并由 Runtime 状态透传错误码。进程尚未创建的 spawn 错误和已确认资源收口后的网络、clone 或 archive 内容失败仍属于普通证据获取失败，最终可记录为单仓 `analysisFailures`，并在 Schema/Audit 无 error 时发布 degraded generation。
+
+官方源码 ZIP 的 100,000 成员上限是元数据准入门槛，不等于静态扫描数量。任何 checkout 写入前必须遍历全部成员，拒绝多根目录、绝对或穿越路径、NUL/反斜杠、重复或大小写碰撞、file-directory 冲突、加密与不支持的成员类型；即使成员最终会因目录、后缀或符号链接被跳过，也不能绕过预检。预检通过后按 NFC 规范化相对路径排序，只选择前 12,000 个合格文件，选中声明和实际内容均受 600 MB 上限约束并完成 CRC 检查；超过单文件文本上限的选中文件只生成空占位，但仍完整读取以验证完整性。提取先写唯一私有 staging，全部成功后才原子切换为 checkout；下载先写 `.part`，实际字节和可信 Content-Length 都受 120 MB 上限约束。
+
 Codex enrichment 采用显式草稿和 staging 边界：先将结果写到 `data/` 之外，再运行 `python -m pipeline.ingest_enrichment --kind project|signal --input <draft>`。入口会先解析 `..` 与符号链接并拒绝整个 `data/` 树内的草稿，再在共享数据锁内严格解析、校验、按仓库身份确定 flat staging 目标并原子替换。队列中的 `outputPath` 表示 staging 归属，不授权直接覆盖；只有后续 `data:derive` 通过 generation gates 后才会成为页面数据。
 
 Project enrichment v2 同时绑定 identity v1 与两项来源版本：`projectId` 必须由 `repository` 精确重算，`sourcePushedAt` 必须与当前 Catalog v3 项目的同名字段字符串完全相同，`sourceAnalysisAt` 必须与当前 static evidence v2 的 `analyzed_at` 字符串完全相同。Codex 只能从 Queue v2 原样复制；repository、projectId、文件名或任一来源版本不一致，`analyzedAt` 无有效时区，或画像时间早于来源静态证据时，catalog 和 queue 都把画像判为无效或过期，generation audit 不允许发布。ingest 负责 Schema、草稿边界、身份和时间先后校验，不把进入 flat staging 等同于正式发布。Project enrichment v0/v1 只作为 legacy 输入或 retained generation 兼容，不会被静默升级为 v2。

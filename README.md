@@ -18,7 +18,7 @@ Rardar 是一个证据优先的开源情报与项目复用雷达。它将技术�
 - 公共项目只读浅克隆与静态分析工具
 - 每日生成的本地 Codex 中文深读队列
 
-当前网页只读取 `data/current.json` 指向的不可变 generation。Vinext Cloudflare Worker 不直接读取宿主文件；默认 `vinext dev` 通过仅接受回环请求和随机 token 的 Vite host 数据桥，在每次网页或 API 请求中让 Node host 完整解析一次 current、manifest 和全部 artifact 哈希，再把同一 generation 的一次性 bundle 交给 Worker。桥地址由本地 Vinext 配置固定，不信任或转发外部请求的 `Host`，避免回环 SSRF 与 token 泄露。每个 generation 同时保存真实 GitHub API 快照、目录、技术动态、中文画像和 Codex 队列，因此单个响应不会把不同代的数据混在一起；下一请求会立即观察到原子 pointer 切换，损坏 current 时直接失败而不回退 flat。首次采集只展示明确标注的“创建以来速度代理”；第二次刷新起会自动归档旧快照并计算真实观测区间增长。刷新流程还会对前五名执行隔离用户 Git 配置的只读浅克隆，静态检查代码、测试、文档与许可证，不执行仓库代码；浅克隆不可用时，改用限制下载体积、解压体积和文件数的 GitHub 官方源码归档，并跳过符号链接。技术动态来自官方 RSS 与可归因的社区补充源，先去重、标注信源健康，再由本地 Codex 为前五条生成中文要点。
+当前网页只读取 `data/current.json` 指向的不可变 generation。Vinext Cloudflare Worker 不直接读取宿主文件；默认 `vinext dev` 通过仅接受回环请求和随机 token 的 Vite host 数据桥，在每次网页或 API 请求中让 Node host 完整解析一次 current、manifest 和全部 artifact 哈希，再把同一 generation 的一次性 bundle 交给 Worker。桥地址由本地 Vinext 配置固定，不信任或转发外部请求的 `Host`，避免回环 SSRF 与 token 泄露。每个 generation 同时保存真实 GitHub API 快照、目录、技术动态、中文画像和 Codex 队列，因此单个响应不会把不同代的数据混在一起；下一请求会立即观察到原子 pointer 切换，损坏 current 时直接失败而不回退 flat。首次采集只展示明确标注的“创建以来速度代理”；第二次刷新起会自动归档旧快照并计算真实观测区间增长。刷新流程还会对前五名执行隔离用户 Git 配置的只读浅克隆，静态检查代码、测试、文档与许可证，不执行仓库代码。浅克隆不继承输出管道；Windows 先以 suspended 状态创建进程、纳入禁止 breakaway 的 Job Object 后再恢复，POSIX 使用独立 session/process group。无论 clone 成功、失败还是超时，分析器都在返回前有界确认本次完整进程树已经退出；只有清理已确认时才允许读取 checkout 或改用 GitHub 官方源码归档。Windows Git 若把自有 partial-clone pack 标记为只读，分析器只会在整树退出后，对身份绑定、单链接、普通且确有 `READONLY` 位的自有文件清除该位并重试一次；leaf symlink 只删除链接本身且绝不跟随，ACL、共享占用、硬链接、junction/其他 reparse 或身份变化仍会 fail closed。归档先对最多 100,000 个成员做全量路径和类型预检，再按规范化路径确定性选择最多 12,000 个文件；下载上限为 120 MB，选中内容的解压上限为 600 MB，符号链接和不需要的二进制文件不会物化。技术动态来自官方 RSS 与可归因的社区补充源，先去重、标注信源健康，再由本地 Codex 为前五条生成中文要点。
 
 近期动量与长期高热分开计算。长期高热在历史样本不足时只使用总 Star、仓库年龄、近期维护和 Fork 生态形成明确标注的结构代理，不把一次快照冒充为“长期持续霸榜”。持续性判断使用最近最多 30 次候选快照；同一仓库在至少 7 次快照中出现且覆盖率达到 70% 后，会自动升级为多周期持续热度验证。
 
@@ -159,7 +159,7 @@ npm run local:stop
 npm run data:schedule
 ```
 
-默认在 `Asia/Shanghai` 每天 08:00 刷新 GitHub 快照、前五静态检查和技术动态。刷新期间调度器会持续写入运行心跳；若进程中途退出，管理器重启后会在 12 小时窗口内补跑，网络等临时故障则每 5 分钟重试，单轮最多 3 次。守护进程不会部署网站，也不会执行候选仓库代码。
+默认在 `Asia/Shanghai` 每天 08:00 刷新 GitHub 快照、前五静态检查和技术动态。刷新期间调度器会持续写入运行心跳；若进程中途退出，管理器重启后会在 12 小时窗口内补跑，网络等临时故障则每 5 分钟重试，单轮最多 3 次。若 Git 进程树或临时 checkout 的清理无法确认，本轮 candidate 会 fail closed，scheduler 写入 `retryable: false` 和 `remoteAnalysisErrorCode`，不在同一周期自动重试；普通且已安全收口的单仓分析失败仍可记录为 degraded。守护进程不会部署网站，也不会执行候选仓库代码。
 
 “动态”页面从本地管理器的实时心跳读取运行状态；旧状态超过 35 秒就会显示需要重新启动，不再把过期的 `scheduled` 文件误报为正在运行。
 

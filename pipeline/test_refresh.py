@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline.analyze_repository import StaticEvidence
+from pipeline.analyze_repository import RemoteCloneLifecycleError, StaticEvidence
 from pipeline.audit_data import audit_data
 from pipeline.generations import (
     CandidateGenerationError,
@@ -77,7 +77,91 @@ class StubClient:
         ]
 
 
+class TwoProjectClient(StubClient):
+    def search(self, query: str, per_page: int = 30):
+        first = super().search(query, per_page)[0]
+        second = {
+            **first,
+            "full_name": "demo/second-tool",
+            "html_url": "https://github.com/demo/second-tool",
+        }
+        return [first, second]
+
+
 class RefreshTests(unittest.TestCase):
+    def test_recoverable_static_analysis_failure_publishes_degraded_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            _bootstrap(data_dir)
+            pointer_before = (data_dir / "current.json").read_bytes()
+
+            with (
+                patch(
+                    "pipeline.refresh.analyze_remote",
+                    side_effect=RuntimeError("source archive unavailable"),
+                ),
+                patch("pipeline.refresh.collect_signals", return_value=_signals(FIRST_REFRESH_AT)),
+            ):
+                catalog = refresh(
+                    data_dir,
+                    FIRST_REFRESH_AT,
+                    analyze_top=1,
+                    client=StubClient(100),
+                    collect_external_signals=True,
+                )
+
+            current = resolve_current_generation(data_dir)
+            audit = audit_data(current.root)
+            self.assertNotEqual((data_dir / "current.json").read_bytes(), pointer_before)
+            self.assertEqual(
+                catalog["analysisFailures"],
+                [
+                    {
+                        "repository": "demo/agent-tool",
+                        "error": "source archive unavailable",
+                    }
+                ],
+            )
+            self.assertEqual(audit["status"], "degraded")
+            self.assertEqual(audit["errorCount"], 0)
+            self.assertEqual(audit["analysisFailureCount"], 1)
+
+    def test_unresolved_clone_lifecycle_fails_candidate_and_preserves_current(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            _bootstrap(data_dir)
+            pointer_before = (data_dir / "current.json").read_bytes()
+            lifecycle_error = RemoteCloneLifecycleError(
+                "remote_clone_process_tree_cleanup_failed", "simulated"
+            )
+
+            with (
+                patch(
+                    "pipeline.refresh.analyze_remote",
+                    side_effect=lifecycle_error,
+                ) as analyze_remote,
+                patch("pipeline.refresh.collect_signals") as collect_signals,
+                self.assertRaises(CandidateGenerationError) as raised,
+            ):
+                refresh(
+                    data_dir,
+                    FIRST_REFRESH_AT,
+                    analyze_top=2,
+                    client=TwoProjectClient(100),
+                    collect_external_signals=True,
+                )
+
+            self.assertIs(raised.exception.__cause__, lifecycle_error)
+            self.assertEqual(analyze_remote.call_count, 1)
+            collect_signals.assert_not_called()
+            self.assertEqual((data_dir / "current.json").read_bytes(), pointer_before)
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, "seed-generation")
+            manifests = list((data_dir / "generations/.candidates").glob("*/manifest.json"))
+            self.assertEqual(len(manifests), 1)
+            manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+            self.assertEqual(manifest["state"], "failed")
+            self.assertEqual(manifest["failureStage"], "build")
+
     def test_refresh_publishes_identity_v1_artifacts_catalog_and_queue(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory)
