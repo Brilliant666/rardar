@@ -121,6 +121,28 @@ python -m pipeline.migrate_project_identity --data-dir data --to-legacy-v1 --app
 
 refresh/derive 的 candidate adoption 也遵循同一无损原则：同一 repository 的 legacy v1 与 stable v2 共存时，先在内存中把 v1 机械转换为预期 v2 payload；只有结果与现有 v2 完全相等，才保留 v2 并清理 v1。任何字段不同都返回 `conflicting_project_artifact_versions`；所有项目完成全量 preflight 前不写入或删除，因此一个项目冲突会使整批 adoption 保持零写入、零删除，不能按 Schema 版本、时间、文件顺序或排名猜测权威版本。
 
+非等价冲突只能在人工完成来源证据审查后，用单仓库显式 resolver 处理。命令必须给出 repository、artifact kind、三种允许结论之一，以及当前 legacy 和已发布 stable reference 的精确 SHA-256；默认只输出 dry-run 报告，只有额外指定 `--apply` 才会改变 flat staging。`keep-stable` 将 legacy 原始字节与两阶段审计记录保存到仓库外的本地归档后，再从 active staging 移除；`promote-legacy` 仅在 legacy 来源时间严格更新且机械 v2 目标可验证时原子写入 stable staging；`blocked` 永远零写入。工具每次只允许处理一个 repository 和一种 artifact，不提供通配符、批量解析或 `newest-wins`：
+
+```bash
+python -m pipeline.resolve_project_artifact_conflict \
+  --data-dir data \
+  --repository owner/repository \
+  --kind analysis \
+  --decision keep-stable \
+  --expected-legacy-sha256 <legacy-sha256> \
+  --expected-stable-sha256 <current-ready-reference-sha256> \
+  --legacy-source-pushed-at <legacy-snapshot-pushed-at> \
+  --stable-source-pushed-at <stable-generation-pushed-at> \
+  --evidence-reference docs/iterations/<review>.md#<artifact>
+
+# 完整核对 dry-run 后，才可显式写入 flat staging / 仓库外审计归档
+python -m pipeline.resolve_project_artifact_conflict <相同参数> --apply
+```
+
+resolver 在 canonical data lock 内每次重新验证 current pointer、ready manifest、全部 generation artifact hash、Schema、跨文件 Audit、repository/projectId/文件名、两个 expected SHA 和来源版本；analysis 还要求把 legacy flat snapshot 与 stable generation snapshot 中的 `pushed_at` 原样传入，并核对 repository URL、repository item 与顶层 snapshot 的同源 `captured_at`。首次决策必须绑定一个真实存在、不含凭据的 `docs/iterations/*.md#anchor`；证据和 snapshot 都通过 no-follow、文件身份绑定读取，审计同时保存文档 SHA-256，后续改写会使重试 fail closed。显式 `blocked` 在来源版本无法证明时返回 `sourceVersions: null` 和退出码 2，但仍严格验证 current、两个 hash、Schema 与项目身份，并保持零写入。
+
+它不会修改 `current.json`、retained generation、candidate、failed candidate 或 manifest。归档默认位于 `%LOCALAPPDATA%/Rardar/artifact-conflict-resolutions/`（非 Windows 使用用户本地 state 目录），保存 legacy 原始字节、严格字段审计记录，以及从 staging 原子移出的 `detached-legacy.json`。prepared/resolved 两阶段记录与同目录原子 quarantine 使归档、stable 创建、legacy 移出或审计推进中断后可以安全重试；quarantine 使用 OS 级 no-replace move，已审查字节隔离后会再次核对当前与 retained generation、flat target、证据 SHA 和来源版本，随后再以 no-replace move 转入同一文件系统上的外部审计目录。resolver 不对这个 retained detached artifact 执行路径 unlink；它是 resolved/no-op 的必备后置条件，因此未知或竞态换入的字节只会被保留或导致安全失败。prepared 记录冻结已审查的 legacy 来源版本，重试只重新验证 retained stable 来源，因此 flat snapshot 正常前进和健康 current 切换不会破坏幂等恢复；损坏 current 则拒绝继续。路径逃逸、跨文件系统归档、symlink、junction、reparse point、非等价或竞态出现的 flat stable target、无法证明的可写决策都会 fail closed。
+
 generation 管理命令：
 
 ```bash

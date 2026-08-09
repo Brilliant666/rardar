@@ -205,6 +205,23 @@ Event INSERT 在同一 SQLite 语句的 `AFTER INSERT` 触发器内更新 State�
 11. flat staging 可用 `python -m pipeline.migrate_project_identity --data-dir data` 预检和 dry-run，再显式加 `--apply` 迁移可信 v1 artifact；无法机械升级的 legacy v0 只报告并保留。应用代码回滚前，显式 `--to-legacy-v1` 模式（同样默认 dry-run，写入还需 `--apply`）把 static evidence/project enrichment v2 机械降为 v1：`schemaVersion: 2 → 1`、移除 `projectIdVersion`/`projectId`、恢复 legacy slug 文件名，其他事实、时间和内容原样保留。两个方向都只处理 `data/analysis` 与 `data/enrichment`，不跟随 symlink/junction，不访问或修改 current、retained generations、candidates、manifest，也不发布 generation。完整 preflight 必须在任何写入前发现 legacy slug collision、非等价目标、归属冲突和路径逃逸；apply 先原子写入并验证全部目标，再删除源。等价目标不重写，写入或源清理中断后可安全重试，完整执行后的重复 apply 为 no-op。
 12. P1-6A 仍保留 D1 的 `project_slug`、Action API 与页面 slug 路由。它们分别由 P1-6B 和 P1-6C 迁移；旧 slug 在这些边界完成前不是新 JSON 产物的唯一身份。
 
+### 显式 staging artifact 冲突解析
+
+同一 repository 的 legacy v1 与 stable v2 非等价时，candidate adoption 继续 fail closed；它不会根据 Schema 版本、mtime、目录顺序或单一时间字段选出“赢家”。只有完成来源证据审查后，操作者才能对一个 repository 和一种 artifact kind 调用 `pipeline.resolve_project_artifact_conflict`，并明确选择 `KEEP_STABLE_ARCHIVE_LEGACY`、`PROMOTE_LEGACY_TO_STABLE` 或 `BLOCKED_UNPROVABLE`。CLI 对应值为 `keep-stable`、`promote-legacy` 和 `blocked`。
+
+resolver 的信任边界固定为：
+
+1. 每次调用都在 canonical data lock 内完整解析 current pointer，并验证 ready manifest digest、artifact 清单与全部 SHA-256、Schema 和跨文件 Audit；prepared/resolved 重试还要重新验证审计绑定的 retained generation；
+2. 从严格 repository 重算 projectId，以 current ready generation 内的 v2 文件作为 immutable stable reference；调用者提供的 legacy/stable SHA 必须与锁内重算结果精确一致。analysis 的可写结论还必须显式提供两端 `sourcePushedAt`：legacy 值与 flat snapshot 精确交叉核对，stable 值与绑定 generation snapshot 精确交叉核对；snapshot 中匹配 repository 的 URL 必须正确，item `captured_at` 必须与顶层 `captured_at` 原样一致且不晚于分析时间；
+3. legacy 必须是 flat `analysis/` 或 `enrichment/` 下归属和文件名均合法的 v1 regular file；flat stable target 若存在，也必须与允许的 reference 或机械转换结果精确等价；
+4. `keep-stable` 只接受 stable 的分析时间严格更新且 `sourcePushedAt` 不回退，并由人工证据确认 legacy 没有后续可信事实；`promote-legacy` 只接受 legacy 的分析时间严格更新、`sourcePushedAt` 不回退、可机械转换且不会覆盖非等价 stable target 的结论；来源版本缺失或无法比较时只能显式 `blocked`，报告 `sourceVersions: null`、CLI 退出 2 且保持零写入，但 current、hash、Schema、身份和来源 URL 门禁不放宽；
+5. `docs/iterations/*.md#anchor` 必须真实存在于当前 worktree、是 UTF-8 regular file 且不经过链接；证据与两端 snapshot 都使用 no-follow open 并绑定打开前后文件身份。prepared/resolved 审计记录绑定证据 SHA-256、两端 source URL、snapshot captured time、`sourcePushedAt` 与分析时间，因此证据文档或来源绑定改变后不能静默复用旧决策；
+6. apply 先在仓库外确定性目录保留 legacy 原始字节，再原子写 prepared 审计记录；PROMOTE 使用原子“只创建、不替换”写入机械 v2。legacy 通过平台原生 no-replace move 进入同目录 quarantine；核对移动后的精确字节后，必须重新验证健康 current、审计绑定的 retained generation、flat stable、证据 SHA 和来源版本。通过后再以 no-replace move 将同一文件对象转入同一文件系统上的外部归档 `detached-legacy.json`，并永久作为 resolved/no-op 后置条件保留；resolver 不对 quarantine 执行 pathname unlink。晚到 quarantine、竞态 target 或未知替换都保留且 fail closed，绝不删除未审查字节；最后才原子推进为 resolved；
+7. prepared 审计冻结已验证的 legacy sourceVersions；中断重试不重新绑定随后会前进的 flat snapshot，只重新验证 retained stable 来源、健康 current 与其余审计字段。健康 current 正常切换后可以继续，current 损坏时拒绝继续；完整第二次 apply 为 no-op，PROMOTE no-op 仍要求机械 v2 flat postcondition 存在且等价；
+8. current、retained generations、`.candidates`（包括 failed candidates）和 manifest 都是只读边界。resolver 不发布 generation，也不放宽后续 candidate 的 Schema/Audit/adoption 门禁。
+
+默认归档根为用户本地 Rardar state 下的 `artifact-conflict-resolutions/`，必须位于 data 与 Git worktree 外，并与 staging 位于同一文件系统以支持原子 detachment；归档根、祖先、叶子及 staging 路径上的 symlink、junction/reparse point 或路径逃逸都会被拒绝。审计记录使用精确字段集合，只保存 repository、kind、显式 decision、legacy 相对路径、两个归档文件名、reference generation、两个 artifact SHA、source URL/版本/时间、仓库内证据引用及其 SHA、受限 reason code、preparedAt/resolvedAt 和 tool version，不保存 token、请求头或环境变量。分析执行时间只是程序化防回退门槛，不单独充当源码版本权威；KEEP/PROMOTE 的事实依据必须写入并由 `evidenceReference` 指向人工审查记录。
+
 未知版本或未版本化的新数据会失败。以后收紧字段或改变含义时应新增 Schema 版本和显式迁移，不得静默把旧数据解释为新版。
 
 ## 安全与回滚
