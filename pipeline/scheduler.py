@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from pipeline.analyze_repository import RemoteCloneLifecycleError
 from pipeline.audit_data import audit_data
 from pipeline.generations import GenerationProtocolError, resolve_current_generation
 from pipeline.refresh import refresh
@@ -67,6 +68,7 @@ def should_catch_up(
     timezone_name: str,
     window_hours: int = 12,
     latest_snapshot_at: object = None,
+    retryable: object = True,
 ) -> bool:
     """Return whether today's missed or failed scheduled run should resume."""
     now = now.astimezone(timezone.utc)
@@ -74,10 +76,16 @@ def should_catch_up(
     elapsed = now - target
     if elapsed.total_seconds() < 0 or elapsed > timedelta(hours=max(1, window_hours)):
         return False
-    # A failed run never advances current, but its scheduler state still needs
-    # the normal retry path to build a fresh candidate.
+    # A failed run never advances current. Most failures can build a fresh
+    # candidate in the same catch-up window. An unresolved remote-analysis
+    # lifecycle must not retry in that cycle, but it must not poison later
+    # scheduled days; only a trustworthy completion before today's target can
+    # establish that the non-retryable failure belongs to an older cycle.
     if last_state == "failed":
-        return True
+        if retryable is not False:
+            return True
+        completed = _parse_datetime(last_run_completed_at)
+        return completed is not None and completed < target
     committed_snapshot = _parse_datetime(latest_snapshot_at)
     if committed_snapshot and target <= committed_snapshot <= now + timedelta(hours=2):
         return False
@@ -85,8 +93,29 @@ def should_catch_up(
     return completed is None or completed < target
 
 
-def should_retry(last_state: object, attempts_in_cycle: int, max_attempts: int = MAX_REFRESH_ATTEMPTS) -> bool:
-    return last_state == "failed" and 0 < attempts_in_cycle < max(1, max_attempts)
+def should_retry(
+    last_state: object,
+    attempts_in_cycle: int,
+    max_attempts: int = MAX_REFRESH_ATTEMPTS,
+    *,
+    retryable: object = True,
+) -> bool:
+    return (
+        retryable is not False
+        and last_state == "failed"
+        and 0 < attempts_in_cycle < max(1, max_attempts)
+    )
+
+
+def _remote_clone_lifecycle_error(error: BaseException) -> RemoteCloneLifecycleError | None:
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        if isinstance(current, RemoteCloneLifecycleError):
+            return current
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return None
 
 
 def _write_status(path: Path, payload: dict[str, object]) -> None:
@@ -207,12 +236,16 @@ def run_cycle(
             },
         }
     except Exception as error:
+        lifecycle_error = _remote_clone_lifecycle_error(error)
         result = {
             "state": "failed",
             "lastRunStartedAt": started.isoformat(),
             "lastRunCompletedAt": datetime.now(timezone.utc).isoformat(),
             "lastError": str(error),
+            "retryable": lifecycle_error is None,
         }
+        if lifecycle_error is not None:
+            result["remoteAnalysisErrorCode"] = lifecycle_error.code
         if isinstance(error, GenerationProtocolError):
             result.update(
                 {
@@ -276,6 +309,7 @@ def main() -> None:
         "lastRunStartedAt": stored_status.get("lastRunStartedAt"),
         "lastRunCompletedAt": stored_status.get("lastRunCompletedAt"),
         "lastError": stored_status.get("lastError"),
+        "retryable": stored_status.get("retryable", True),
     }
     catch_up = arguments.skip_initial and should_catch_up(
         datetime.now(timezone.utc),
@@ -285,6 +319,7 @@ def main() -> None:
         minute,
         arguments.timezone,
         latest_snapshot_at=committed_refresh_at(arguments.data_dir),
+        retryable=last_status.get("retryable", True),
     )
     attempts_in_cycle = 0
     if not arguments.skip_initial or catch_up:
@@ -298,7 +333,11 @@ def main() -> None:
         attempts_in_cycle = 1 if last_status.get("state") == "failed" else 0
 
     while True:
-        retrying = should_retry(last_status.get("state"), attempts_in_cycle)
+        retrying = should_retry(
+            last_status.get("state"),
+            attempts_in_cycle,
+            retryable=last_status.get("retryable", True),
+        )
         if retrying:
             target = datetime.now(timezone.utc) + timedelta(minutes=RETRY_DELAY_MINUTES)
         else:
