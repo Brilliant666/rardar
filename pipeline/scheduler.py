@@ -426,7 +426,11 @@ def _run_scheduler(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the local Rardar refresh every day")
-    parser.add_argument("--data-dir", type=Path, default=Path("data"))
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path(os.environ.get("RARDAR_DATA_DIR", "data")),
+    )
     parser.add_argument("--at", help="local daily time in HH:MM; overrides RARDAR_SCHEDULE_AT")
     parser.add_argument("--timezone", help="IANA timezone; overrides RARDAR_SCHEDULE_TIMEZONE")
     parser.add_argument("--analyze-top", type=int, default=5)

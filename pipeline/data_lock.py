@@ -11,6 +11,8 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Iterator, ParamSpec, TypeVar
 
+from pipeline.runtime_settings import validate_absolute_path
+
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -20,18 +22,33 @@ def _default_lock_root() -> Path:
     # Keep this independent from RARDAR_RUNTIME_DIR: the manager and a manual
     # refresh may be launched with different runtime settings, but must still
     # contend on the same lock for the same canonical data directory.
+    configured = os.environ.get("RARDAR_DATA_LOCK_DIR")
+    if "RARDAR_DATA_LOCK_DIR" in os.environ:
+        return validate_absolute_path("RARDAR_DATA_LOCK_DIR", configured)
     if os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
     else:
-        base = Path.home() / ".local" / "state"
-    return base / "Rardar" / "runtime" / "data-locks"
+        base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    return base.expanduser().resolve() / "Rardar" / "runtime" / "data-locks"
 
 
 def data_dir_lock_path(data_dir: Path, lock_root: Path | None = None) -> Path:
     """Return one stable, user-local lock path for a canonical data directory."""
     canonical = os.path.normcase(str(data_dir.expanduser().resolve()))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
-    return (lock_root or _default_lock_root()) / f"data-{digest}.lock"
+    root = (
+        validate_absolute_path("RARDAR_DATA_LOCK_DIR", str(lock_root))
+        if lock_root is not None
+        else _default_lock_root()
+    )
+    return root / f"data-{digest}.lock"
+
+
+def manager_dir_lock_path(data_dir: Path, lock_root: Path | None = None) -> Path:
+    """Return the manager ownership lock paired with a canonical data lock."""
+
+    writer = data_dir_lock_path(data_dir, lock_root)
+    return writer.with_name(writer.name.replace("data-", "manager-", 1))
 
 
 def _try_lock(handle: Any) -> None:

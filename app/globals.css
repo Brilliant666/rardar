@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
 :root {
+  --font-geist-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-geist-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --ink: #101a33;
   --muted: #627089;
   --paper: #f6f9fc;

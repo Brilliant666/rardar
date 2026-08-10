@@ -107,3 +107,9 @@ git diff -- data
 ## 交付门槛
 
 本轮在完整 Verify、文档、提交、Push 与 Draft PR 完成后停止。Draft PR 不转 Ready、不合并、不部署。always-on deployment 仍是后续独立阶段；P1-6C2 保持 deferred，除非用户另行明确恢复该目标。
+
+## 最终合并状态
+
+上述交付门槛记录的是 PR 合并前的执行边界。人工审查完成后，PR #14 已以 Squash merge 提交 `e61e3ff35390ab9f915818f72e5e3321896fd17e` 合并到 `main`；main push Verify run `31351088836` 为 `SUCCESS`。因此 Runtime Operational Readiness 已完成，不得在后续轮次重复实施。
+
+用户随后明确选择 Always-on Deployment v1 作为独立上线前工程轮。该选择不恢复或完成 P1-6C2，也不授权 SSH、真实服务器部署、DNS、TLS、防火墙、生产 secret、Primary data 迁移、refresh 或 failed candidate cleanup。

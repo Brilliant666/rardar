@@ -9,7 +9,7 @@ import test from "node:test";
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const fixtureHelper = join(repositoryRoot, "tests", "http_generation_fixture.py");
-const vinextCli = join(repositoryRoot, "node_modules", "vinext", "dist", "cli.js");
+const viteCli = join(repositoryRoot, "node_modules", "vite", "bin", "vite.js");
 const python = process.env.RARDAR_PYTHON || "python";
 const ANSI_ESCAPE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 const MAX_DIAGNOSTIC_LOG = 64 * 1024;
@@ -76,7 +76,16 @@ function loopbackEnvironment(temporaryRoot, dataDirectory, port, overrides = {})
 function startVinext(temporaryRoot, dataDirectory, port, overrides = {}) {
   const child = spawn(
     process.execPath,
-    [vinextCli, "dev", "--hostname", "127.0.0.1", "--port", String(port)],
+    [
+      viteCli,
+      "--configLoader",
+      "runner",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(port),
+      "--strictPort",
+    ],
     {
       cwd: repositoryRoot,
       env: loopbackEnvironment(temporaryRoot, dataDirectory, port, overrides),

@@ -22,7 +22,9 @@
 | P1-5 verify/CI | 已完成 | PR #7，提交 `3430e30`；单一 Verify、GitHub Actions 与数据/Runtime 隔离门禁已进入 main |
 | P1-6 稳定项目 ID | 大阶段进行中 | P1-6A 已由 PR #8、提交 `d41033f` 完成；P1-6B 已由 PR #9、提交 `c24b7d6` 完成且正式 Runtime adoption 通过；P1-6C1 已由 PR #13、提交 `dfed8f0` 完成；P1-6C2 collision history 尚待处理且当前 deferred |
 
-P1-6B 已在 `main` 完成，正式 Primary Runtime D1 adoption、完整重启和重复 adoption no-op 均已通过。P1-6C1 也已通过 PR #13 进入 `main`；P1-6 整体仍未完成，因为 P1-6C2 collision history 尚未交付。用户已明确将 P1-6C2 deferred，并把 Runtime Operational Readiness 作为当前独立上线前工程轮；这不等于关闭 P1-6 或放宽 legacy slug collision gate。
+P1-6B 已在 `main` 完成，正式 Primary Runtime D1 adoption、完整重启和重复 adoption no-op 均已通过。P1-6C1 也已通过 PR #13 进入 `main`；P1-6 整体仍未完成，因为 P1-6C2 collision history 尚未交付。用户已明确将 P1-6C2 deferred；这不等于关闭 P1-6 或放宽 legacy slug collision gate。
+
+Runtime Operational Readiness 已由 PR #14 通过 Squash merge 提交 `e61e3ff35390ab9f915818f72e5e3321896fd17e` 完成，对应 main push Verify run `31351088836` 为 `SUCCESS`。当前独立、显式授权的工程轮是 Always-on Deployment v1，只建立 Linux 单机的可部署工程、检查和回滚协议，不执行真实服务器部署，也不改变上表的 P1 完成状态。
 
 以下章节保留 `fa2e064` 时点的原始审查内容，不重写历史事实。
 

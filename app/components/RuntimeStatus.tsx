@@ -6,7 +6,7 @@ import {
   type RuntimeStatusSnapshot,
 } from "../runtime-readiness.mjs";
 
-const runtimeStatusUrl = "http://127.0.0.1:3002/status";
+const runtimeStatusUrl = "/api/runtime-status";
 
 function formatTime(value?: string | null, timezone = "Asia/Shanghai") {
   if (!value) return "等待调度";

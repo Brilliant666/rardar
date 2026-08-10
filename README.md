@@ -92,7 +92,7 @@ npm run security:audit:prod
 npm run verify
 ```
 
-`verify` 依次运行 lint、Python 单元测试、Schema 校验、跨文件数据审计、production build、Node 行为与真实 Vinext HTTP 测试，以及 production dependency security audit。每个阶段都有独立日志，任一阶段、数据保护或清理失败都会返回非零退出码。`requirements.txt` 保留运行时依赖范围，`requirements.lock` 固定 Verify/CI 的完整 Python 直接与传递依赖。
+`verify` 依次运行 lint、Python 单元测试、Schema 校验、跨文件数据审计、production build、Node 行为与真实 Vinext HTTP 测试，以及 production dependency security audit；Linux CI 还会用 `systemd-analyze verify` 校验 Always-on service unit，Windows 本地会明确记录该平台门禁已跳过。每个阶段都有独立日志，任一已配置阶段、数据保护或清理失败都会返回非零退出码。`requirements.txt` 保留运行时依赖范围，`requirements.lock` 固定 Verify/CI 的完整 Python 直接与传递依赖。
 
 失败阶段可按以下命令定位，修复后仍需重新运行完整 `npm run verify`：
 
@@ -221,7 +221,41 @@ npm run data:schedule
 
 “动态”页面从本地管理器的实时心跳读取运行状态；状态必须绑定 control/manager PID，Scheduler telemetry 必须绑定当前 child PID，旧状态超过 35 秒、未来超过五分钟偏差或字段非法都会 fail closed，不再把过期或外来 `scheduled` 文件误报为正在运行。`local:status` 输出 effective schedule/timezone、Scheduler 计算的 next run、last successful refresh、current generation、snapshot time/age/threshold 和 freshness；overall 只有在服务与数据都 healthy/fresh 时才是 `healthy`。
 
-默认本地预览地址：<http://127.0.0.1:3000/>。项目默认不发布线上版本，除非用户明确提出部署要求。always-on deployment 仍是独立后续阶段，不属于本轮 Runtime readiness，也不会由 stale watchdog 自动触发。
+默认本地预览地址：<http://127.0.0.1:3000/>。项目默认不发布线上版本，除非用户在当前任务明确授权真实部署；具备部署工程不等于已经存在生产实例，也不会由 stale watchdog 自动触发部署。
+
+## Always-on Linux 部署
+
+Always-on Deployment v1 面向 Ubuntu 24.04 LTS / Debian-compatible x86_64 单机。systemd 只托管 foreground Rardar Manager，Website 与唯一 Scheduler 继续由 Manager 管理；服务使用非 root `rardar` 用户，Website 和 Runtime status 只监听 loopback。完整的目录、环境、安装、检查、停机备份、升级、回滚和故障排查流程见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
+
+生产布局把 exact code release 与 mutable state 分开。Always-on v1 固定使用以下 canonical path profile；这些值同时绑定 checker、EnvironmentFile 与 systemd unit，不是可任意替换的示例：
+
+```text
+RARDAR_HOME=/opt/rardar/current
+RARDAR_DATA_DIR=/var/lib/rardar/data
+RARDAR_RUNTIME_DIR=/var/lib/rardar/runtime
+RARDAR_VINEXT_STATE_DIR=/var/lib/rardar/vinext-state
+RARDAR_DATA_LOCK_DIR=/var/lib/rardar/locks
+RARDAR_VITE_CACHE_DIR=/var/cache/rardar/vite
+RARDAR_BACKUP_DIR=/var/backups/rardar
+WRANGLER_LOG_PATH=/var/log/rardar/wrangler
+WRANGLER_REGISTRY_PATH=/var/lib/rardar/runtime/wrangler-registry
+MINIFLARE_REGISTRY_PATH=/var/lib/rardar/runtime/miniflare-registry
+```
+
+若要自定义目录，需要在后续独立目标中同时生成并审查 systemd unit/drop-in、checker 固定映射、写权限、备份与回滚协议；v1 不支持只改环境变量。`RARDAR_HOME` 只有最终 `current` leaf 可以是原子切换 symlink，其祖先和 release 必需文件不得是 symlink，且解析目标必须是正在检查的 exact release。
+
+部署检查分成两个只读入口：
+
+```bash
+npm run deploy:preflight  # 服务启动前：release、路径、磁盘、generation、D1
+npm run deploy:check      # 服务启动后：重复 offline gate，再检查进程、loopback 与 HTTP
+```
+
+两种检查都不会直接用 SQLite 连接正式 D1。checker 对 source main 与现有 `-wal`/`-journal` 做字节稳定校验后复制到系统临时 scratch（systemd 下为 `PrivateTmp`），仅在副本执行 WAL recovery、`quick_check` 与 Rardar 表指纹；正式 state 不 replay、不 checkpoint、不生成或改写 `-shm`。
+
+当前 Vinext/Cloudflare 构建仍由 `npm run build` 验证，但本地 `vinext start` 会因构建产物中的 `cloudflare:` URL scheme 不受 Node 启动目标支持而失败。因此 v1 的 systemd Manager 保留 Vinext dev compatibility：直接运行 `vite --configLoader runner --host 127.0.0.1 --port <configured> --strictPort`，由 `vite.config.ts` 加载 Vinext/Cloudflare 插件。外置 Vite cache 与系统字体保证运行期无需写 release `.vinext`/`.vite-temp`；这不是公开 dev server 或跳过 build 的许可。外部访问只能由操作者另行建立 SSH tunnel 或经过审查的反向代理，3000/3002 不得直接暴露到公网。
+
+本仓库只提供可部署工程和示例配置，没有执行 SSH、DNS、TLS、防火墙、生产 secret 或 Primary data 迁移。真实服务器部署属于需要再次明确授权的 `PROD-DEPLOY-01`。
 
 静态分析工具只读取文件，不执行仓库代码或安装陌生依赖：
 

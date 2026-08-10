@@ -296,6 +296,26 @@ freshness 的权威是同一次 verified published bundle 中 `snapshots/latest.
 
 `fresh` 且 Manager/Website/Scheduler 全部 healthy 时 overall 才是 `healthy`。仅 stale 时 health 为 HTTP 200 / overall `degraded`，generation 仍可读且首页展示轻量警告；stale 可与 Scheduler blocked/restarting 等其他 degraded 状态叠加。`invalid` 或 generation 损坏继续沿用 HTTP 503/页面 fail-closed，不回退 flat staging，也不缓存上一代健康内容。Manager 只接受与自己 control PID 一致的 Runtime status、与当前 Scheduler child PID 一致的 heartbeat，以及和 frozen config 一致的 Website health；旧/外来 telemetry 不能冒充健康。
 
+### Always-on Deployment v1 持久化边界
+
+Linux Always-on 部署不改变 generation、D1 或行动事件的数据模型，只把已经存在的 mutable state 从 exact code release 中显式分离。Always-on v1 的 systemd profile 使用以下固定 canonical 路径事实：
+
+| 变量 | 内容 | 数据语义 |
+| --- | --- | --- |
+| `RARDAR_HOME` | `/opt/rardar/current` | 指向 exact commit release 的原子 leaf symlink；运行中不 `git pull`，不保存业务事实 |
+| `RARDAR_DATA_DIR` | `/var/lib/rardar/data` | generation 协议的唯一正式数据根，包含 current、ready/retained generation、flat staging 与 candidates |
+| `RARDAR_VINEXT_STATE_DIR` | `/var/lib/rardar/vinext-state` | Action、feedback、identity adoption 等本地 Vinext/Miniflare D1 持久事实 |
+| `RARDAR_RUNTIME_DIR` | `/var/lib/rardar/runtime` | Manager control/status、Scheduler telemetry 与可重建进程日志，不进入 generation |
+| `RARDAR_DATA_LOCK_DIR` | `/var/lib/rardar/locks` | canonical data directory 的跨进程锁；协调状态，不是事实或备份 |
+| `RARDAR_VITE_CACHE_DIR` | `/var/cache/rardar/vite` | 可重建 Vite cache，实际写入其 `node_modules/.vite`；不得作为 D1 或 generation 来源，运行时无需写 release 内 `.vinext`/`.vite-temp` |
+| `RARDAR_BACKUP_DIR` | `/var/backups/rardar` | 操作者创建的停机备份，位于其他数据根之外，不参与运行时读取 |
+
+固定工具路径为 `WRANGLER_LOG_PATH=/var/log/rardar/wrangler`、`WRANGLER_REGISTRY_PATH=/var/lib/rardar/runtime/wrangler-registry` 与 `MINIFLARE_REGISTRY_PATH=/var/lib/rardar/runtime/miniflare-registry`。除 `RARDAR_HOME` 外，这些路径必须是预先存在、绝对、互不重叠（明确的 runtime 子目录除外）且不经过 symlink 的目录。`RARDAR_HOME` 的最终 `current` 路径组件可以是原子切换 symlink，但其祖先必须不是 symlink，解析目标必须是运行 checker 的 exact release，且必需 release 文件不得是 symlink。systemd 只启动 foreground Manager；Manager 将同一套已验证路径和 loopback port 冻结后传给 Website 与唯一 Scheduler。独立 Scheduler service、相对 `data/`、release 内 `.wrangler`/D1 或 status 反向控制配置都不属于部署契约。自定义目录需要后续独立审查并同步生成 unit/drop-in 与 checker 映射，不属于 v1。
+
+`pipeline.deployment check --offline` 只读解析 current，并复核 ready manifest digest、全部 artifact hash、Schema 和 Audit。D1 source main 及其现有 `-wal`/`-journal` 只做打开前后身份、大小、时间和 SHA-256 稳定校验并复制到系统临时 scratch；SQLite recovery、`quick_check` 和 Rardar 表指纹只在副本运行，正式 source 从不建立 SQLite connection、不创建/更新 `-shm`、不 replay 或 checkpoint。它不会 bootstrap、repair、refresh、迁移、清理 candidate 或创建部署目录。`--online` 先完成同一 offline 检查，再核对 Manager/Website/Scheduler 进程身份、loopback listener、Runtime status、健康端点和检查期间 generation 一致性。systemd 的 `PrivateTmp` 隔离 scratch；stale 可以显式降级，invalid/corrupt 或不稳定 D1 副本继续 fail closed。
+
+发布备份必须在 Managed Runtime 停止后取得同一停机点的 `RARDAR_DATA_DIR` 和完整 `RARDAR_VINEXT_STATE_DIR`。代码回滚保留持久数据；generation 回滚只能显式指向重新验证通过的 retained generation；只有持久数据或数据库迁移失败时，才允许把 data 与 D1 作为同一备份单元恢复。任何路径都不得从 State 补造 Event、从 slug 猜测 Stable ID 或从备份时间补造事实时间。
+
 ## 安全与回滚
 
 Schema 与 generation 验证不执行候选仓库代码、不安装其依赖、不读取用户 Git 配置，也不改变静态分析的资源上限。generation ID、manifest 产物路径与符号链接都经过逃逸检查；路径必须留在当前 data/generations 根内。
@@ -312,4 +332,4 @@ Schema 与 generation 验证不执行候选仓库代码、不安装其依赖、�
 
 本地管理器在启动任何子服务前检查声明的 Python 运行依赖。缺失时只输出 `python -m pip install -r requirements.txt` 并退出，不自动安装，也不启动会持续失败重启的 scheduler。
 
-Schema 不能单独解决跨文件一致性、历史增长、缓存新鲜度或身份碰撞。前三项由 generation audit、manifest/hash、请求级 generation 边界与上述 Runtime freshness telemetry 处理；Stable Project ID 由 identity v1 重算、跨产物审计和 collision/unresolved 门禁共同保证。追加式行动事件已由 PR #5 完成，评分语义已由 PR #6、提交 `ab34119` 完成，verify/CI 已由 PR #7、提交 `3430e30` 完成，P1-6A JSON 身份层已由 PR #8、提交 `d41033f` 完成。P1-6B 已由 PR #9、提交 `c24b7d6` 完成，正式 Primary Runtime D1 adoption、完整重启和重复 adoption no-op 均已通过。P1-6C1 client/UI Stable Identity 已由 PR #13、提交 `dfed8f0` 完成；P1-6 整体须在当前 deferred 的 P1-6C2 collision-history 边界完成后才能关闭。当前独立工程轮是用户明确授权的 Runtime Operational Readiness，不改变该长期状态。
+Schema 不能单独解决跨文件一致性、历史增长、缓存新鲜度或身份碰撞。前三项由 generation audit、manifest/hash、请求级 generation 边界与上述 Runtime freshness telemetry 处理；Stable Project ID 由 identity v1 重算、跨产物审计和 collision/unresolved 门禁共同保证。追加式行动事件已由 PR #5 完成，评分语义已由 PR #6、提交 `ab34119` 完成，verify/CI 已由 PR #7、提交 `3430e30` 完成，P1-6A JSON 身份层已由 PR #8、提交 `d41033f` 完成。P1-6B 已由 PR #9、提交 `c24b7d6` 完成，正式 Primary Runtime D1 adoption、完整重启和重复 adoption no-op 均已通过。P1-6C1 client/UI Stable Identity 已由 PR #13、提交 `dfed8f0` 完成；P1-6 整体须在当前 deferred 的 P1-6C2 collision-history 边界完成后才能关闭。Runtime Operational Readiness 已由 PR #14、提交 `e61e3ff` 完成；当前独立工程轮是用户明确授权的 Always-on Deployment v1，只增加部署工程和运维验证，不改变上述数据语义或长期 P1-6 状态。

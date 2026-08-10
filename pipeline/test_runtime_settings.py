@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfoNotFoundError
 
@@ -8,6 +10,7 @@ from pipeline.runtime_settings import (
     RuntimeSettingsError,
     RuntimeTimezoneDatabaseError,
     default_runtime_settings,
+    load_runtime_layout,
     load_runtime_settings,
 )
 
@@ -77,6 +80,64 @@ class RuntimeSettingsTests(unittest.TestCase):
             with self.subTest(environment=environment):
                 with self.assertRaises(RuntimeSettingsError):
                     load_runtime_settings(environment)
+
+    def test_layout_defaults_keep_source_root_data_and_loopback_ports(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            layout = load_runtime_layout({}, application_root=root)
+
+        self.assertEqual(layout.home, root)
+        self.assertEqual(layout.data_dir, root / "data")
+        self.assertTrue(layout.runtime_dir.is_absolute())
+        self.assertTrue(layout.data_lock_dir.is_absolute())
+        self.assertEqual(layout.vinext_port, 3000)
+        self.assertEqual(layout.runtime_status_port, 3002)
+        self.assertEqual(layout.website_url, "http://127.0.0.1:3000/")
+        self.assertEqual(layout.status_url, "http://127.0.0.1:3002/status")
+
+    def test_layout_accepts_absolute_paths_and_distinct_custom_ports(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            paths = {
+                "RARDAR_HOME": str(root / "home"),
+                "RARDAR_DATA_DIR": str(root / "data"),
+                "RARDAR_RUNTIME_DIR": str(root / "runtime"),
+                "RARDAR_DATA_LOCK_DIR": str(root / "locks"),
+                "RARDAR_VINEXT_STATE_DIR": str(root / "state"),
+                "RARDAR_VITE_CACHE_DIR": str(root / "cache"),
+                "WRANGLER_LOG_PATH": str(root / "logs"),
+                "WRANGLER_REGISTRY_PATH": str(root / "wrangler-registry"),
+                "MINIFLARE_REGISTRY_PATH": str(root / "miniflare-registry"),
+                "RARDAR_VINEXT_PORT": "43111",
+                "RARDAR_RUNTIME_STATUS_PORT": "43112",
+            }
+            layout = load_runtime_layout(paths, application_root=root / "ignored")
+
+        self.assertEqual(layout.home, root / "home")
+        self.assertEqual(layout.data_dir, root / "data")
+        self.assertEqual(layout.runtime_dir, root / "runtime")
+        self.assertEqual(layout.data_lock_dir, root / "locks")
+        self.assertEqual(layout.vinext_port, 43111)
+        self.assertEqual(layout.runtime_status_port, 43112)
+
+    def test_layout_rejects_relative_empty_and_malformed_contract_values(self) -> None:
+        invalid = (
+            {"RARDAR_HOME": "relative/home"},
+            {"RARDAR_DATA_DIR": "data"},
+            {"RARDAR_RUNTIME_DIR": "runtime"},
+            {"RARDAR_DATA_LOCK_DIR": "locks"},
+            {"RARDAR_VINEXT_STATE_DIR": "state"},
+            {"RARDAR_VITE_CACHE_DIR": ""},
+            {"WRANGLER_LOG_PATH": " logs"},
+            {"RARDAR_VINEXT_PORT": "0"},
+            {"RARDAR_VINEXT_PORT": "06500"},
+            {"RARDAR_VINEXT_PORT": "65536"},
+            {"RARDAR_RUNTIME_STATUS_PORT": "3002.0"},
+            {"RARDAR_VINEXT_PORT": "4000", "RARDAR_RUNTIME_STATUS_PORT": "4000"},
+        )
+        for environment in invalid:
+            with self.subTest(environment=environment), self.assertRaises(RuntimeSettingsError):
+                load_runtime_layout(environment)
 
 
 if __name__ == "__main__":
