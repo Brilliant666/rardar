@@ -131,7 +131,7 @@ online check 先重复 offline gates，再验证：
 
 ```text
 npm run verify: PASS
-Python: 437 项，411 PASS，26 platform/capability skip
+Python: 439 项，413 PASS，26 platform/capability skip
 Node: 73/73 PASS
 Schema: healthy，21 validated，0 error
 Audit: healthy，0 error，0 warning

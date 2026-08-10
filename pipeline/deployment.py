@@ -447,24 +447,25 @@ def _check_release(home: Path) -> dict[str, Any]:
     missing: list[str] = []
     unsafe: list[str] = []
     for relative in REQUIRED_RELEASE_PATHS:
-        path = home / relative
-        if not path.exists():
-            missing.append(relative)
-            continue
         current = home
         for component in Path(relative).parts:
             current /= component
             try:
                 metadata = os.lstat(current)
+            except (FileNotFoundError, NotADirectoryError):
+                missing.append(relative)
+                break
             except OSError as error:
                 _fail("release_path_unavailable", f"cannot inspect release path {current}: {error}")
             if stat.S_ISLNK(metadata.st_mode):
-                unsafe.append(str(current.relative_to(home)))
+                unsafe_path = str(current.relative_to(home))
+                if unsafe_path not in unsafe:
+                    unsafe.append(unsafe_path)
                 break
-    if missing:
-        _fail("release_incomplete", "release files are missing: " + ", ".join(missing))
     if unsafe:
         _fail("release_path_symlink", "release files must not be symlinks: " + ", ".join(unsafe))
+    if missing:
+        _fail("release_incomplete", "release files are missing: " + ", ".join(missing))
     wrong_type = [
         relative
         for relative in REQUIRED_RELEASE_FILES

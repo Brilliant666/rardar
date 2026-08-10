@@ -419,9 +419,7 @@ class OfflineDeploymentTests(DeploymentFixture):
 
     def test_release_required_path_rejects_a_symlinked_ancestor(self) -> None:
         external = Path(self.temporary.name) / "external-node-modules"
-        cli = external / "vinext" / "dist" / "cli.js"
-        cli.parent.mkdir(parents=True)
-        cli.write_text("fixture\n", encoding="utf-8")
+        external.mkdir()
         shutil.rmtree(self.paths["home"] / "node_modules")
         try:
             (self.paths["home"] / "node_modules").symlink_to(
@@ -433,6 +431,30 @@ class OfflineDeploymentTests(DeploymentFixture):
         with self.assertRaises(DeploymentCheckError) as raised:
             _check_release(self.paths["home"])
         self.assertEqual(raised.exception.code, "release_path_symlink")
+
+    def test_release_symlink_ancestor_precedes_missing_descendants_portably(self) -> None:
+        node_modules = (self.paths["home"] / "node_modules").resolve(strict=True)
+        shutil.rmtree(node_modules)
+        original_lstat = os.lstat
+        symlink_metadata = os.stat_result(
+            (stat.S_IFLNK | 0o777, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        )
+
+        def emulate_symlink(path, *args, **kwargs):
+            if Path(path) == node_modules:
+                return symlink_metadata
+            return original_lstat(path, *args, **kwargs)
+
+        with patch("pipeline.deployment.os.lstat", side_effect=emulate_symlink):
+            with self.assertRaises(DeploymentCheckError) as raised:
+                _check_release(self.paths["home"])
+        self.assertEqual(raised.exception.code, "release_path_symlink")
+
+    def test_release_missing_descendant_without_symlink_stays_incomplete(self) -> None:
+        (self.paths["home"] / "node_modules" / "vite" / "bin" / "vite.js").unlink()
+        with self.assertRaises(DeploymentCheckError) as raised:
+            _check_release(self.paths["home"])
+        self.assertEqual(raised.exception.code, "release_incomplete")
 
     def test_release_requires_vite_config_and_real_environment_directory(self) -> None:
         for relative in ("vite.config.ts", "deploy/systemd"):
