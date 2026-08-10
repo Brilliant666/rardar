@@ -1,0 +1,44 @@
+[Unit]
+Description=Rardar managed website and scheduler
+Documentation=https://github.com/Brilliant666/rardar
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=rardar
+Group=rardar
+WorkingDirectory=/opt/rardar/current
+EnvironmentFile=/etc/rardar/rardar.env
+EnvironmentFile=-/etc/rardar/rardar.secret
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/opt/rardar/current/.venv/bin/python -m pipeline.deployment check --offline
+ExecStart=/opt/rardar/current/.venv/bin/python -m pipeline.runtime service
+Restart=on-failure
+RestartPreventExitStatus=4
+RestartSec=10s
+TimeoutStopSec=45s
+KillMode=control-group
+UMask=0077
+
+# Keep the release read-only and grant writes only to explicitly persistent roots.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rardar/data /var/lib/rardar/runtime /var/lib/rardar/vinext-state /var/lib/rardar/locks /var/cache/rardar/vite /var/log/rardar/wrangler /var/backups/rardar
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

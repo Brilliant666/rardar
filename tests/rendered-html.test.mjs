@@ -17,6 +17,7 @@ test("contains the complete Rardar home experience", async () => {
     publishedLoader,
     publishedClient,
     healthRoute,
+    runtimeStatusRoute,
     runtimeReadiness,
     publishedBridge,
     signals,
@@ -60,6 +61,7 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/published-data-loader.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/published-data-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/health/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/runtime-status/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/runtime-readiness.mjs", import.meta.url), "utf8"),
     readFile(new URL("../build/published-data-bridge.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals.ts", import.meta.url), "utf8"),
@@ -369,7 +371,10 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(globalCss, /--cobalt: #315cff/);
   assert.match(globalCss, /--cyan: #39bdf2/);
   assert.doesNotMatch(globalCss, /--acid: #caff59/);
-  assert.match(runtimeStatus, /127\.0\.0\.1:3002\/status/);
+  assert.match(runtimeStatus, /\/api\/runtime-status/);
+  assert.doesNotMatch(runtimeStatus, /127\.0\.0\.1:3002/);
+  assert.match(runtimeStatusRoute, /RARDAR_RUNTIME_STATUS_ORIGIN/);
+  assert.match(runtimeStatusRoute, /parsed\.hostname !== "127\.0\.0\.1"/);
   assert.match(runtimeStatus, /normalizeRuntimeStatusSnapshot/);
   assert.match(runtimeReadiness, /heartbeatLimitMilliseconds/);
   assert.match(runtimeStatus, /dataAuditStatus/);

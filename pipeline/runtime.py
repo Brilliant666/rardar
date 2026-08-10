@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import importlib.util
 import json
 import math
+import ntpath
 import os
 import re
 import shutil
@@ -23,15 +25,24 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from pipeline.data_lock import manager_dir_lock_path
 from pipeline.runtime_settings import (
+    DEFAULT_RUNTIME_STATUS_PORT,
     DEFAULT_SCHEDULE_AT,
     DEFAULT_SCHEDULE_TIMEZONE,
     DEFAULT_STALE_AFTER_HOURS,
+    DEFAULT_VINEXT_PORT,
+    MANAGER_ALREADY_RUNNING_EXIT_CODE,
+    PERSISTENT_PATH_VARIABLES,
+    RUNTIME_HOST,
     SCHEDULER_ALREADY_RUNNING_EXIT_CODE,
+    RuntimeLayout,
     RuntimeSettings,
     RuntimeSettingsError,
     RuntimeTimezoneDatabaseError,
+    default_runtime_dir as configured_runtime_dir,
     default_runtime_settings,
+    load_runtime_layout,
     load_runtime_settings,
     validate_schedule_at,
     validate_schedule_timezone,
@@ -42,25 +53,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def default_runtime_dir() -> Path:
-    configured = os.environ.get("RARDAR_RUNTIME_DIR")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    if os.name == "nt":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    else:
-        base = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-    return base / "Rardar" / "runtime"
+    """Backward-compatible public accessor for the validated runtime directory."""
+    return configured_runtime_dir()
 
 
-RUNTIME_DIR = default_runtime_dir()
+# Legacy module-level paths remain available for direct helper tests. CLI
+# commands resolve the current environment at invocation time, so malformed
+# configuration cannot cause import-time filesystem side effects.
+RUNTIME_DIR = configured_runtime_dir({})
 LOG_DIR = RUNTIME_DIR / "logs"
 CONTROL_PATH = RUNTIME_DIR / "manager.json"
 LOCK_PATH = RUNTIME_DIR / "manager.lock"
 STATUS_PATH = RUNTIME_DIR / "status.json"
 SCHEDULER_STATUS_PATH = RUNTIME_DIR / "scheduler-status.json"
-LOCAL_URL = "http://127.0.0.1:3000/"
-STATUS_HOST = "127.0.0.1"
-STATUS_PORT = 3002
+LOCAL_URL = f"http://{RUNTIME_HOST}:{DEFAULT_VINEXT_PORT}/"
+STATUS_HOST = RUNTIME_HOST
+STATUS_PORT = DEFAULT_RUNTIME_STATUS_PORT
 MINIMUM_NODE = (22, 13, 0)
 REQUIRED_PYTHON_MODULES = ("jsonschema", "tzdata")
 PYTHON_DEPENDENCY_INSTALL_COMMAND = "python -m pip install -r requirements.txt"
@@ -79,7 +87,67 @@ RFC3339_WITH_TIMEZONE_PATTERN = re.compile(
 )
 _latest_status: dict[str, Any] = {}
 _latest_status_lock = threading.Lock()
+_status_allowed_origins = {
+    f"http://{RUNTIME_HOST}:{DEFAULT_VINEXT_PORT}",
+    f"http://localhost:{DEFAULT_VINEXT_PORT}",
+}
 _UNBOUND_SCHEDULER_PROCESS = object()
+WEBSITE_ENVIRONMENT_ALLOWLIST = {
+    "APPDATA",
+    "CHOKIDAR_USEPOLLING",
+    "CI",
+    "CLOUDFLARE_VITE_FORCE_LOCAL",
+    "CODEX_SANDBOX",
+    "COMSPEC",
+    "FORCE_COLOR",
+    "HOME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LOCALAPPDATA",
+    "MINIFLARE_REGISTRY_PATH",
+    "NODE_ENV",
+    "NO_PROXY",
+    "PATH",
+    "PATHEXT",
+    "PYTHONDONTWRITEBYTECODE",
+    "PYTHONUTF8",
+    "RARDAR_DATA_DIR",
+    "RARDAR_DATA_LOCK_DIR",
+    "RARDAR_HOME",
+    "RARDAR_PYTHON",
+    "RARDAR_RUNTIME_DIR",
+    "RARDAR_RUNTIME_STATUS_PORT",
+    "RARDAR_SCHEDULE_AT",
+    "RARDAR_SCHEDULE_TIMEZONE",
+    "RARDAR_STALE_AFTER_HOURS",
+    "RARDAR_VINEXT_PORT",
+    "RARDAR_VINEXT_STATE_DIR",
+    "RARDAR_VITE_CACHE_DIR",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "SYSTEMDRIVE",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "TZ",
+    "USERPROFILE",
+    "WINDIR",
+    "WRANGLER_LOG_PATH",
+    "WRANGLER_REGISTRY_PATH",
+    "WRANGLER_SEND_METRICS",
+    "WRANGLER_WRITE_LOGS",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_STATE_HOME",
+    "no_proxy",
+}
+PROCESS_TREE_TERM_TIMEOUT = 8.0
+PROCESS_TREE_KILL_TIMEOUT = 5.0
+PROCESS_TREE_POLL_INTERVAL = 0.05
 
 
 def acquire_manager_lock(path: Path = LOCK_PATH) -> Any | None:
@@ -121,6 +189,11 @@ def release_manager_lock(handle: Any) -> None:
         handle.close()
 
 
+def manager_ownership_lock_path(layout: RuntimeLayout) -> Path:
+    """Serialize managers by canonical data directory, not by login HOME."""
+    return manager_dir_lock_path(layout.data_dir, layout.data_lock_dir)
+
+
 def rotate_log(path: Path, max_bytes: int = MAX_LOG_BYTES, backup_count: int = LOG_BACKUP_COUNT) -> None:
     """Bound append-only runtime logs while retaining recent history."""
     try:
@@ -156,11 +229,11 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
-def write_runtime_status(payload: dict[str, Any]) -> None:
+def write_runtime_status(payload: dict[str, Any], path: Path | None = None) -> None:
     global _latest_status
     with _latest_status_lock:
         _latest_status = payload
-    _write_json(STATUS_PATH, payload)
+    _write_json(path or STATUS_PATH, payload)
 
 
 class RuntimeStatusHandler(BaseHTTPRequestHandler):
@@ -173,7 +246,7 @@ class RuntimeStatusHandler(BaseHTTPRequestHandler):
         encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(200)
         origin = self.headers.get("Origin")
-        if origin in {"http://127.0.0.1:3000", "http://localhost:3000"}:
+        if origin in _status_allowed_origins:
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
         self.send_header("Cache-Control", "no-store")
@@ -190,8 +263,17 @@ class LocalStatusServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
 
-def start_status_server() -> ThreadingHTTPServer:
-    server = LocalStatusServer((STATUS_HOST, STATUS_PORT), RuntimeStatusHandler)
+def start_status_server(
+    host: str = STATUS_HOST,
+    port: int = STATUS_PORT,
+    website_port: int = DEFAULT_VINEXT_PORT,
+) -> ThreadingHTTPServer:
+    global _status_allowed_origins
+    _status_allowed_origins = {
+        f"http://{RUNTIME_HOST}:{website_port}",
+        f"http://localhost:{website_port}",
+    }
+    server = LocalStatusServer((host, port), RuntimeStatusHandler)
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, name="rardar-status", daemon=True)
     thread.start()
@@ -278,6 +360,95 @@ def python_dependencies_are_ready() -> bool:
     return False
 
 
+def _runtime_child_environment(
+    layout: RuntimeLayout,
+    settings: RuntimeSettings,
+    node: Path,
+) -> dict[str, str]:
+    """Freeze one validated contract for both managed child processes."""
+    environment = os.environ.copy()
+    environment["PATH"] = str(node.parent) + os.pathsep + environment.get("PATH", "")
+    environment["PYTHONUNBUFFERED"] = "1"
+    environment["RARDAR_PYTHON"] = sys.executable
+    environment["RARDAR_HOME"] = str(layout.home)
+    environment["RARDAR_DATA_DIR"] = str(layout.data_dir)
+    environment["RARDAR_RUNTIME_DIR"] = str(layout.runtime_dir)
+    environment["RARDAR_DATA_LOCK_DIR"] = str(layout.data_lock_dir)
+    environment["RARDAR_VINEXT_PORT"] = str(layout.vinext_port)
+    environment["RARDAR_RUNTIME_STATUS_PORT"] = str(layout.runtime_status_port)
+    environment["RARDAR_SCHEDULE_AT"] = settings.schedule_at
+    environment["RARDAR_SCHEDULE_TIMEZONE"] = settings.schedule_timezone
+    environment["RARDAR_STALE_AFTER_HOURS"] = str(settings.stale_after_hours)
+    # Persistent state locations remain opt-in for local compatibility.  The
+    # strict layout loader validates every explicitly supplied value, and this
+    # copy preserves those exact deployment paths for Vinext/Wrangler.
+    for name in PERSISTENT_PATH_VARIABLES:
+        if name in os.environ:
+            environment[name] = os.environ[name]
+    return environment
+
+
+def _website_child_environment(environment: dict[str, str]) -> dict[str, str]:
+    """Expose only the explicitly reviewed local-host contract to Vinext."""
+    return {
+        name: value
+        for name, value in environment.items()
+        if name in WEBSITE_ENVIRONMENT_ALLOWLIST
+    }
+
+
+def _runtime_preflight(
+    *,
+    service_mode: bool = False,
+) -> tuple[RuntimeLayout, RuntimeSettings, Path] | None:
+    """Validate all service configuration and dependencies before any writes."""
+    try:
+        layout = load_runtime_layout(application_root=ROOT)
+        settings = load_runtime_settings()
+    except RuntimeTimezoneDatabaseError as error:
+        if not python_dependencies_are_ready():
+            return None
+        print(f"Rardar runtime configuration error: {error}")
+        return None
+    except RuntimeSettingsError as error:
+        print(f"Rardar runtime configuration error: {error}")
+        return None
+    if not python_dependencies_are_ready():
+        return None
+    if service_mode and layout.home != ROOT.resolve():
+        print(
+            "RARDAR_HOME must resolve to the release that provides pipeline.runtime "
+            f"({ROOT.resolve()})"
+        )
+        return None
+    try:
+        node = find_node()
+    except RuntimeError as error:
+        print(str(error))
+        return None
+    required_javascript_paths = (
+        layout.home / "node_modules" / "vinext" / "dist" / "cli.js",
+        layout.home / "node_modules" / "vite" / "bin" / "vite.js",
+        layout.home / "vite.config.ts",
+        layout.home / ".openai" / "hosting.json",
+        layout.home / "app" / "runtime-readiness.mjs",
+        layout.home / "build" / "published-data-bridge.ts",
+        layout.home / "build" / "sites-vite-plugin.ts",
+        layout.home / "worker" / "index.ts",
+    )
+    missing_javascript_path = next(
+        (path for path in required_javascript_paths if not path.is_file()),
+        None,
+    )
+    if not layout.home.is_dir() or missing_javascript_path is not None:
+        print(
+            "Rardar runtime dependencies are incomplete: "
+            f"missing {missing_javascript_path}; install JavaScript dependencies in RARDAR_HOME"
+        )
+        return None
+    return layout, settings, node
+
+
 def process_is_alive(pid: int | None) -> bool:
     if not pid or pid <= 0:
         return False
@@ -302,7 +473,12 @@ def process_is_alive(pid: int | None) -> bool:
         return False
 
 
-def process_matches(pid: int, markers: tuple[str, ...]) -> bool:
+def process_matches(
+    pid: int,
+    markers: tuple[str, ...],
+    *,
+    require_all: bool = False,
+) -> bool:
     if not process_is_alive(pid):
         return False
     try:
@@ -322,7 +498,8 @@ def process_matches(pid: int, markers: tuple[str, ...]) -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     lowered = command_line.lower()
-    return any(marker.lower() in lowered for marker in markers)
+    matches = (marker.lower() in lowered for marker in markers)
+    return all(matches) if require_all else any(matches)
 
 
 def _terminate_process_tree(pid: int) -> None:
@@ -340,20 +517,53 @@ def _terminate_process_tree(pid: int) -> None:
             pass
 
 
-def _stop_recorded_processes(status: dict[str, Any], include_manager: bool = True) -> None:
-    targets: list[tuple[int, tuple[str, ...]]] = []
+def _stop_recorded_processes(
+    status: dict[str, Any],
+    include_manager: bool = True,
+    *,
+    layout: RuntimeLayout | None = None,
+) -> None:
+    targets: list[tuple[int, tuple[str, ...], bool]] = []
     manager_pid = status.get("managerPid")
     if include_manager and isinstance(manager_pid, int):
-        targets.append((manager_pid, ("pipeline.runtime run", "pipeline\\runtime.py run")))
+        targets.append(
+            (
+                manager_pid,
+                (
+                    "pipeline.runtime run",
+                    "pipeline\\runtime.py run",
+                    "pipeline.runtime service",
+                    "pipeline\\runtime.py service",
+                ),
+                False,
+            )
+        )
     services = status.get("services") or {}
     website_pid = (services.get("website") or {}).get("pid")
     scheduler_pid = (services.get("scheduler") or {}).get("pid")
     if isinstance(website_pid, int):
-        targets.append((website_pid, ("vinext",)))
+        website_home = layout.home if layout is not None else ROOT.resolve()
+        website_port = layout.vinext_port if layout is not None else DEFAULT_VINEXT_PORT
+        targets.append(
+            (
+                website_pid,
+                (
+                    str(website_home / "node_modules" / "vite" / "bin" / "vite.js"),
+                    "--configLoader",
+                    "runner",
+                    "--host",
+                    RUNTIME_HOST,
+                    "--port",
+                    str(website_port),
+                    "--strictPort",
+                ),
+                True,
+            )
+        )
     if isinstance(scheduler_pid, int):
-        targets.append((scheduler_pid, ("pipeline.scheduler",)))
-    for pid, markers in targets:
-        if process_matches(pid, markers):
+        targets.append((scheduler_pid, ("pipeline.scheduler",), False))
+    for pid, markers, require_all in targets:
+        if process_matches(pid, markers, require_all=require_all):
             _terminate_process_tree(pid)
 
 
@@ -534,6 +744,372 @@ def probe_website_health(
         connection.close()
 
 
+def _posix_process_group_is_alive(process_group_id: int) -> bool:
+    try:
+        os.killpg(process_group_id, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError as error:
+        raise RuntimeError(
+            f"cannot verify owned process group {process_group_id}: {error}"
+        ) from error
+    return True
+
+
+def _wait_for_posix_process_group(
+    process_group_id: int,
+    process: subprocess.Popen[bytes],
+    timeout: float,
+) -> bool:
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        process.poll()
+        if not _posix_process_group_is_alive(process_group_id):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(PROCESS_TREE_POLL_INTERVAL)
+
+
+def _terminate_posix_process_group(
+    process_group_id: int,
+    process: subprocess.Popen[bytes],
+) -> None:
+    if process_group_id <= 0 or process_group_id == os.getpgrp():
+        raise RuntimeError(f"refusing to terminate unsafe process group {process_group_id}")
+    if not _posix_process_group_is_alive(process_group_id):
+        process.poll()
+        return
+    try:
+        os.killpg(process_group_id, signal.SIGTERM)
+    except ProcessLookupError:
+        process.poll()
+        return
+    if _wait_for_posix_process_group(
+        process_group_id,
+        process,
+        PROCESS_TREE_TERM_TIMEOUT,
+    ):
+        return
+    try:
+        os.killpg(process_group_id, signal.SIGKILL)
+    except ProcessLookupError:
+        process.poll()
+        return
+    if not _wait_for_posix_process_group(
+        process_group_id,
+        process,
+        PROCESS_TREE_KILL_TIMEOUT,
+    ):
+        raise RuntimeError(
+            f"owned process group {process_group_id} survived SIGTERM and SIGKILL"
+        )
+
+
+def _windows_process_times_from_handle(process_handle: int) -> tuple[int, int | None]:
+    """Return immutable Windows creation time and optional exit time for one handle."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    class FileTime(ctypes.Structure):
+        _fields_ = (("low", wintypes.DWORD), ("high", wintypes.DWORD))
+
+    def as_integer(value: FileTime) -> int:
+        return (int(value.high) << 32) | int(value.low)
+
+    creation = FileTime()
+    exit_time = FileTime()
+    kernel_time = FileTime()
+    user_time = FileTime()
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GetProcessTimes.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+    )
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    if not kernel32.GetProcessTimes(
+        wintypes.HANDLE(process_handle),
+        ctypes.byref(creation),
+        ctypes.byref(exit_time),
+        ctypes.byref(kernel_time),
+        ctypes.byref(user_time),
+    ):
+        raise RuntimeError("cannot read the owned Windows process creation identity")
+    creation_value = as_integer(creation)
+    if creation_value <= 0:
+        raise RuntimeError("owned Windows process returned an invalid creation identity")
+    exit_value = as_integer(exit_time)
+    return creation_value, exit_value if exit_value > 0 else None
+
+
+def _windows_process_creation_time(process_id: int) -> int | None:
+    """Read a live PID's creation identity without trusting the PID alone."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    process_query_limited_information = 0x1000
+    kernel32 = ctypes.windll.kernel32
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(
+        process_query_limited_information,
+        False,
+        process_id,
+    )
+    if not handle:
+        return None
+    try:
+        try:
+            creation_time, _ = _windows_process_times_from_handle(int(handle))
+        except RuntimeError:
+            return None
+        return creation_time
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _windows_command_line_arguments(command_line: str) -> tuple[str, ...]:
+    """Parse a Windows command line using the same platform quoting rules."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    argument_count = ctypes.c_int()
+    shell32 = ctypes.windll.shell32
+    shell32.CommandLineToArgvW.argtypes = (
+        wintypes.LPCWSTR,
+        ctypes.POINTER(ctypes.c_int),
+    )
+    shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    arguments = shell32.CommandLineToArgvW(command_line, ctypes.byref(argument_count))
+    if not arguments:
+        raise RuntimeError("cannot parse the Windows process command line")
+    try:
+        return tuple(arguments[index] for index in range(argument_count.value))
+    finally:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.LocalFree.argtypes = (wintypes.HANDLE,)
+        kernel32.LocalFree.restype = wintypes.HANDLE
+        kernel32.LocalFree(ctypes.cast(arguments, wintypes.HANDLE))
+
+
+def _windows_process_command_identity(
+    process_id: int,
+) -> tuple[int, str, tuple[str, ...]] | None:
+    """Return direct parent, executable and exact argv tail for one Windows PID."""
+
+    command = (
+        f"$p = Get-CimInstance Win32_Process -Filter 'ProcessId = {process_id}'; "
+        "if ($null -ne $p) { "
+        "$p | Select-Object ProcessId,ParentProcessId,ExecutablePath,CommandLine "
+        "| ConvertTo-Json -Compress }"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", command],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    parent_id = payload.get("ParentProcessId")
+    executable = payload.get("ExecutablePath")
+    command_line = payload.get("CommandLine")
+    if (
+        not isinstance(parent_id, int)
+        or isinstance(parent_id, bool)
+        or not isinstance(executable, str)
+        or not executable
+        or not isinstance(command_line, str)
+        or not command_line
+    ):
+        return None
+    try:
+        arguments = _windows_command_line_arguments(command_line)
+    except RuntimeError:
+        return None
+    if not arguments:
+        return None
+    return (
+        parent_id,
+        ntpath.normcase(ntpath.abspath(executable)),
+        tuple(arguments[1:]),
+    )
+
+
+def _windows_process_parent_map() -> dict[int, int]:
+    command = (
+        "Get-CimInstance Win32_Process | "
+        "Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", command],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError(f"cannot enumerate the owned Windows process tree: {error}") from error
+    if completed.returncode != 0:
+        raise RuntimeError("cannot enumerate the owned Windows process tree")
+    try:
+        payload = json.loads(completed.stdout or "[]")
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Windows process tree enumeration returned invalid JSON") from error
+    rows = payload if isinstance(payload, list) else [payload]
+    parents: dict[int, int] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        process_id = row.get("ProcessId")
+        parent_id = row.get("ParentProcessId")
+        if (
+            isinstance(process_id, int)
+            and not isinstance(process_id, bool)
+            and isinstance(parent_id, int)
+            and not isinstance(parent_id, bool)
+        ):
+            parents[process_id] = parent_id
+    return parents
+
+
+def _windows_owned_process_identities(
+    root_process_id: int,
+    root_creation_time: int,
+    root_exit_time: int | None,
+) -> dict[int, int]:
+    """Snapshot only descendants whose creation chronology proves ownership."""
+
+    parents = _windows_process_parent_map()
+    current_root_creation = _windows_process_creation_time(root_process_id)
+    if root_exit_time is None and current_root_creation != root_creation_time:
+        raise RuntimeError("owned Windows process identity changed while its handle was active")
+    owned: dict[int, int] = {}
+    if current_root_creation == root_creation_time:
+        owned[root_process_id] = root_creation_time
+    parent_bounds = {root_process_id: (root_creation_time, root_exit_time)}
+    frontier = {root_process_id}
+    while frontier:
+        children: set[int] = set()
+        for process_id, parent_id in parents.items():
+            if parent_id not in frontier or process_id in owned:
+                continue
+            creation_time = _windows_process_creation_time(process_id)
+            if creation_time is None:
+                raise RuntimeError(
+                    f"cannot verify Windows child process creation identity for PID {process_id}"
+                )
+            parent_creation, parent_exit = parent_bounds[parent_id]
+            if creation_time < parent_creation:
+                continue
+            if parent_exit is not None and creation_time > parent_exit:
+                continue
+            owned[process_id] = creation_time
+            parent_bounds[process_id] = (creation_time, None)
+            children.add(process_id)
+        if not children:
+            break
+        frontier = children
+    return owned
+
+
+def _windows_taskkill(process_id: int, *, force: bool) -> None:
+    command = ["taskkill", "/PID", str(process_id), "/T"]
+    if force:
+        command.append("/F")
+    subprocess.run(
+        command,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+        timeout=10,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
+def _matching_windows_processes(
+    process_identities: dict[int, int],
+) -> dict[int, int]:
+    matching: dict[int, int] = {}
+    for process_id, expected_creation_time in process_identities.items():
+        current_creation_time = _windows_process_creation_time(process_id)
+        if current_creation_time == expected_creation_time:
+            matching[process_id] = expected_creation_time
+        elif current_creation_time is None and process_is_alive(process_id):
+            raise RuntimeError(
+                f"cannot revalidate Windows process creation identity for PID {process_id}"
+            )
+    return matching
+
+
+def _wait_for_windows_processes(
+    process_identities: dict[int, int],
+    timeout: float,
+) -> dict[int, int]:
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        alive = _matching_windows_processes(process_identities)
+        if not alive or time.monotonic() >= deadline:
+            return alive
+        time.sleep(PROCESS_TREE_POLL_INTERVAL)
+
+
+def _terminate_windows_process_tree(
+    root_process_id: int,
+    root_creation_time: int,
+    root_exit_time: int | None,
+) -> None:
+    tracked = _windows_owned_process_identities(
+        root_process_id,
+        root_creation_time,
+        root_exit_time,
+    )
+    if not tracked:
+        return
+    # `/PID /T` is used only after the PID's immutable creation identity still
+    # matches the owned snapshot. Never select processes by name.
+    ordered = [
+        *([root_process_id] if root_process_id in tracked else []),
+        *sorted(set(tracked) - {root_process_id}),
+    ]
+    for process_id in ordered:
+        if _windows_process_creation_time(process_id) == tracked[process_id]:
+            _windows_taskkill(process_id, force=False)
+    alive = _wait_for_windows_processes(tracked, PROCESS_TREE_TERM_TIMEOUT)
+    for process_id, creation_time in sorted(alive.items()):
+        if _windows_process_creation_time(process_id) == creation_time:
+            _windows_taskkill(process_id, force=True)
+    survivors = _wait_for_windows_processes(alive, PROCESS_TREE_KILL_TIMEOUT)
+    if survivors:
+        raise RuntimeError(
+            "owned Windows process tree survived taskkill: "
+            + ", ".join(str(process_id) for process_id in sorted(survivors))
+        )
+
+
 @dataclass
 class ManagedService:
     name: str
@@ -544,9 +1120,66 @@ class ManagedService:
     restart_count: int = 0
     last_error: str | None = None
     _log_handle: Any = None
+    _process_group_id: int | None = None
+    _process_tree_root_pid: int | None = None
+    _process_tree_root_creation_time: int | None = None
+
+    def _close_log(self) -> None:
+        if self._log_handle:
+            self._log_handle.close()
+            self._log_handle = None
+
+    def cleanup_owned_process_tree(self) -> None:
+        """Prove the previous process tree is gone before any replacement."""
+        process = self.process
+        if process is None:
+            self._close_log()
+            return
+        try:
+            if os.name == "nt":
+                root_process_id = self._process_tree_root_pid
+                root_creation_time = self._process_tree_root_creation_time
+                if root_process_id is None or root_creation_time is None:
+                    if process.poll() is not None:
+                        return
+                    raise RuntimeError(
+                        "cannot stop an owned Windows process without its creation identity"
+                    )
+                process_handle = getattr(process, "_handle", None)
+                if process_handle is None:
+                    raise RuntimeError("owned Windows process handle is unavailable")
+                recorded_creation_time, root_exit_time = _windows_process_times_from_handle(
+                    int(process_handle)
+                )
+                if recorded_creation_time != root_creation_time:
+                    raise RuntimeError("owned Windows process handle identity changed")
+                _terminate_windows_process_tree(
+                    root_process_id,
+                    root_creation_time,
+                    root_exit_time,
+                )
+                process.poll()
+            elif self._process_group_id is not None:
+                _terminate_posix_process_group(self._process_group_id, process)
+            elif process.poll() is None:
+                # Only directly injected test processes can reach this legacy
+                # fallback. Processes started below always have a recorded PGID.
+                process.terminate()
+                try:
+                    process.wait(timeout=PROCESS_TREE_TERM_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=PROCESS_TREE_KILL_TIMEOUT)
+            self._process_group_id = None
+            self._process_tree_root_pid = None
+            self._process_tree_root_creation_time = None
+        finally:
+            self._close_log()
 
     def start(self, environment: dict[str, str]) -> None:
-        if self.process is not None:
+        restarting = self.process is not None
+        if restarting:
+            self.cleanup_owned_process_tree()
             self.restart_count += 1
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         rotate_log(self.log_path)
@@ -558,7 +1191,7 @@ class ManagedService:
             )
         self.process = subprocess.Popen(
             self.command,
-            cwd=ROOT,
+            cwd=Path(environment["RARDAR_HOME"]),
             env=environment,
             stdin=subprocess.DEVNULL,
             stdout=self._log_handle,
@@ -566,6 +1199,28 @@ class ManagedService:
             creationflags=creation_flags,
             start_new_session=os.name != "nt",
         )
+        self._process_tree_root_pid = self.process.pid
+        self._process_group_id = self.process.pid if os.name != "nt" else None
+        if os.name == "nt":
+            process_handle = getattr(self.process, "_handle", None)
+            if process_handle is None:
+                self.process.kill()
+                self.process.wait(timeout=PROCESS_TREE_KILL_TIMEOUT)
+                self.process = None
+                self._close_log()
+                raise RuntimeError("owned Windows process handle is unavailable")
+            try:
+                creation_time, _ = _windows_process_times_from_handle(int(process_handle))
+            except RuntimeError:
+                self.process.kill()
+                self.process.wait(timeout=PROCESS_TREE_KILL_TIMEOUT)
+                self.process = None
+                self._process_tree_root_pid = None
+                self._close_log()
+                raise
+            self._process_tree_root_creation_time = creation_time
+        else:
+            self._process_tree_root_creation_time = None
         self.started_at = utc_now()
         if self.restart_count == 0:
             self.last_error = None
@@ -574,16 +1229,7 @@ class ManagedService:
         return self.process.poll() if self.process else None
 
     def stop(self) -> None:
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=8)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=5)
-        if self._log_handle:
-            self._log_handle.close()
-            self._log_handle = None
+        self.cleanup_owned_process_tree()
 
 
 def _service_payload(service: ManagedService, state: str) -> dict[str, Any]:
@@ -600,15 +1246,74 @@ def _effective_schedule(settings: RuntimeSettings) -> dict[str, str]:
     return {"time": settings.schedule_at, "timezone": settings.schedule_timezone}
 
 
+def _trusted_windows_python_executables(command_executable: str) -> set[str]:
+    candidates = {command_executable, getattr(sys, "_base_executable", command_executable)}
+    return {
+        ntpath.normcase(ntpath.abspath(candidate))
+        for candidate in candidates
+        if isinstance(candidate, str) and candidate
+    }
+
+
+def _scheduler_process_id_is_trusted(
+    expected: object,
+    reported: object,
+    *,
+    expected_creation_time: int | None = None,
+    expected_command: tuple[str, ...] | None = None,
+) -> bool:
+    if expected is _UNBOUND_SCHEDULER_PROCESS:
+        return True
+    if not isinstance(expected, int) or not isinstance(reported, int):
+        return False
+    if expected == reported:
+        if os.name != "nt":
+            return True
+        return (
+            expected_creation_time is not None
+            and _windows_process_creation_time(reported) == expected_creation_time
+        )
+    if os.name != "nt":
+        return False
+    # A Windows venv redirector can remain as the exact Popen child while the
+    # base interpreter that executes pipeline.scheduler is its direct child.
+    # Accept only that one launcher boundary, never an arbitrary descendant or
+    # another process that happens to write the shared status path.
+    if expected_creation_time is None or not expected_command:
+        return False
+    reported_creation_time = _windows_process_creation_time(reported)
+    if (
+        reported_creation_time is None
+        or reported_creation_time < expected_creation_time
+    ):
+        return False
+    command_identity = _windows_process_command_identity(reported)
+    if command_identity is None:
+        return False
+    direct_parent, executable, arguments = command_identity
+    if direct_parent != expected:
+        return False
+    if executable not in _trusted_windows_python_executables(expected_command[0]):
+        return False
+    return arguments == tuple(expected_command[1:])
+
+
 def _scheduler_details(
     settings: RuntimeSettings | None = None,
     expected_process_id: int | None | object = _UNBOUND_SCHEDULER_PROCESS,
+    *,
+    status_path: Path | None = None,
+    expected_process_creation_time: int | None = None,
+    expected_process_command: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    stored = _read_json(SCHEDULER_STATUS_PATH) or {}
+    stored = _read_json(status_path or SCHEDULER_STATUS_PATH) or {}
     resolved = settings or default_runtime_settings()
     reported_process_id = stored.get("processId")
-    telemetry_trusted = expected_process_id is _UNBOUND_SCHEDULER_PROCESS or (
-        isinstance(expected_process_id, int) and reported_process_id == expected_process_id
+    telemetry_trusted = _scheduler_process_id_is_trusted(
+        expected_process_id,
+        reported_process_id,
+        expected_creation_time=expected_process_creation_time,
+        expected_command=expected_process_command,
     )
     status = stored if telemetry_trusted else {}
     return {
@@ -640,8 +1345,12 @@ def _scheduler_details(
 def _stopped_status(
     message: str = "本地运行管理器未启动",
     settings: RuntimeSettings | None = None,
+    *,
+    layout: RuntimeLayout | None = None,
+    scheduler_status_path: Path | None = None,
 ) -> dict[str, Any]:
     resolved = settings or default_runtime_settings()
+    local_url = layout.website_url if layout is not None else LOCAL_URL
     return {
         "schemaVersion": 1,
         "state": "stopped",
@@ -664,41 +1373,83 @@ def _stopped_status(
             "nextRunAt": None,
         },
         "services": {
-            "website": {"state": "stopped", "pid": None, "url": LOCAL_URL},
+            "website": {"state": "stopped", "pid": None, "url": local_url},
             "scheduler": {
                 "state": "stopped",
                 "pid": None,
-                **_scheduler_details(resolved, None),
+                **_scheduler_details(
+                    resolved,
+                    None,
+                    status_path=scheduler_status_path or SCHEDULER_STATUS_PATH,
+                ),
             },
         },
+        "runtime": (
+            {
+                "host": RUNTIME_HOST,
+                "home": str(layout.home),
+                "dataDir": str(layout.data_dir),
+                "runtimeDir": str(layout.runtime_dir),
+                "dataLockDir": str(layout.data_lock_dir),
+                "vinextPort": layout.vinext_port,
+                "runtimeStatusPort": layout.runtime_status_port,
+                "statusUrl": layout.status_url,
+            }
+            if layout is not None
+            else None
+        ),
     }
 
 
-def _run_manager() -> int:
+def _run_manager(
+    layout: RuntimeLayout | None = None,
+    settings: RuntimeSettings | None = None,
+    node: Path | None = None,
+    *,
+    conflict_exit_code: int = 0,
+) -> int:
+    resolved_layout = layout or load_runtime_layout(application_root=ROOT)
+    control_path = resolved_layout.control_path if layout is not None else CONTROL_PATH
+    status_path = resolved_layout.status_path if layout is not None else STATUS_PATH
+    scheduler_status_path = (
+        resolved_layout.scheduler_status_path
+        if layout is not None
+        else SCHEDULER_STATUS_PATH
+    )
+    log_dir = resolved_layout.log_dir if layout is not None else LOG_DIR
+    local_url = resolved_layout.website_url if layout is not None else LOCAL_URL
     current_pid = os.getpid()
-    existing = _read_json(CONTROL_PATH) or {}
+    existing = _read_json(control_path) or {}
     existing_pid = existing.get("pid")
     if isinstance(existing_pid, int) and existing_pid != current_pid and process_is_alive(existing_pid):
-        return 0
+        return conflict_exit_code
 
-    settings = load_runtime_settings()
-    node = find_node()
-    environment = os.environ.copy()
-    environment["PATH"] = str(node.parent) + os.pathsep + environment.get("PATH", "")
-    environment["PYTHONUNBUFFERED"] = "1"
-    # The local Vinext host invokes the strict Python historical-generation
-    # verifier only for Stable Identity adoption.  Pin it to the same
-    # interpreter that passed the manager dependency preflight instead of
-    # relying on a potentially different global ``python`` on PATH.
-    environment["RARDAR_PYTHON"] = sys.executable
-    environment["RARDAR_SCHEDULE_AT"] = settings.schedule_at
-    environment["RARDAR_SCHEDULE_TIMEZONE"] = settings.schedule_timezone
-    environment["RARDAR_STALE_AFTER_HOURS"] = str(settings.stale_after_hours)
+    resolved_settings = settings or load_runtime_settings()
+    resolved_node = node or find_node()
+    environment = _runtime_child_environment(
+        resolved_layout,
+        resolved_settings,
+        resolved_node,
+    )
+    service_environments = {
+        "website": _website_child_environment(environment),
+        "scheduler": environment,
+    }
 
     website = ManagedService(
         "website",
-        [str(node), str(ROOT / "node_modules" / "vinext" / "dist" / "cli.js"), "dev", "--hostname", "127.0.0.1"],
-        LOG_DIR / "website.log",
+        [
+            str(resolved_node),
+            str(resolved_layout.home / "node_modules" / "vite" / "bin" / "vite.js"),
+            "--configLoader",
+            "runner",
+            "--host",
+            RUNTIME_HOST,
+            "--port",
+            str(resolved_layout.vinext_port),
+            "--strictPort",
+        ],
+        log_dir / "website.log",
     )
     scheduler = ManagedService(
         "scheduler",
@@ -707,18 +1458,18 @@ def _run_manager() -> int:
             "-m",
             "pipeline.scheduler",
             "--data-dir",
-            "data",
+            str(resolved_layout.data_dir),
             "--at",
-            settings.schedule_at,
+            resolved_settings.schedule_at,
             "--timezone",
-            settings.schedule_timezone,
+            resolved_settings.schedule_timezone,
             "--analyze-top",
             "5",
             "--status-path",
-            str(SCHEDULER_STATUS_PATH),
+            str(scheduler_status_path),
             "--skip-initial",
         ],
-        LOG_DIR / "scheduler.log",
+        log_dir / "scheduler.log",
     )
     services = [website, scheduler]
     should_stop = False
@@ -727,28 +1478,81 @@ def _run_manager() -> int:
         nonlocal should_stop
         should_stop = True
 
+    def publish_status(payload: dict[str, Any]) -> None:
+        if layout is None:
+            write_runtime_status(payload)
+        else:
+            write_runtime_status(payload, status_path)
+
+    def scheduler_telemetry(expected_process_id: int | None) -> dict[str, Any]:
+        expected_creation_time = (
+            getattr(scheduler, "_process_tree_root_creation_time", None)
+            if expected_process_id is not None
+            else None
+        )
+        expected_command = (
+            tuple(scheduler.command) if expected_process_id is not None else None
+        )
+        if layout is None:
+            return _scheduler_details(
+                resolved_settings,
+                expected_process_id,
+                expected_process_creation_time=expected_creation_time,
+                expected_process_command=expected_command,
+            )
+        return _scheduler_details(
+            resolved_settings,
+            expected_process_id,
+            status_path=scheduler_status_path,
+            expected_process_creation_time=expected_creation_time,
+            expected_process_command=expected_command,
+        )
+
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
-    _write_json(CONTROL_PATH, {"pid": current_pid, "startedAt": utc_now()})
-
-    starting_status = _stopped_status("网站与每日刷新正在启动", settings)
-    starting_status.update({"state": "starting", "managerPid": current_pid})
-    starting_status["services"]["website"]["state"] = "starting"
-    starting_status["services"]["scheduler"]["state"] = "starting"
-    write_runtime_status(starting_status)
-    status_server = start_status_server()
+    status_server: ThreadingHTTPServer | None = None
     try:
+        status_server = (
+            start_status_server()
+            if layout is None
+            else start_status_server(
+                RUNTIME_HOST,
+                resolved_layout.runtime_status_port,
+                resolved_layout.vinext_port,
+            )
+        )
+        _write_json(
+            control_path,
+            {
+                "pid": current_pid,
+                "startedAt": utc_now(),
+                "home": str(resolved_layout.home),
+                "dataDir": str(resolved_layout.data_dir),
+                "runtimeDir": str(resolved_layout.runtime_dir),
+                "dataLockDir": str(resolved_layout.data_lock_dir),
+                "vinextPort": resolved_layout.vinext_port,
+                "runtimeStatusPort": resolved_layout.runtime_status_port,
+            },
+        )
+        starting_status = _stopped_status(
+            "网站与每日刷新正在启动",
+            resolved_settings,
+            layout=resolved_layout,
+            scheduler_status_path=scheduler_status_path,
+        )
+        starting_status.update({"state": "starting", "managerPid": current_pid})
+        starting_status["services"]["website"]["state"] = "starting"
+        starting_status["services"]["scheduler"]["state"] = "starting"
+        publish_status(starting_status)
         for service in services:
-            service.start(environment)
+            service.start(service_environments[service.name])
 
         while not should_stop:
             for service in services:
                 exit_code = service.poll()
                 if exit_code is not None:
                     service.last_error = f"process exited with code {exit_code}"
-                    if service._log_handle:
-                        service._log_handle.close()
-                        service._log_handle = None
+                    service.cleanup_owned_process_tree()
                     if (
                         service.name == "scheduler"
                         and exit_code == SCHEDULER_ALREADY_RUNNING_EXIT_CODE
@@ -756,19 +1560,22 @@ def _run_manager() -> int:
                         service.last_error = "another scheduler owns the managed data directory"
                         continue
                     time.sleep(2)
-                    service.start(environment)
+                    service.start(service_environments[service.name])
 
             website_health = WebsiteHealth("starting")
-            if website.poll() is None and port_is_open():
-                website_health = probe_website_health()
+            if website.poll() is None and port_is_open(RUNTIME_HOST, resolved_layout.vinext_port):
+                website_health = probe_website_health(
+                    RUNTIME_HOST,
+                    resolved_layout.vinext_port,
+                )
             website_state = website_health.state
             website.last_error = website_health.error
             if (
                 website_health.state == "healthy"
                 and (
-                    website_health.schedule_at != settings.schedule_at
-                    or website_health.schedule_timezone != settings.schedule_timezone
-                    or website_health.stale_after_seconds != settings.stale_after_seconds
+                    website_health.schedule_at != resolved_settings.schedule_at
+                    or website_health.schedule_timezone != resolved_settings.schedule_timezone
+                    or website_health.stale_after_seconds != resolved_settings.stale_after_seconds
                 )
             ):
                 website_health = WebsiteHealth(
@@ -782,7 +1589,7 @@ def _run_manager() -> int:
                 if scheduler.process is not None and scheduler.poll() is None
                 else None
             )
-            scheduler_details = _scheduler_details(settings, scheduler_process_id)
+            scheduler_details = scheduler_telemetry(scheduler_process_id)
             scheduler_exit_code = scheduler.poll()
             scheduler_state = (
                 scheduler_heartbeat_state(
@@ -799,7 +1606,7 @@ def _run_manager() -> int:
             if scheduler_state == "stale":
                 scheduler.last_error = "scheduler heartbeat became stale"
                 scheduler.stop()
-                scheduler.start(environment)
+                scheduler.start(service_environments[scheduler.name])
                 scheduler_state = "restarting"
             data_freshness = website_health.data_freshness or "invalid"
             services_healthy = website_state == scheduler_state == "healthy"
@@ -810,6 +1617,11 @@ def _run_manager() -> int:
             )
             scheduler_payload = _service_payload(scheduler, scheduler_state)
             scheduler_payload.update(scheduler_details)
+            if (
+                scheduler_details.get("telemetryTrusted") is True
+                and isinstance(scheduler_details.get("reportedProcessId"), int)
+            ):
+                scheduler_payload["pid"] = scheduler_details["reportedProcessId"]
             scheduler_payload["processError"] = scheduler.last_error
             payload = {
                 "schemaVersion": 1,
@@ -834,7 +1646,7 @@ def _run_manager() -> int:
                     "currentGenerationId": website_health.generation_id,
                     "snapshotCapturedAt": website_health.snapshot_captured_at,
                     "snapshotAgeSeconds": website_health.snapshot_age_seconds,
-                    "staleAfterSeconds": settings.stale_after_seconds,
+                    "staleAfterSeconds": resolved_settings.stale_after_seconds,
                     "lastSuccessfulRefreshAt": scheduler_details.get(
                         "lastSuccessfulRefreshAt"
                     ),
@@ -846,44 +1658,77 @@ def _run_manager() -> int:
                     ),
                 },
                 "schedule": {
-                    "at": settings.schedule_at,
-                    "timezone": settings.schedule_timezone,
+                    "at": resolved_settings.schedule_at,
+                    "timezone": resolved_settings.schedule_timezone,
                     "nextRunAt": scheduler_details.get("nextRunAt"),
                 },
                 "services": {
                     "website": {
                         **_service_payload(website, website_state),
-                        "url": LOCAL_URL,
+                        "url": local_url,
                         "generationId": website_health.generation_id,
                     },
                     "scheduler": scheduler_payload,
                 },
+                "runtime": {
+                    "host": RUNTIME_HOST,
+                    "home": str(resolved_layout.home),
+                    "dataDir": str(resolved_layout.data_dir),
+                    "runtimeDir": str(resolved_layout.runtime_dir),
+                    "dataLockDir": str(resolved_layout.data_lock_dir),
+                    "vinextPort": resolved_layout.vinext_port,
+                    "runtimeStatusPort": resolved_layout.runtime_status_port,
+                    "statusUrl": resolved_layout.status_url,
+                },
             }
-            write_runtime_status(payload)
+            publish_status(payload)
             time.sleep(10)
     finally:
-        status_server.shutdown()
-        status_server.server_close()
+        if status_server is not None:
+            status_server.shutdown()
+            status_server.server_close()
         for service in reversed(services):
             service.stop()
-        write_runtime_status(_stopped_status("本地运行管理器已停止", settings))
+        publish_status(
+            _stopped_status(
+                "本地运行管理器已停止",
+                resolved_settings,
+                layout=resolved_layout,
+                scheduler_status_path=scheduler_status_path,
+            )
+        )
         try:
-            CONTROL_PATH.unlink(missing_ok=True)
+            control_path.unlink(missing_ok=True)
         except OSError:
             pass
     return 0
 
 
-def run_manager() -> int:
-    manager_lock = acquire_manager_lock()
+def run_manager(*, service_mode: bool = False) -> int:
+    preflight = _runtime_preflight(service_mode=service_mode)
+    if preflight is None:
+        return 1
+    layout, settings, node = preflight
+    manager_lock = acquire_manager_lock(manager_ownership_lock_path(layout))
     if manager_lock is None:
-        return 0
+        print("Another Rardar manager already owns this data directory")
+        return MANAGER_ALREADY_RUNNING_EXIT_CODE if service_mode else 0
     try:
         try:
-            return _run_manager()
+            return _run_manager(
+                layout,
+                settings,
+                node,
+                conflict_exit_code=(
+                    MANAGER_ALREADY_RUNNING_EXIT_CODE if service_mode else 0
+                ),
+            )
         except RuntimeSettingsError as error:
             print(f"Rardar runtime configuration error: {error}")
             return 2
+        except RuntimeError as error:
+            print(str(error))
+            return 1
     finally:
         release_manager_lock(manager_lock)
 
@@ -905,6 +1750,33 @@ def _active_runtime_settings(status: dict[str, Any]) -> tuple[object, object, ob
     )
 
 
+def _active_runtime_layout(status: dict[str, Any]) -> tuple[object, ...] | None:
+    runtime = status.get("runtime")
+    if not isinstance(runtime, dict):
+        return None
+    return (
+        runtime.get("host"),
+        runtime.get("home"),
+        runtime.get("dataDir"),
+        runtime.get("runtimeDir"),
+        runtime.get("dataLockDir"),
+        runtime.get("vinextPort"),
+        runtime.get("runtimeStatusPort"),
+    )
+
+
+def _requested_runtime_layout(layout: RuntimeLayout) -> tuple[object, ...]:
+    return (
+        RUNTIME_HOST,
+        str(layout.home),
+        str(layout.data_dir),
+        str(layout.runtime_dir),
+        str(layout.data_lock_dir),
+        layout.vinext_port,
+        layout.runtime_status_port,
+    )
+
+
 def _manager_status_matches_control(
     status: dict[str, Any],
     control: dict[str, Any],
@@ -918,8 +1790,13 @@ def _manager_status_matches_control(
     )
 
 
-def start_manager(open_browser: bool = False) -> int:
+def start_manager(
+    open_browser: bool = False,
+    *,
+    layout: RuntimeLayout | None = None,
+) -> int:
     try:
+        requested_layout = layout or load_runtime_layout(application_root=ROOT)
         requested_settings = load_runtime_settings()
     except RuntimeTimezoneDatabaseError as error:
         if not python_dependencies_are_ready():
@@ -929,8 +1806,10 @@ def start_manager(open_browser: bool = False) -> int:
     except RuntimeSettingsError as error:
         print(f"Rardar runtime configuration error: {error}")
         return 2
-    control = _read_json(CONTROL_PATH) or {}
-    existing_status = _read_json(STATUS_PATH) or {}
+    control_path = requested_layout.control_path
+    status_path = requested_layout.status_path
+    control = _read_json(control_path) or {}
+    existing_status = _read_json(status_path) or {}
     manager_active = _manager_status_matches_control(existing_status, control)
     if manager_active:
         requested = (
@@ -938,7 +1817,14 @@ def start_manager(open_browser: bool = False) -> int:
             requested_settings.schedule_timezone,
             requested_settings.stale_after_seconds,
         )
-        if _active_runtime_settings(existing_status) != requested:
+        active_layout = _active_runtime_layout(existing_status)
+        if (
+            _active_runtime_settings(existing_status) != requested
+            or (
+                active_layout is not None
+                and active_layout != _requested_runtime_layout(requested_layout)
+            )
+        ):
             print(
                 "Rardar runtime configuration changes require "
                 "npm run local:stop followed by npm run local:start; "
@@ -946,9 +1832,9 @@ def start_manager(open_browser: bool = False) -> int:
             )
             return 1
         if existing_status.get("state") == "healthy":
-            print(f"Rardar is already managed at {LOCAL_URL}")
+            print(f"Rardar is already managed at {requested_layout.website_url}")
             if open_browser:
-                webbrowser.open(LOCAL_URL)
+                webbrowser.open(requested_layout.website_url)
             return 0
         data = existing_status.get("data") or {}
         services = existing_status.get("services") or {}
@@ -958,7 +1844,10 @@ def start_manager(open_browser: bool = False) -> int:
             data.get("freshness") == "stale"
             and website_state == scheduler_state == "healthy"
         ):
-            print(f"Rardar is running at {LOCAL_URL}, but published data is stale")
+            print(
+                f"Rardar is running at {requested_layout.website_url}, "
+                "but published data is stale"
+            )
             return 0
         website = ((existing_status.get("services") or {}).get("website") or {})
         detail = website.get("lastError") or existing_status.get("message") or "health check failed"
@@ -968,11 +1857,37 @@ def start_manager(open_browser: bool = False) -> int:
     if not python_dependencies_are_ready():
         return 1
 
-    _stop_recorded_processes(existing_status)
-    CONTROL_PATH.unlink(missing_ok=True)
+    try:
+        node = find_node()
+    except RuntimeError as error:
+        print(str(error))
+        return 1
+    required_javascript_paths = (
+        requested_layout.home / "node_modules" / "vinext" / "dist" / "cli.js",
+        requested_layout.home / "node_modules" / "vite" / "bin" / "vite.js",
+        requested_layout.home / "vite.config.ts",
+        requested_layout.home / ".openai" / "hosting.json",
+        requested_layout.home / "app" / "runtime-readiness.mjs",
+        requested_layout.home / "build" / "published-data-bridge.ts",
+        requested_layout.home / "build" / "sites-vite-plugin.ts",
+        requested_layout.home / "worker" / "index.ts",
+    )
+    missing_javascript_path = next(
+        (path for path in required_javascript_paths if not path.is_file()),
+        None,
+    )
+    if missing_javascript_path is not None:
+        print(
+            "Rardar runtime dependencies are incomplete: "
+            f"missing {missing_javascript_path}; install JavaScript dependencies in RARDAR_HOME"
+        )
+        return 1
 
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    manager_log_path = LOG_DIR / "manager.log"
+    _stop_recorded_processes(existing_status, layout=requested_layout)
+    control_path.unlink(missing_ok=True)
+
+    requested_layout.log_dir.mkdir(parents=True, exist_ok=True)
+    manager_log_path = requested_layout.log_dir / "manager.log"
     rotate_log(manager_log_path)
     manager_log = manager_log_path.open("ab")
     creation_flags = 0
@@ -984,10 +1899,16 @@ def start_manager(open_browser: bool = False) -> int:
             | 0x01000000  # CREATE_BREAKAWAY_FROM_JOB keeps the manager alive after a launcher exits.
         )
     command = [sys.executable, "-m", "pipeline.runtime", "run"]
+    manager_environment = _runtime_child_environment(
+        requested_layout,
+        requested_settings,
+        node,
+    )
     try:
         manager_process = subprocess.Popen(
             command,
-            cwd=ROOT,
+            cwd=requested_layout.home,
+            env=manager_environment,
             stdin=subprocess.DEVNULL,
             stdout=manager_log,
             stderr=subprocess.STDOUT,
@@ -1005,7 +1926,8 @@ def start_manager(open_browser: bool = False) -> int:
         )
         manager_process = subprocess.Popen(
             command,
-            cwd=ROOT,
+            cwd=requested_layout.home,
+            env=manager_environment,
             stdin=subprocess.DEVNULL,
             stdout=manager_log,
             stderr=subprocess.STDOUT,
@@ -1016,8 +1938,8 @@ def start_manager(open_browser: bool = False) -> int:
 
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
-        status = _read_json(STATUS_PATH) or {}
-        active_control = _read_json(CONTROL_PATH) or {}
+        status = _read_json(status_path) or {}
+        active_control = _read_json(control_path) or {}
         status_data = status.get("data") or {}
         status_services = status.get("services") or {}
         data_only_degraded = (
@@ -1032,46 +1954,93 @@ def start_manager(open_browser: bool = False) -> int:
             and active_control.get("pid") == manager_process.pid
             and heartbeat_is_fresh(status.get("checkedAt"))
         ):
-            print(f"Rardar is running at {LOCAL_URL}")
+            print(f"Rardar is running at {requested_layout.website_url}")
             if data_only_degraded:
                 print(
                     "Warning: published data is STALE "
                     f"(threshold {requested_settings.stale_after_hours}h)"
                 )
             if open_browser:
-                webbrowser.open(LOCAL_URL)
+                webbrowser.open(requested_layout.website_url)
             return 0
         time.sleep(0.5)
-    print("Rardar manager started, but services are not healthy yet. Check data/runtime/logs.")
+    print(
+        "Rardar manager started, but services are not healthy yet. "
+        f"Check {requested_layout.log_dir}."
+    )
     return 1
 
 
-def stop_manager() -> int:
-    control = _read_json(CONTROL_PATH) or {}
+def stop_manager(*, layout: RuntimeLayout | None = None) -> int:
+    try:
+        resolved_layout = layout or load_runtime_layout(application_root=ROOT)
+    except RuntimeSettingsError as error:
+        print(f"Rardar runtime configuration error: {error}")
+        return 2
+    control_path = resolved_layout.control_path
+    status_path = resolved_layout.status_path
+    control = _read_json(control_path) or {}
     manager_pid = control.get("pid")
-    status = _read_json(STATUS_PATH) or {}
+    status = _read_json(status_path) or {}
     if not isinstance(manager_pid, int) or not process_is_alive(manager_pid):
-        _stop_recorded_processes(status, include_manager=False)
-        write_runtime_status(_stopped_status())
-        CONTROL_PATH.unlink(missing_ok=True)
+        _stop_recorded_processes(
+            status,
+            include_manager=False,
+            layout=resolved_layout,
+        )
+        write_runtime_status(
+            _stopped_status(
+                layout=resolved_layout,
+                scheduler_status_path=resolved_layout.scheduler_status_path,
+            ),
+            status_path,
+        )
+        control_path.unlink(missing_ok=True)
         print("Rardar is not running under the local manager")
         return 0
 
-    if process_matches(manager_pid, ("pipeline.runtime run", "pipeline\\runtime.py run")):
+    if process_matches(
+        manager_pid,
+        (
+            "pipeline.runtime run",
+            "pipeline\\runtime.py run",
+            "pipeline.runtime service",
+            "pipeline\\runtime.py service",
+        ),
+    ):
         _terminate_process_tree(manager_pid)
     deadline = time.monotonic() + 10
     while process_is_alive(manager_pid) and time.monotonic() < deadline:
         time.sleep(0.25)
-    _stop_recorded_processes(status, include_manager=False)
-    CONTROL_PATH.unlink(missing_ok=True)
-    write_runtime_status(_stopped_status("本地运行管理器已停止"))
+    _stop_recorded_processes(
+        status,
+        include_manager=False,
+        layout=resolved_layout,
+    )
+    control_path.unlink(missing_ok=True)
+    write_runtime_status(
+        _stopped_status(
+            "本地运行管理器已停止",
+            layout=resolved_layout,
+            scheduler_status_path=resolved_layout.scheduler_status_path,
+        ),
+        status_path,
+    )
     print("Rardar local services stopped")
     return 0
 
 
-def show_status() -> int:
-    status = _read_json(STATUS_PATH) or _stopped_status()
-    control = _read_json(CONTROL_PATH) or {}
+def show_status(*, layout: RuntimeLayout | None = None) -> int:
+    try:
+        resolved_layout = layout or load_runtime_layout(application_root=ROOT)
+    except RuntimeSettingsError as error:
+        print(json.dumps({"state": "invalid", "error": str(error)}, ensure_ascii=False))
+        return 2
+    status = _read_json(resolved_layout.status_path) or _stopped_status(
+        layout=resolved_layout,
+        scheduler_status_path=resolved_layout.scheduler_status_path,
+    )
+    control = _read_json(resolved_layout.control_path) or {}
     if not _manager_status_matches_control(status, control):
         status = {**status, "state": "stale", "message": "运行心跳已过期，服务状态不可信"}
     print(json.dumps(status, ensure_ascii=False, indent=2))
@@ -1086,6 +2055,7 @@ def main() -> None:
     subparsers.add_parser("stop")
     subparsers.add_parser("status")
     subparsers.add_parser("run")
+    subparsers.add_parser("service")
     arguments = parser.parse_args()
 
     if arguments.command == "start":
@@ -1094,7 +2064,7 @@ def main() -> None:
         raise SystemExit(stop_manager())
     if arguments.command == "status":
         raise SystemExit(show_status())
-    raise SystemExit(run_manager())
+    raise SystemExit(run_manager(service_mode=arguments.command == "service"))
 
 
 if __name__ == "__main__":

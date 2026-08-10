@@ -72,33 +72,87 @@ PR #6 已通过提交 `ab34119` 合并到 `main`，评分语义 P1-4 已完成�
 9. 测试至少覆盖 v1/v2 契约互斥、空值边界、静态证据当前性、无任务上下文、风险与许可证门槛、审计篡改、旧版网页兼容、个性化和真实 HTTP 读取。
 10. 不顺带实现 verify/CI、稳定项目 ID、新信源、UI 重设计、第三方代码执行或部署；运行完整验证，创建 Draft PR，然后停止。
 
-## 当前 Runtime Operational Readiness 工程轮
+## 已完成的 Runtime Operational Readiness 工程轮
 
-P1-6C1 已由 PR #13 通过 Squash merge 提交 `dfed8f0` 合并到 `main`，PR head 与 main push Verify 均通过，Primary Runtime 也已在不执行 refresh、不改变 current generation、snapshot 或 D1 facts 的前提下完成代码同步。P1-6C2 collision history 仍未完成，但经用户明确决策暂时 deferred，不作为本轮上线前运维可靠性工作的 blocker，也不得被解释为已经完成。
+PR #14 已通过 Squash merge 提交 `e61e3ff35390ab9f915818f72e5e3321896fd17e` 合并到 `main`。该提交对应的 main push Verify run `31351088836` 为 `SUCCESS`，因此显式 schedule、单一 Scheduler ownership、snapshot freshness 与 stale/corrupt 分流已经完成，不再是当前工程目标。
+
+P1-6C2 collision history 仍未完成，但经用户明确决策继续 deferred。Always-on Deployment v1 是一次独立、显式授权的上线前工程轮；它不关闭 P1-6C2，也不得放宽 legacy slug collision gate。
+
+## 当前 Always-on Deployment v1 工程轮
+
+只有以下条件同时成立才开始本轮：
+
+- 最新 `main` 包含 PR #14 的 `e61e3ff`；
+- main push Verify run `31351088836` 已通过；
+- 开发 worktree 干净且基于该提交；
+- 不存在尚未完成的 Runtime Operational Readiness 修正 PR；
+- Primary Runtime、正式 data、D1 和 failed candidates 不作为开发或测试夹具。
 
 本轮唯一目标是：
 
-> 让 Managed Runtime 的每日 schedule 成为显式、可验证且只有一个 owner 的配置，并从当前 verified generation 所绑定的 snapshot `capturedAt` 主动暴露 data freshness，区分“服务存活但数据陈旧”与“published data 已损坏”。
+> 让 Rardar 可以在标准 Ubuntu 24.04 LTS 或 Debian-compatible x86_64 单机上，由 systemd 托管唯一 foreground Manager 长期运行，并具备显式路径、离线/在线预检、停机备份、可诊断健康检查和可回滚发布协议。
 
 当前分支：
 
 ```text
-feat/runtime-operational-readiness
+feat/always-on-deployment
 ```
 
-配置契约固定为：
+本轮只完成“可部署工程化”。不得 SSH 到真实服务器、迁移 Primary data、配置 DNS/TLS/防火墙或执行真实生产部署；这些必须留给后续单独授权的 `PROD-DEPLOY-01`。
+
+### 固定架构
 
 ```text
+systemd
+  └─ foreground Rardar Manager
+       ├─ loopback Vinext website
+       └─ single Scheduler
+```
+
+- systemd 只管理 Manager；禁止再创建独立 Scheduler service 或第二个 owner；
+- service 使用非 root `rardar` 用户，网络 ready 后启动，失败有界重启，SIGTERM 必须收口全部 children；
+- Website 和 Runtime status 只绑定 loopback，默认分别为 `127.0.0.1:3000` 与 `127.0.0.1:3002`；3002 不对反向代理开放；
+- 第一版保留已经通过真实 HTTP 验证的 Vinext dev compatibility entry：Manager 直接运行 `vite --configLoader runner --host 127.0.0.1 --port <configured> --strictPort`，由 `vite.config.ts` 加载 Vinext/Cloudflare 插件；runtime cache 必须外置，系统字体不得生成 `.vinext/fonts`，release-local `.env*`/`.dev.vars*` 必须由 offline checker 拒绝。当前 `vinext start` 的本地 Node 启动会因构建产物中的 `cloudflare:` URL scheme 不受支持而失败，不能被文档伪装成已支持；`npm run build` 仍是完整 Verify 和 release 的硬门禁；
+- 外部访问只能通过操作者显式建立的 SSH tunnel 或经过单独审查的反向代理；本轮最多提交 sample，不修改真实代理、证书或公网入口。
+
+### 路径、环境和 secrets
+
+代码 release 与 mutable state 必须完全分离。Always-on v1 只支持与版本控制 systemd unit 一致的固定 canonical profile：
+
+```text
+RARDAR_HOME=/opt/rardar/current
+RARDAR_DATA_DIR=/var/lib/rardar/data
+RARDAR_RUNTIME_DIR=/var/lib/rardar/runtime
+RARDAR_VINEXT_STATE_DIR=/var/lib/rardar/vinext-state
+RARDAR_DATA_LOCK_DIR=/var/lib/rardar/locks
+RARDAR_VITE_CACHE_DIR=/var/cache/rardar/vite
+RARDAR_BACKUP_DIR=/var/backups/rardar
+WRANGLER_LOG_PATH=/var/log/rardar/wrangler
+WRANGLER_REGISTRY_PATH=/var/lib/rardar/runtime/wrangler-registry
+MINIFLARE_REGISTRY_PATH=/var/lib/rardar/runtime/miniflare-registry
+RARDAR_NODE=/usr/bin/node
+RARDAR_PYTHON=/opt/rardar/current/.venv/bin/python
+RARDAR_VINEXT_PORT=3000
+RARDAR_RUNTIME_STATUS_PORT=3002
 RARDAR_SCHEDULE_AT=08:00
 RARDAR_SCHEDULE_TIMEZONE=Asia/Shanghai
 RARDAR_STALE_AFTER_HOURS=36
 ```
 
-环境缺失时使用以上默认值；时间必须是 canonical `HH:MM`，timezone 必须是可加载的 IANA 名称，阈值必须是正整数小时。非法配置在创建或停止任何进程、写入 Runtime 状态之前失败。Manager 启动时只读取一次配置并把显式参数传给唯一 Scheduler；运行中改变环境不会热更新，必须完整 `local:stop` / `local:start`。`nextRunAt` 仍只由 Scheduler 计算，status JSON 只是 telemetry，不是配置来源。对同一个 canonical data directory，第二个 Scheduler 必须在写 status 或 refresh 前失败。
+- 除 `RARDAR_HOME` 外，所有持久路径必须预先创建、绝对且不经过 symlink；data、D1、runtime、locks、cache 与 backup 主根互不重叠，两个 registry 只允许位于上述固定的 runtime 子目录，Wrangler log 只允许位于固定 log 根；
+- `RARDAR_HOME=/opt/rardar/current` 允许最后一个路径组件是用于原子切换的 symlink；它的所有祖先必须不是 symlink，解析目标必须是包含 exact commit、锁定依赖、build 输出和独立 `.venv` 的当前 release，且必需 release 文件不得是 symlink；不能在正在运行的 release 内 `git pull`；
+- D1/Miniflare state、data、runtime telemetry/locks、cache、logs 和 backup 都不得落入代码 release；
+- 仅修改环境变量来采用自定义目录不属于 v1 支持面；自定义布局必须作为后续独立目标生成并审查配套 unit/drop-in、checker 映射、写权限、备份和回滚协议；
+- 版本控制只保存安全示例；真实凭据只能存在于 `/etc/rardar/rardar.secret` 或等价 root-owned 文件，不进入 Git、日志、PR 或命令回显。
 
-freshness 的唯一权威是 verified current generation 的 `snapshots/latest.json captured_at`，并要求与同 generation Catalog `capturedAt` 表示同一 UTC instant。年龄不使用文件 mtime、进程启动时间、heartbeat 或 current.json mtime。默认阈值为 36 小时：小于或等于阈值是 `fresh`；超过阈值是 `stale`；非法时间、超出五分钟时钟偏差的未来时间、current/manifest/hash/snapshot 解析失败都是 `invalid` 并保持 fail closed。
+### 发布、检查和回滚
 
-仅 stale 时网页继续可读，`/api/health` 返回 HTTP 200、overall `degraded` 和结构化 freshness；`local:status` 必须显示 effective schedule、timezone、next run、last successful refresh、current generation、snapshot time/age/threshold 与 `STALE`；首页只显示轻量提示，不阻断浏览。结构损坏继续返回 503/页面错误，不得伪装成 stale。
+- `deploy:preflight` 是只读、fail-closed 的 offline check：验证工具链、release、路径/权限/磁盘、完整 audited generation 与 D1 integrity；D1 source main、`-wal`/`-journal` 只按稳定字节复制到系统临时 scratch（systemd `PrivateTmp`），WAL recovery、`quick_check` 和表指纹只在副本执行，正式 source 不建立 SQLite 连接、不写入；它不得创建部署目录、修复数据、启动服务或执行 refresh；
+- `deploy:check` 先重复 offline check，再验证 Manager/Website/Scheduler 的 PID 和命令身份、唯一 loopback listener、Runtime status、`/api/health`、首页、signals、search 以及检查期间 generation 不变；
+- fresh 可接受 HTTP 200/healthy；明确的 stale 数据只允许 HTTP 200/degraded + `published_data_stale`；invalid/corrupt 或 HTTP 503 必须失败；
+- 发布前必须停止 Managed Runtime，再对 data 和完整 Vinext/D1 state 制作同一停机点的备份；不得删除 failed candidates；
+- 代码回滚只切回上一 exact release，通常保留 data/D1；generation 回滚只使用现有受锁、全量复核的显式 rollback；只有持久数据或 D1 迁移失败时才允许把 data + D1 作为同一备份单元恢复；
+- 既有 Scheduler restart catch-up 语义保持不变。真实服务器停机或重启后可能自然触发 refresh；部署协议必须记录该副作用，不能修改 `nextRunAt`、手工 refresh 或把 pointer 前进误判为部署脚本改写数据。
 
 ## 执行流程
 
@@ -127,21 +181,20 @@ npm run verify
 建议：
 
 ```text
-feat/runtime-operational-readiness
+feat/always-on-deployment
 ```
 
 ### 4. 实现
 
 要求：
 
-- schedule 的 Python/Manager/Scheduler 参数使用一份严格配置契约，默认行为仍为 `08:00 Asia/Shanghai`；
-- Manager 是托管模式下唯一 Scheduler owner；scheduler status 必须绑定当前 child PID 与 frozen config，外来或旧 telemetry 不得冒充 healthy；
-- current generation loader 继续验证 pointer、manifest、artifact hashes 与 audit，并只把同 generation snapshot 的时间标量传入 Worker；
-- freshness 使用固定 36 小时默认阈值与五分钟未来偏差，边界可注入时钟测试但生产没有跳过验证的入口；
-- stale 与 corrupt 分流：stale 只降低 data readiness，不重启仍存活的网站；corrupt 继续 fail closed；
-- `local:start`、`local:status`、`/api/health` 和首页展示同一个 effective schedule 与 freshness 事实；
-- 不实现新的 missed-run catch-up，不改变 refresh/candidate/publish 算法，不启动第二 Scheduler；
-- 不实现 P1-6C2，不修改 `0004`/D1/adoption，不清理 21 个 failed candidate，不部署，不开始 TrendRadar/P2、新信源或复杂 Agent。
+- 增加版本控制的环境示例、systemd unit、只读 offline/online deployment checker 和完整运维文档；
+- Manager、Scheduler、data lock、Vinext/D1 state 与状态端点消费同一份经过严格验证的绝对路径和 loopback port 契约；
+- `pipeline.runtime service` 保持 foreground，不 daemonize；第二个 Manager 或 Scheduler 必须在写状态、刷新或抢占端口前明确失败；
+- systemd restart、SIGTERM 和失败重启后都只能剩一个 Manager、一个 Website 和一个 Scheduler；
+- 保持 generation 的 pointer/manifest/hash/Schema/Audit 边界和 D1 additive schema 不变；
+- 不修改 refresh、candidate、publish、评分、信源或 Stable ID；不清理 failed candidates；
+- 不实现 P1-6C2、TrendRadar/P2 或复杂 Agent。本轮不执行真实部署。
 
 ### 5. 测试
 
@@ -149,24 +202,76 @@ feat/runtime-operational-readiness
 
 至少覆盖：
 
-- 默认/custom/非法 schedule、timezone 与 stale threshold，以及 CLI override 优先级；
-- Manager child argv/env、完整 restart 后采用新配置、运行中不热更新、status 不能反向改 schedule；
-- canonical data directory 的 Scheduler 单实例锁与外来 PID telemetry 拒绝；
-- `<36h`、`=36h`、`>36h`、非法/未来 snapshot 时间；
-- pointer switch 同时更新 generation 与 snapshot freshness，损坏 pointer/manifest/hash 不降级成 stale；
-- stale 时 health HTTP 200/degraded、local status STALE、首页 banner；fresh 时不显示 banner；
-- 真实隔离 Vinext HTTP 使用随机 loopback 端口且不占 3000/3002，结束后无残留进程或状态；
+- Linux 绝对路径、空值/相对路径、重叠目录、symlink 和 code/mutable-state 分离；
+- env、toolchain、Node/Python 版本、磁盘、可写性、完整 generation 与 SQLite quick check 的失败路径；
+- systemd unit 的 foreground Manager、non-root、EnvironmentFile、network-online、restart、stop timeout 与单一 ownership 契约；
+- 随机 loopback 端口上的真实 Manager lifecycle：start、SIGTERM、restart、旧 children 退出、无第二 Scheduler；
+- offline check 零写入；online check 的 PID/command/listener ownership、同一 generation 和四个 HTTP 入口；
+- fresh 与 stale 允许，invalid/corrupt/503、公开 listener、D1 缺失/损坏和 generation 变化拒绝；
+- code rollback、generation rollback 与 data+D1 成对恢复的 preservation 边界；
+- 测试只使用临时 data、D1、runtime、locks、cache 和随机端口，不访问 Primary Runtime、不占 3000/3002，结束后无残留进程或状态；
 - 完整 `npm run verify`、production audit、正式 data/Git/Primary Runtime 隔离门禁通过。
 
 ### 6. 完整验证
 
-输出：
+运行：
+
+```bash
+npm run verify
+git diff --check
+git diff -- data
+git status --short --untracked-files=all
+```
+
+最终报告必须区分实际通过、失败和未运行项，并使用以下结构：
 
 ```text
+任务结果：PASS / BLOCKED / FAIL
+
+基线：
+branch：
+base：
+head：
+
+Architecture：
+systemd owner：
+website entry：
+website bind：
+persistent data：
+env/secrets：
+
+Deployment checks：
+offline：
+online：
+generation：
+D1 integrity：
+freshness：
+single Manager / Website / Scheduler：
+
+Backup / rollback：
+stopped-state backup：
+code rollback：
+generation rollback：
+data + D1 rollback：
+catch-up side effect：
+
+Verify：
 通过：
 失败：
 未运行：
 原因：
+
+Draft PR：
+URL：
+status：Draft
+
+边界：
+是否真实部署：否
+是否 SSH/DNS/TLS/防火墙：否
+是否 refresh：否
+是否删除 failed candidates：否
+是否开始 P1-6C2：否
+是否开始 TrendRadar/P2：否
 ```
 
 ### 7. Draft PR
@@ -177,16 +282,20 @@ PR 描述包含：
 背景
 问题
 修改
-schedule 配置来源与默认值
-Scheduler 单一 ownership
-snapshot freshness 权威与边界
-stale / corrupt HTTP 语义
-local status 与首页提示
+Linux 与 systemd 架构
+exact release 与路径契约
+Manager / Scheduler 单一 ownership
+Vinext dev compatibility（direct Vite runner）与 vinext start 限制
+offline / online deployment check
+持久 data、D1、runtime、locks 与 cache
+停机备份与三类 rollback
+catch-up 副作用
 兼容性
 测试
 安全边界
 回滚
 P1-6C2 非目标
+PROD-DEPLOY-01 非目标
 遗留问题
 ```
 
@@ -206,6 +315,8 @@ P1-6C2 非目标
    - P1-6B D1 与 Action API 采用 `projectId`——已由 PR #9、提交 `c24b7d6` 完成，正式 Primary Runtime adoption/restart/no-op 已通过；
    - P1-6C1 客户端、页面路由与 legacy URL 兼容——已由 PR #13、提交 `dfed8f0` 完成；
    - P1-6C2 collision history 与 legacy slug 发布门禁演进——仍未完成，但经用户明确选择在本轮 deferred。
-7. Runtime Operational Readiness——当前用户明确授权的唯一工程轮；完成 Draft PR 后停止。
+7. Runtime Operational Readiness——已由 PR #14、提交 `e61e3ff` 完成，main Verify run `31351088836` 通过；
+8. Always-on Deployment v1——当前用户明确授权的唯一工程轮，只完成可部署工程化；
+9. `PROD-DEPLOY-01`——只有 Always-on v1 合并且用户再次明确授权后，才允许对真实服务器执行部署。
 
-每轮只做一项，每轮创建 Draft PR，每轮完成后停止。
+P1-6C2 仍是未完成项，但当前继续 deferred；Always-on v1 不改变该长期状态。每轮只做一项，每轮创建 Draft PR，每轮完成后停止。

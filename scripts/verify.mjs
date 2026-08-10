@@ -8,6 +8,7 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -150,11 +151,13 @@ function createIsolation() {
       home: join(root, "home"),
       localAppData: join(root, "localappdata"),
       runtime: join(root, "runtime"),
+      dataLocks: join(root, "data-locks"),
       state: join(root, "state"),
       cache: join(root, "cache"),
       config: join(root, "config"),
       temporary: join(root, "tmp"),
       vinext: join(root, "vinext-state"),
+      viteCache: join(root, "vite-cache"),
       wranglerRegistry: join(root, "wrangler-registry"),
       wranglerLogs: join(root, "wrangler-logs"),
       miniflareRegistry: join(root, "miniflare-registry"),
@@ -172,8 +175,13 @@ function createIsolation() {
       MINIFLARE_REGISTRY_PATH: paths.miniflareRegistry,
       PYTHONDONTWRITEBYTECODE: "1",
       RARDAR_DATA_DIR: dataRoot,
+      RARDAR_DATA_LOCK_DIR: paths.dataLocks,
       RARDAR_RUNTIME_DIR: paths.runtime,
+      RARDAR_SCHEDULE_AT: "08:00",
+      RARDAR_SCHEDULE_TIMEZONE: "Asia/Shanghai",
+      RARDAR_STALE_AFTER_HOURS: "36",
       RARDAR_VINEXT_STATE_DIR: paths.vinext,
+      RARDAR_VITE_CACHE_DIR: paths.viteCache,
       TEMP: paths.temporary,
       TMP: paths.temporary,
       TMPDIR: paths.temporary,
@@ -191,9 +199,23 @@ function createIsolation() {
       environment[pathKey] = `${dirname(python)}${delimiter}${environment[pathKey] || ""}`;
     }
 
-    const secretNames = new Set(["GH_TOKEN", "GITHUB_TOKEN", "NODE_AUTH_TOKEN", "NPM_TOKEN"]);
+    const secretNames = new Set([
+      "DATABASE_URL",
+      "GH_TOKEN",
+      "GITHUB_TOKEN",
+      "NODE_AUTH_TOKEN",
+      "NPM_TOKEN",
+    ]);
+    const secretNamePattern =
+      /(?:^|_)(?:ACCESS_KEY|API_KEY|PASSWORD|PRIVATE_KEY|SECRET|TOKEN)$/i;
+    const secretProviderPattern = /^(?:AWS|AZURE|OPENAI)_/i;
     for (const key of Object.keys(environment)) {
-      if (secretNames.has(key.toUpperCase())) {
+      const normalized = key.toUpperCase();
+      if (
+        secretNames.has(normalized) ||
+        secretNamePattern.test(normalized) ||
+        secretProviderPattern.test(normalized)
+      ) {
         delete environment[key];
       }
     }
@@ -235,6 +257,20 @@ function runGate(name, command, args, environment) {
   console.log(`=== Verify passed: ${name} ===`);
 }
 
+function prepareSystemdUnitForVerification(root) {
+  const sourcePath = join(repositoryRoot, "deploy", "systemd", "rardar.service");
+  const targetPath = join(root, "rardar-verify.service");
+  const unit = readFileSync(sourcePath, "utf8")
+    .replace(/^User=.*\r?\n/gm, "")
+    .replace(/^Group=.*\r?\n/gm, "")
+    .replace(/^EnvironmentFile=.*\r?\n/gm, "")
+    .replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${repositoryRoot}`)
+    .replace(/^ExecStartPre=.*$/m, "ExecStartPre=/usr/bin/true")
+    .replace(/^ExecStart=.*$/m, "ExecStart=/usr/bin/true");
+  writeFileSync(targetPath, unit, "utf8");
+  return targetPath;
+}
+
 function summarizeInventoryDiff(diff) {
   return [
     ...diff.added.map((name) => `added: ${name}`),
@@ -267,6 +303,16 @@ try {
       ["Node tests", ...npmCommand("test:node")],
       ["Production dependency security audit", ...npmCommand("security:audit:prod")],
     ];
+
+    if (process.platform === "linux") {
+      gates.splice(1, 0, [
+        "systemd unit",
+        "systemd-analyze",
+        ["verify", prepareSystemdUnitForVerification(isolation.root)],
+      ]);
+    } else {
+      console.log("\n=== Verify skipped: systemd-analyze is Linux-only ===");
+    }
 
     for (const [name, command, args] of gates) {
       runGate(name, command, args, isolation.environment);
@@ -335,5 +381,5 @@ if (failures.length) {
   }
   process.exitCode = 1;
 } else {
-  console.log("\n=== Verify passed: all 7 gates and isolation guards succeeded ===");
+  console.log("\n=== Verify passed: all configured gates and isolation guards succeeded ===");
 }

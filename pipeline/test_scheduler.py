@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import os
 import sys
 import tempfile
 import time
@@ -42,6 +43,35 @@ def _hold_scheduler_lock(
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_cli_uses_external_data_directory_from_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = (Path(directory) / "external-data").resolve()
+            status_path = Path(directory) / "scheduler-status.json"
+            settings = RuntimeSettings("08:00", "Asia/Shanghai", 36)
+            with (
+                patch.dict(os.environ, {"RARDAR_DATA_DIR": str(data_dir)}, clear=False),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "pipeline.scheduler",
+                        "--status-path",
+                        str(status_path),
+                        "--once",
+                    ],
+                ),
+                patch("pipeline.scheduler.load_runtime_settings", return_value=settings),
+                patch("pipeline.scheduler.scheduler_instance_lock") as lock,
+                patch("pipeline.scheduler._run_scheduler") as run_scheduler,
+            ):
+                lock.return_value.__enter__.return_value = None
+                lock.return_value.__exit__.return_value = False
+                scheduler_main()
+
+            lock.assert_called_once_with(data_dir)
+            run_scheduler.assert_called_once()
+            self.assertEqual(run_scheduler.call_args.args[0].data_dir, data_dir)
+
     def test_only_one_scheduler_can_own_a_canonical_data_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
