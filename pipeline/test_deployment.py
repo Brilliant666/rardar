@@ -134,11 +134,10 @@ class DeploymentFixture(unittest.TestCase):
         }
         for path in self.paths.values():
             path.mkdir()
-        # The deployment checker intentionally rejects a shared-writable
-        # scratch root without the sticky bit.  Pin the test-only root to an
-        # owner-private mode instead of inheriting the caller's umask (for
-        # example 0002 on the Ubuntu target).
-        self.paths["scratch"].chmod(0o700)
+            # Deployment state is owner-private in production.  Pin every
+            # test-owned mutable root to the same mode instead of inheriting
+            # the caller's umask (for example 0002 on the Ubuntu target).
+            path.chmod(0o700)
         _write_release_fixture(self.paths["home"])
         application_root = patch("pipeline.deployment.APPLICATION_ROOT", self.paths["home"])
         application_root.start()

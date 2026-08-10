@@ -73,10 +73,11 @@ Event 放行 writer；production API 没有 debug hook 或 test bypass。
 - resolver 的原有 file-swap、archive、quarantine 竞态门禁继续覆盖 `os.open` 窗口；
 - release required file 不稳定时 offline checker 返回 `release_file_unstable`。
 
-目标 Ubuntu 账号使用 `umask=0002`。原 deployment 测试夹具用裸 `mkdir()` 创建 scratch，
-因而得到 `0775`，并被 production checker 正确拒绝为“共享可写且无 sticky bit”；Windows
-和常见 CI `0022` umask 没有暴露这一测试环境差异。夹具现在显式把自有 scratch 固定为
-`0700`，production 权限门禁没有放宽，测试也不再依赖调用者 umask。
+目标 Ubuntu 账号使用 `umask=0002`。原 deployment 测试夹具用裸 `mkdir()` 创建 mutable
+roots，因而得到 `0775`，并被 production checker 正确拒绝为“共享可写且无 sticky bit”；
+Windows 和常见 CI `0022` umask 没有暴露这一测试环境差异。夹具现在显式把全部自有
+mutable roots 固定为 `0700`；production 权限门禁没有放宽，测试也不再依赖调用者 umask，
+包括临时把 fixture state directory 作为待拒绝 scratch root 的 source-overlap 场景。
 
 Windows 内容竞态压力门禁已运行 200 轮，每轮同时执行普通同长度改写和 mtime 恢复场景，
 结果为 200/200，0 failure，0 error。最终代码与文档树的 Windows `npm run verify` PASS：
