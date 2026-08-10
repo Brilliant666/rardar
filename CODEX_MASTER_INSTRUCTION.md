@@ -78,7 +78,29 @@ PR #14 已通过 Squash merge 提交 `e61e3ff35390ab9f915818f72e5e3321896fd17e` 
 
 P1-6C2 collision history 仍未完成，但经用户明确决策继续 deferred。Always-on Deployment v1 是一次独立、显式授权的上线前工程轮；它不关闭 P1-6C2，也不得放宽 legacy slug collision gate。
 
-## 当前 Always-on Deployment v1 工程轮
+## 已完成的 Always-on Deployment v1 工程轮
+
+PR #15 已通过 Squash merge 提交 `283321186f75d3d54e436d68dc1c6c55bab91fa7` 合并到 `main`，对应 main Verify run `31371350520` 为 `SUCCESS`。Always-on v1 的 systemd、canonical path、offline/online checker 与隔离 lifecycle 工程已经进入 main，不得重复实现。
+
+真实 `PROD-DEPLOY-01` 在 Ubuntu exact release 的完整 Verify 中被 Linux stable-read 回归门禁阻止，状态为 `BLOCKED_RELEASE_VERIFY`；没有 data/D1 传输、systemd 安装或 Primary cutover。
+
+## 当前 Linux Stable Read Integrity hotfix
+
+本轮是用户显式授权、优先于默认 P1-6C2 队列的单一修复目标：
+
+> 建立跨 Windows/Linux 的内容级 stable byte read，使同 inode、同长度原地改写在确定性的 snapshot A/B 窗口内 fail closed，并让测试不再依赖调度或文件时间戳运气。
+
+当前分支：
+
+```text
+fix/linux-stable-read-integrity
+```
+
+必须同时修复 production primitive 与 deterministic concurrency test。metadata 只能作为 path/type/object identity 的额外拒绝信号；成功读取必须由两次独立 no-follow FD 全量读取的 bytes 和 SHA-256 一致性证明，有 expected SHA 时直接绑定同一份 bytes。mutable `current.json` 只允许很小的 bounded retry，最终只能返回完整旧版本或完整新版本；ready manifest/artifact、resolver evidence、D1 byte copy 和 release required files 必须复用同一契约或已有的更强 cryptographic binding。
+
+本轮只在长期开发 worktree、服务器新 head 的独立 scratch release 和 GitHub Ubuntu CI 中验证。不得停止或 refresh Windows Primary，不得修改 Primary data/D1，不得删除 failed candidates，不得修改服务器旧失败 release，不得切换 `/opt/rardar/current`、安装 systemd 或继续 `PROD-DEPLOY-01`。完成 Windows/Ubuntu 200 轮压力、两端 full Verify/build 和 GitHub Verify 后，只创建/更新 Draft PR 并停止；不得转 Ready 或 merge。
+
+## Always-on Deployment v1 已交付合同（历史记录）
 
 只有以下条件同时成立才开始本轮：
 

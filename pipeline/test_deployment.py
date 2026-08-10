@@ -29,6 +29,7 @@ from pipeline.deployment import (
 from pipeline.data_lock import manager_dir_lock_path
 from pipeline.generations import resolve_current_generation
 from pipeline.runtime import acquire_manager_lock, release_manager_lock
+from pipeline.stable_read import StableReadError
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -455,6 +456,25 @@ class OfflineDeploymentTests(DeploymentFixture):
         with self.assertRaises(DeploymentCheckError) as raised:
             _check_release(self.paths["home"])
         self.assertEqual(raised.exception.code, "release_incomplete")
+
+    def test_release_rejects_a_required_file_that_cannot_be_read_stably(self) -> None:
+        def fail_target(path: Path, **_kwargs):
+            if path.name == "runtime.py" and path.parent.name == "pipeline":
+                raise StableReadError(
+                    "concurrent_change",
+                    path,
+                    "deterministic in-place mutation",
+                    retryable=True,
+                )
+            from pipeline.stable_read import stable_read as real_stable_read
+
+            return real_stable_read(path)
+
+        with patch("pipeline.deployment.stable_read", side_effect=fail_target):
+            with self.assertRaises(DeploymentCheckError) as raised:
+                _check_release(self.paths["home"])
+
+        self.assertEqual(raised.exception.code, "release_file_unstable")
 
     def test_release_requires_vite_config_and_real_environment_directory(self) -> None:
         for relative in ("vite.config.ts", "deploy/systemd"):

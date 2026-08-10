@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pipeline.resolve_project_artifact_conflict as resolver_module
+import pipeline.stable_read as stable_read_module
 from pipeline.audit_data import audit_current_data
 from pipeline.generations import (
     create_candidate_generation,
@@ -1256,19 +1258,20 @@ class ProjectArtifactConflictResolverTests(unittest.TestCase):
         evidence_bytes = b"# Review\n\nSanitized authority evidence.\n"
         document.write_bytes(evidence_bytes)
         replacement.write_bytes(evidence_bytes)
-        original_open = Path.open
+        original_open = os.open
         swapped = False
 
-        def swap_before_open(path: Path, *args: object, **kwargs: object) -> object:
+        def swap_before_open(path_value: object, *args: object, **kwargs: object) -> int:
             nonlocal swapped
+            path = Path(os.fspath(path_value))  # type: ignore[arg-type]
             if not swapped and os.path.normcase(str(path)) == os.path.normcase(str(document)):
                 swapped = True
                 os.replace(replacement, document)
-            return original_open(path, *args, **kwargs)
+            return original_open(path_value, *args, **kwargs)  # type: ignore[arg-type]
 
         before = _tree_bytes(self.data_dir)
         with patch.object(resolver_module, "REPOSITORY_ROOT", evidence_root), patch.object(
-            Path,
+            stable_read_module.os,
             "open",
             new=swap_before_open,
         ):
@@ -1289,18 +1292,19 @@ class ProjectArtifactConflictResolverTests(unittest.TestCase):
         # the replacement identity observable even on filesystems that expose
         # weak or zero inode values to Python.
         replacement.write_bytes(snapshot_bytes + b"\n")
-        original_open = Path.open
+        original_open = os.open
         swapped = False
 
-        def swap_before_open(path: Path, *args: object, **kwargs: object) -> object:
+        def swap_before_open(path_value: object, *args: object, **kwargs: object) -> int:
             nonlocal swapped
+            path = Path(os.fspath(path_value))  # type: ignore[arg-type]
             if not swapped and resolver_module._same_path(path, snapshot_path):
                 swapped = True
                 os.replace(replacement, snapshot_path)
-            return original_open(path, *args, **kwargs)
+            return original_open(path_value, *args, **kwargs)  # type: ignore[arg-type]
 
         before = _tree_bytes(self.data_dir)
-        with patch.object(Path, "open", new=swap_before_open):
+        with patch.object(stable_read_module.os, "open", new=swap_before_open):
             try:
                 self._resolve()
             except ArtifactConflictResolutionError as error:
@@ -1404,18 +1408,19 @@ class ProjectArtifactConflictResolverTests(unittest.TestCase):
         record = next(self.archive_dir.rglob("resolution.json"))
         replacement = self.root / "replacement-resolution.json"
         replacement.write_bytes(record.read_bytes() + b"\n")
-        original_open = Path.open
+        original_open = os.open
         swapped = False
 
-        def swap_before_open(path: Path, *args: object, **kwargs: object) -> object:
+        def swap_before_open(path_value: object, *args: object, **kwargs: object) -> int:
             nonlocal swapped
+            path = Path(os.fspath(path_value))  # type: ignore[arg-type]
             if not swapped and resolver_module._same_path(path, record):
                 swapped = True
                 os.replace(replacement, record)
-            return original_open(path, *args, **kwargs)
+            return original_open(path_value, *args, **kwargs)  # type: ignore[arg-type]
 
         source_before = self.legacy_path.read_bytes()
-        with patch.object(Path, "open", new=swap_before_open):
+        with patch.object(stable_read_module.os, "open", new=swap_before_open):
             with self.assertRaises(ArtifactConflictResolutionError) as raised:
                 self._resolve(apply=True)
 
@@ -1434,18 +1439,19 @@ class ProjectArtifactConflictResolverTests(unittest.TestCase):
         archived = next(self.archive_dir.rglob("legacy.json"))
         replacement = self.root / "replacement-legacy.json"
         replacement.write_bytes(archived.read_bytes() + b"\n")
-        original_open = Path.open
+        original_open = os.open
         swapped = False
 
-        def swap_before_open(path: Path, *args: object, **kwargs: object) -> object:
+        def swap_before_open(path_value: object, *args: object, **kwargs: object) -> int:
             nonlocal swapped
+            path = Path(os.fspath(path_value))  # type: ignore[arg-type]
             if not swapped and resolver_module._same_path(path, archived):
                 swapped = True
                 os.replace(replacement, archived)
-            return original_open(path, *args, **kwargs)
+            return original_open(path_value, *args, **kwargs)  # type: ignore[arg-type]
 
         current_before = (self.data_dir / "current.json").read_bytes()
-        with patch.object(Path, "open", new=swap_before_open):
+        with patch.object(stable_read_module.os, "open", new=swap_before_open):
             with self.assertRaises(ArtifactConflictResolutionError) as raised:
                 self._resolve(apply=True)
 
@@ -1545,28 +1551,51 @@ class ProjectArtifactConflictResolverTests(unittest.TestCase):
     def test_safe_reader_detects_same_length_in_place_mutation(self) -> None:
         path = self.root / "same-length-evidence.md"
         path.write_bytes(b"AAAA")
-        original_fstat = os.fstat
-        mutated = False
+        inode_before = path.stat().st_ino
+        ready_to_mutate = threading.Event()
+        mutation_done = threading.Event()
+        original_snapshot = stable_read_module._read_regular_snapshot
+        snapshots = 0
 
-        def mutate_after_first_fstat(fd: int) -> os.stat_result:
-            nonlocal mutated
-            metadata = original_fstat(fd)
-            if not mutated:
-                mutated = True
-                path.write_bytes(b"BBBB")
-            return metadata
+        def pause_after_snapshot_a(target: Path):
+            nonlocal snapshots
+            snapshot = original_snapshot(target)
+            snapshots += 1
+            if snapshots == 1:
+                ready_to_mutate.set()
+                self.assertTrue(mutation_done.wait(5))
+            return snapshot
 
-        with patch("os.fstat", side_effect=mutate_after_first_fstat):
-            with self.assertRaises(ArtifactConflictResolutionError) as raised:
-                resolver_module._read_safe_regular_bytes(
-                    path,
-                    path.parent,
-                    code="unsafe_evidence_reference",
-                    label="test evidence",
-                )
+        def mutate_same_inode() -> None:
+            self.assertTrue(ready_to_mutate.wait(5))
+            with path.open("r+b") as handle:
+                handle.write(b"BBBB")
+                handle.flush()
+                os.fsync(handle.fileno())
+            mutation_done.set()
+
+        writer = threading.Thread(target=mutate_same_inode)
+        writer.start()
+        try:
+            with patch.object(
+                stable_read_module,
+                "_read_regular_snapshot",
+                side_effect=pause_after_snapshot_a,
+            ):
+                with self.assertRaises(ArtifactConflictResolutionError) as raised:
+                    resolver_module._read_safe_regular_bytes(
+                        path,
+                        path.parent,
+                        code="unsafe_evidence_reference",
+                        label="test evidence",
+                    )
+        finally:
+            writer.join(timeout=5)
 
         self.assertEqual(raised.exception.code, "unsafe_evidence_reference")
-        self.assertTrue(mutated)
+        self.assertFalse(writer.is_alive())
+        self.assertEqual(path.stat().st_ino, inode_before)
+        self.assertEqual(path.read_bytes(), b"BBBB")
 
     def test_cli_unexpected_failure_is_structured_json_without_traceback(self) -> None:
         stderr = io.StringIO()
