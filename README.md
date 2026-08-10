@@ -195,21 +195,33 @@ npm run local:status
 npm run local:stop
 ```
 
-`local:start` 会在创建后台管理器前检查必要 Python 依赖；缺失时直接停止并提示运行 `python -m pip install -r requirements.txt`，不会自动安装或让 scheduler 进入反复重启。
+`local:start` 会在创建后台管理器前检查必要 Python 依赖；缺失时直接停止并提示运行 `python -m pip install -r requirements.txt`，不会自动安装或让 scheduler 进入反复重启。Managed Runtime 的显式配置为：
 
-本地网站通过 `/api/health` 实际加载并验证当前 published generation。管理器只有在该端点返回 `200`、`status: healthy` 和安全的 `generationId` 时才把网站标为 healthy；HTTP 失败会记录简短诊断并标为 degraded，但不会重启一个仍存活的 Vinext 进程。数据经 rollback 恢复后，同一进程会在下一次健康探测中自动恢复 healthy。
+```text
+RARDAR_SCHEDULE_AT=08:00
+RARDAR_SCHEDULE_TIMEZONE=Asia/Shanghai
+RARDAR_STALE_AFTER_HOURS=36
+```
 
-如需单独调试每日刷新守护进程：
+环境缺失时使用以上默认值。时间必须是 canonical `HH:MM`，timezone 必须是可加载的 IANA 名称，陈旧阈值必须是 1～8760 的整数小时；非法值在启动子进程或写 Runtime 状态前失败。Manager 启动时冻结一次 effective config，并把 schedule 显式传给唯一 Scheduler；运行中修改环境不会热更新，必须先 `npm run local:stop`，再带新环境运行 `npm run local:start`。`nextRunAt` 仍由 Scheduler 计算，直接编辑 status JSON 不能改变计划。
+
+本地网站通过 `/api/health` 实际加载并验证当前 published generation、manifest、artifact hash 与该 generation 的 snapshot。数据年龄只按 snapshot `captured_at` 计算，不使用文件 mtime、current.json mtime、进程时间或 heartbeat。小于等于阈值为 `fresh`；超过阈值为 `stale`；非法时间、明显未来时间或 published generation 损坏为 `invalid`。
+
+`fresh` 时 health 返回 HTTP 200 / `healthy`。仅数据 stale 时仍返回 HTTP 200，但 overall 为 `degraded`、reason 为 `published_data_stale`，页面继续读取旧的完整 generation；首页和 `local:status` 会明确显示快照时间、年龄、阈值与 `STALE`。结构损坏继续返回 503 并 fail closed，不会被伪装成 stale。HTTP 失败会记录简短诊断，但不会仅因数据 stale 或一个仍存活的 Vinext 数据错误而反复重启网站；数据经 rollback 恢复后，同一进程会在下一次健康探测中重新分类。
+
+仅在 Managed Runtime 已停止时，才可单独调试每日刷新守护进程：
 
 ```bash
 npm run data:schedule
 ```
 
-默认在 `Asia/Shanghai` 每天 08:00 刷新 GitHub 快照、前五静态检查和技术动态。刷新期间调度器会持续写入运行心跳；若进程中途退出，管理器重启后会在 12 小时窗口内补跑，网络等临时故障则每 5 分钟重试，单轮最多 3 次。若 Git 进程树或临时 checkout 的清理无法确认，本轮 candidate 会 fail closed，scheduler 写入 `retryable: false` 和 `remoteAnalysisErrorCode`，不在同一周期自动重试；普通且已安全收口的单仓分析失败仍可记录为 degraded。守护进程不会部署网站，也不会执行候选仓库代码。
+该命令使用相同 env/default 配置；显式 CLI `--at` / `--timezone` 仍可覆盖 env。对同一个 canonical data directory，Scheduler 在任何 status 写入或 refresh 前持有独立单实例锁，因此 Managed Scheduler 存活时第二个命令会明确失败，不会并行采集或竞争发布。默认仍在 `Asia/Shanghai` 每天 08:00 刷新 GitHub 快照、前五静态检查和技术动态。
 
-“动态”页面从本地管理器的实时心跳读取运行状态；旧状态超过 35 秒就会显示需要重新启动，不再把过期的 `scheduled` 文件误报为正在运行。
+刷新期间调度器会持续写入绑定自身 PID 的运行心跳；Manager 只信任当前 child PID 的 telemetry，status 中的 schedule 不能反向改写 frozen config。既有 12 小时重启补跑和每 5 分钟、单轮最多 3 次的临时故障 retry 语义保持不变，本轮没有新增 missed-run 自动追赶。若 Git 进程树或临时 checkout 的清理无法确认，本轮 candidate 会 fail closed，scheduler 写入 `retryable: false` 和 `remoteAnalysisErrorCode`，不在同一周期自动重试；普通且已安全收口的单仓分析失败仍可记录为 degraded。守护进程不会部署网站，也不会执行候选仓库代码。
 
-默认本地预览地址：<http://127.0.0.1:3000/>。项目默认不发布线上版本，除非用户明确提出部署要求。
+“动态”页面从本地管理器的实时心跳读取运行状态；状态必须绑定 control/manager PID，Scheduler telemetry 必须绑定当前 child PID，旧状态超过 35 秒、未来超过五分钟偏差或字段非法都会 fail closed，不再把过期或外来 `scheduled` 文件误报为正在运行。`local:status` 输出 effective schedule/timezone、Scheduler 计算的 next run、last successful refresh、current generation、snapshot time/age/threshold 和 freshness；overall 只有在服务与数据都 healthy/fresh 时才是 `healthy`。
+
+默认本地预览地址：<http://127.0.0.1:3000/>。项目默认不发布线上版本，除非用户明确提出部署要求。always-on deployment 仍是独立后续阶段，不属于本轮 Runtime readiness，也不会由 stale watchdog 自动触发。
 
 静态分析工具只读取文件，不执行仓库代码或安装陌生依赖：
 
@@ -232,5 +244,5 @@ npm run data:derive
 - 陌生仓库默认只读分析，禁止自动执行代码。
 - 北极星指标按近 7 天发生“试用 / 浅克隆 / 确认复用”的不同项目数计算；反馈只用于学习排序，不再冒充实际结果。
 - 行动 Event 只追加且由服务端生成发生时间；State 由数据库触发器在同一写入内更新，不能代替历史事件参与周指标。
-- 新 JSON 数据产物、canonical D1/API 状态以及 P1-6C1 页面组件、路由、链接和客户端关联都以 Stable Project ID 作为唯一项目身份；旧 slug 只保留为显示或经 verified Catalog 严格解析的 legacy 兼容字段。跨 retained history 放宽 slug collision 门禁仍留给 P1-6C2。
+- 新 JSON 数据产物、canonical D1/API 状态以及页面组件、路由、链接和客户端关联都以 Stable Project ID 作为唯一项目身份；P1-6C1 已由 PR #13、提交 `dfed8f0` 完成。旧 slug 只保留为显示或经 verified Catalog 严格解析的 legacy 兼容字段；跨 retained history 放宽 slug collision 门禁仍留给当前 deferred 的 P1-6C2。
 - 官方 RSS 优先；AI News Radar、OpenGithubs 和 HelloGitHub 只作为可归因的补充信号，第三方榜单增长必须由 Rardar 自有快照验证。

@@ -6,6 +6,7 @@ import { SignalDigest } from "./components/SignalDigest";
 import { PersonalizedDailyList } from "./components/PersonalizedDailyList";
 import { canonicalProjectPath } from "./client-project-identity.mjs";
 import { formatCapturedDate, formatNumber } from "./data";
+import { formatSnapshotAge } from "./runtime-readiness.mjs";
 import { loadPublishedData } from "./server-data";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const {
     generationId,
+    dataFreshness,
     catalog,
     projects,
     dailyProjects,
@@ -28,9 +30,20 @@ export default async function Home() {
     <div className="app-shell" data-generation={generationId}>
       <Nav growthMode={catalog.growthMode} />
       <main>
+        {dataFreshness.freshness === "stale" ? (
+          <aside className="data-freshness-warning" role="status" data-freshness="stale">
+            <strong>数据更新已延迟</strong>
+            <span>
+              最近一次成功快照：{formatCapturedDate(dataFreshness.snapshotCapturedAt)}
+              {" · "}当前数据年龄：{formatSnapshotAge(dataFreshness.ageSeconds)}
+            </span>
+          </aside>
+        ) : null}
         <section className="hero">
           <div className="hero-copy">
-            <span className="eyebrow">{formatCapturedDate(catalog.capturedAt)} · 已完成今日刷新</span>
+            <span className="eyebrow">
+              {formatCapturedDate(catalog.capturedAt)} · {dataFreshness.freshness === "stale" ? "最近一次已验证数据" : "已完成今日刷新"}
+            </span>
             <h1>先看 5 个，<br />不用刷 500 个。</h1>
             <p>今天真正值得看的，不只是 Star 排名。Rardar 把近期爆发、持久热度和静态工程证据分开说明，再结合你的任务判断匹配程度。</p>
             <div className="hero-actions">

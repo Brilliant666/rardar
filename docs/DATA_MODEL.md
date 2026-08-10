@@ -288,6 +288,14 @@ resolver 的信任边界固定为：
 
 未知版本或未版本化的新数据会失败。以后收紧字段或改变含义时应新增 Schema 版本和显式迁移，不得静默把旧数据解释为新版。
 
+### Runtime Operational Readiness 状态
+
+Runtime status、Scheduler heartbeat 和 `/api/health` freshness 是可重建的本地运维 telemetry，不属于 immutable generation artifact，也不进入 generation manifest/hash 或增长历史。schedule 的权威来自 Manager 启动时验证并冻结的 `RARDAR_SCHEDULE_AT`、`RARDAR_SCHEDULE_TIMEZONE` 和 `RARDAR_STALE_AFTER_HOURS`；缺失时分别为 `08:00`、`Asia/Shanghai` 与 36 小时。Scheduler status 只报告当前 child PID、运行结果与它计算的 `nextRunAt`，不能作为配置输入；同一 canonical data directory 的 Scheduler 单实例锁独立于短期 data write lock，防止 Manager 与 standalone CLI 并行。
+
+freshness 的权威是同一次 verified published bundle 中 `snapshots/latest.json captured_at` 所表示的 UTC instant。Catalog `capturedAt` 必须与它表示同一 instant，但允许等价的 RFC3339 offset 文本；不得使用文件 mtime、pointer publish time、process start 或 heartbeat 代替。Worker 每次请求重新计算 age：`ageSeconds <= staleAfterSeconds` 为 `fresh`，超过为 `stale`；最多五分钟未来偏差按 age 0 处理，超过偏差、日历时间非法或 current/manifest/hash/snapshot 不可信为 `invalid`。
+
+`fresh` 且 Manager/Website/Scheduler 全部 healthy 时 overall 才是 `healthy`。仅 stale 时 health 为 HTTP 200 / overall `degraded`，generation 仍可读且首页展示轻量警告；stale 可与 Scheduler blocked/restarting 等其他 degraded 状态叠加。`invalid` 或 generation 损坏继续沿用 HTTP 503/页面 fail-closed，不回退 flat staging，也不缓存上一代健康内容。Manager 只接受与自己 control PID 一致的 Runtime status、与当前 Scheduler child PID 一致的 heartbeat，以及和 frozen config 一致的 Website health；旧/外来 telemetry 不能冒充健康。
+
 ## 安全与回滚
 
 Schema 与 generation 验证不执行候选仓库代码、不安装其依赖、不读取用户 Git 配置，也不改变静态分析的资源上限。generation ID、manifest 产物路径与符号链接都经过逃逸检查；路径必须留在当前 data/generations 根内。
@@ -304,4 +312,4 @@ Schema 与 generation 验证不执行候选仓库代码、不安装其依赖、�
 
 本地管理器在启动任何子服务前检查声明的 Python 运行依赖。缺失时只输出 `python -m pip install -r requirements.txt` 并退出，不自动安装，也不启动会持续失败重启的 scheduler。
 
-Schema 不能单独解决跨文件一致性、历史增长、缓存新鲜度或身份碰撞。前三项由 generation audit、manifest/hash 和请求级 generation 边界处理；Stable Project ID 由 identity v1 重算、跨产物审计和 collision/unresolved 门禁共同保证。追加式行动事件已由 PR #5 完成，评分语义已由 PR #6、提交 `ab34119` 完成，verify/CI 已由 PR #7、提交 `3430e30` 完成，P1-6A JSON 身份层已由 PR #8、提交 `d41033f` 完成。P1-6B 已由 PR #9、提交 `c24b7d6` 完成，正式 Primary Runtime D1 adoption、完整重启和重复 adoption no-op 均已通过。P1-6C1 client/UI Stable Identity 是当前独立工程轮；P1-6 整体须在后续 P1-6C2 collision-history 边界完成后才能关闭。
+Schema 不能单独解决跨文件一致性、历史增长、缓存新鲜度或身份碰撞。前三项由 generation audit、manifest/hash、请求级 generation 边界与上述 Runtime freshness telemetry 处理；Stable Project ID 由 identity v1 重算、跨产物审计和 collision/unresolved 门禁共同保证。追加式行动事件已由 PR #5 完成，评分语义已由 PR #6、提交 `ab34119` 完成，verify/CI 已由 PR #7、提交 `3430e30` 完成，P1-6A JSON 身份层已由 PR #8、提交 `d41033f` 完成。P1-6B 已由 PR #9、提交 `c24b7d6` 完成，正式 Primary Runtime D1 adoption、完整重启和重复 adoption no-op 均已通过。P1-6C1 client/UI Stable Identity 已由 PR #13、提交 `dfed8f0` 完成；P1-6 整体须在当前 deferred 的 P1-6C2 collision-history 边界完成后才能关闭。当前独立工程轮是用户明确授权的 Runtime Operational Readiness，不改变该长期状态。

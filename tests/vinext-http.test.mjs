@@ -50,7 +50,7 @@ function visibleServerHtml(html) {
     .replaceAll(/<!--[\s\S]*?-->/g, "");
 }
 
-function loopbackEnvironment(temporaryRoot, dataDirectory, port) {
+function loopbackEnvironment(temporaryRoot, dataDirectory, port, overrides = {}) {
   const bypass = [process.env.NO_PROXY, process.env.no_proxy, "127.0.0.1", "localhost"]
     .filter(Boolean)
     .join(",");
@@ -64,18 +64,22 @@ function loopbackEnvironment(temporaryRoot, dataDirectory, port) {
     MINIFLARE_REGISTRY_PATH: join(temporaryRoot, "miniflare-registry"),
     WRANGLER_WRITE_LOGS: "false",
     CLOUDFLARE_VITE_FORCE_LOCAL: "true",
+    RARDAR_SCHEDULE_AT: "08:00",
+    RARDAR_SCHEDULE_TIMEZONE: "Asia/Shanghai",
+    RARDAR_STALE_AFTER_HOURS: "8760",
     NO_PROXY: bypass,
     no_proxy: bypass,
+    ...overrides,
   };
 }
 
-function startVinext(temporaryRoot, dataDirectory, port) {
+function startVinext(temporaryRoot, dataDirectory, port, overrides = {}) {
   const child = spawn(
     process.execPath,
     [vinextCli, "dev", "--hostname", "127.0.0.1", "--port", String(port)],
     {
       cwd: repositoryRoot,
-      env: loopbackEnvironment(temporaryRoot, dataDirectory, port),
+      env: loopbackEnvironment(temporaryRoot, dataDirectory, port, overrides),
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -145,11 +149,14 @@ async function closeServer(server) {
 }
 
 async function availableLoopbackPort() {
-  const server = createServer();
-  try {
-    return await listenOnRandomLoopback(server);
-  } finally {
-    await closeServer(server);
+  while (true) {
+    const server = createServer();
+    try {
+      const port = await listenOnRandomLoopback(server);
+      if (port !== 3000 && port !== 3002) return port;
+    } finally {
+      await closeServer(server);
+    }
   }
 }
 
@@ -340,6 +347,25 @@ function assertGenerationMarkers(html, expectedCatalog, expectedSignal, rejected
   assert.doesNotMatch(html, new RegExp(rejectedSignal));
 }
 
+async function waitForStaleGeneration(runtime, baseUrl, generationId, timeout = 30_000) {
+  return waitUntil(
+    `stale generation ${generationId}`,
+    runtime,
+    async () => {
+      const response = await request(baseUrl, "/api/health", "application/json", 5_000);
+      if (response.status !== 200) return null;
+      const payload = await response.json();
+      return payload.status === "degraded"
+        && payload.reason === "published_data_stale"
+        && payload.generationId === generationId
+        && payload.data?.freshness === "stale"
+        ? { response, payload }
+        : null;
+    },
+    timeout,
+  );
+}
+
 function canonicalProjectRoute(projectId, version = "v1") {
   return `/project/${encodeURIComponent(version)}/${encodeURIComponent(projectId)}`;
 }
@@ -402,9 +428,16 @@ test(
         fixture.catalogMarkerB,
         fixture.signalMarkerB,
       );
+      assert.equal(initialHealth.payload.data.freshness, "fresh");
+      assert.equal(initialHealth.payload.data.staleAfterSeconds, 8760 * 3600);
+      assert.deepEqual(initialHealth.payload.schedule, {
+        at: "08:00",
+        timezone: "Asia/Shanghai",
+      });
       assert.match(homeAText, /关注优先级/);
       assert.match(homeAText, /静态工程就绪度/);
       assert.doesNotMatch(homeAText, /全球影响力|复用价值|建议：复用/);
+      assert.doesNotMatch(homeAText, /数据更新已延迟/);
 
       const canonicalPath = canonicalProjectRoute(fixture.projectId);
       assert.ok(homeAText.includes(canonicalPath), "home SSR must link to the canonical project ID");
@@ -965,6 +998,32 @@ test(
       assert.equal(runtime.child.pid, originalPid);
       assert.equal(runtime.child.exitCode, null);
 
+      await stopProcessTree(runtime.child);
+      runtime = null;
+      const stalePort = await availableLoopbackPort();
+      runtime = startVinext(
+        join(temporaryRoot, "stale-runtime"),
+        dataDirectory,
+        stalePort,
+        { RARDAR_STALE_AFTER_HOURS: "1" },
+      );
+      const staleBaseUrl = await waitForServer(runtime);
+      const staleHealth = await waitForStaleGeneration(
+        runtime,
+        staleBaseUrl,
+        fixture.generationA,
+        90_000,
+      );
+      assert.equal(staleHealth.response.status, 200);
+      assert.match(staleHealth.response.headers.get("cache-control") ?? "", /no-store/);
+      assert.equal(staleHealth.payload.data.staleAfterSeconds, 3600);
+      const staleHome = await request(staleBaseUrl, "/", "text/html");
+      assert.equal(staleHome.status, 200);
+      const staleHomeText = await staleHome.text();
+      assert.match(staleHomeText, /数据更新已延迟/);
+      assert.match(staleHomeText, /data-freshness="stale"/);
+      assert.doesNotMatch(staleHomeText, /已完成今日刷新/);
+
       console.log(
         [
           `GET /: ${homeA.status}`,
@@ -977,6 +1036,7 @@ test(
           `retained v1 generation: ${legacyHealth.payload.generationId}`,
           `damaged current status: health ${unhealthy.response.status}, home ${failedHome.status}`,
           `rollback status: health ${recoveredHealth.response.status}, home ${recoveredHome.status}`,
+          `stale data status: health ${staleHealth.response.status} degraded, home ${staleHome.status}`,
           `D1 API acceptance: ${d1Response.status}`,
           `action API concurrency: ${concurrentResponses.length} requests, 1 Event`,
           `action State highest stage: ${actionState.states[0].highestStage}`,

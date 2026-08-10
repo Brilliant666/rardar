@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadPublishedBundle } from "../app/published-data-loader.mjs";
+import { evaluateDataFreshness } from "../app/runtime-readiness.mjs";
 
 const templateRoot = new URL("../", import.meta.url);
 
@@ -16,6 +17,7 @@ test("contains the complete Rardar home experience", async () => {
     publishedLoader,
     publishedClient,
     healthRoute,
+    runtimeReadiness,
     publishedBridge,
     signals,
     signalsPage,
@@ -58,6 +60,7 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/published-data-loader.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/published-data-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/health/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/runtime-readiness.mjs", import.meta.url), "utf8"),
     readFile(new URL("../build/published-data-bridge.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals/page.tsx", import.meta.url), "utf8"),
@@ -128,8 +131,12 @@ test("contains the complete Rardar home experience", async () => {
   assert.doesNotMatch(publishedClient, /await headers\(\)|get\("host"\)/);
   assert.match(publishedClient, /X-Rardar-Data-Token/);
   assert.match(publishedClient, /cache: "no-store"/);
-  assert.match(healthRoute, /status: "healthy", generationId/);
+  assert.match(healthRoute, /published_data_stale/);
+  assert.match(healthRoute, /data: dataFreshness/);
   assert.match(healthRoute, /status: "degraded"/);
+  assert.match(runtimeReadiness, /DEFAULT_STALE_AFTER_HOURS = 36/);
+  assert.match(page, /data-freshness-warning/);
+  assert.match(page, /数据更新已延迟/);
   assert.match(publishedBridge, /loadPublishedBundle\(dataDirectory\)/);
   assert.match(publishedBridge, /PUBLISHED_DATA_BRIDGE_PATH/);
   assert.match(publishedBridge, /Cache-Control", "no-store"/);
@@ -363,7 +370,8 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(globalCss, /--cyan: #39bdf2/);
   assert.doesNotMatch(globalCss, /--acid: #caff59/);
   assert.match(runtimeStatus, /127\.0\.0\.1:3002\/status/);
-  assert.match(runtimeStatus, /heartbeatLimit/);
+  assert.match(runtimeStatus, /normalizeRuntimeStatusSnapshot/);
+  assert.match(runtimeReadiness, /heartbeatLimitMilliseconds/);
   assert.match(runtimeStatus, /dataAuditStatus/);
   assert.match(runtimeStatus, /observedNetStarChange/);
   assert.match(runtimeStatus, /净 Star/);
@@ -401,9 +409,10 @@ function digest(value) {
 
 async function writeGeneration(dataDirectory, generationId, marker, baseGenerationId = null) {
   const generationDirectory = join(dataDirectory, "generations", generationId);
+  const capturedAt = marker === "one" ? "2026-07-12T00:00:00Z" : "2026-07-13T00:00:00Z";
   const payloads = {
-    "snapshots/latest.json": { schema_version: 1, marker: `snapshot-${marker}` },
-    "catalog/latest.json": { schemaVersion: 1, marker: `catalog-${marker}`, projects: [] },
+    "snapshots/latest.json": { schema_version: 1, captured_at: capturedAt, marker: `snapshot-${marker}` },
+    "catalog/latest.json": { schemaVersion: 1, capturedAt, marker: `catalog-${marker}`, projects: [] },
     "signals/latest.json": { schemaVersion: 1, marker: `signals-${marker}`, signals: [], topSignals: [] },
     "signals/enrichment.json": { schemaVersion: 1, marker: `enrichment-${marker}`, generatedAt: "2026-07-12T00:00:00Z", items: {} },
     "queues/codex.json": { schemaVersion: 1, marker: `queue-${marker}`, pendingCount: 0 },
@@ -466,6 +475,11 @@ test("loads every web artifact from one current generation and switches atomical
     await writeFile(join(dataDirectory, "current.json"), JSON.stringify(firstPointer), "utf8");
     const first = loadPublishedBundle(dataDirectory);
     assert.equal(first.generationId, firstId);
+    assert.equal(first.snapshotCapturedAt, "2026-07-12T00:00:00Z");
+    assert.equal(
+      evaluateDataFreshness(first.snapshotCapturedAt, 36 * 3600, Date.parse("2026-07-13T00:00:00Z")).ageSeconds,
+      24 * 3600,
+    );
     assert.equal(first.catalog.marker, "catalog-one");
     assert.equal(first.signals.marker, "signals-one");
     assert.equal(first.signalEnrichment.marker, "enrichment-one");
@@ -474,6 +488,11 @@ test("loads every web artifact from one current generation and switches atomical
     await writeFile(join(dataDirectory, "current.json"), JSON.stringify(secondPointer), "utf8");
     const second = loadPublishedBundle(dataDirectory);
     assert.equal(second.generationId, secondId);
+    assert.equal(second.snapshotCapturedAt, "2026-07-13T00:00:00Z");
+    assert.equal(
+      evaluateDataFreshness(second.snapshotCapturedAt, 36 * 3600, Date.parse("2026-07-13T00:00:00Z")).ageSeconds,
+      0,
+    );
     assert.equal(second.catalog.marker, "catalog-two");
     assert.equal(second.signals.marker, "signals-two");
     assert.equal(second.signalEnrichment.marker, "enrichment-two");
@@ -482,6 +501,7 @@ test("loads every web artifact from one current generation and switches atomical
     // The already-loaded request remains an internally consistent immutable
     // view even after a later request observes the new pointer.
     assert.equal(first.catalog.marker, "catalog-one");
+    assert.equal(first.snapshotCapturedAt, "2026-07-12T00:00:00Z");
     assert.equal(first.signals.marker, "signals-one");
     assert.ok(Object.isFrozen(first));
     assert.ok(Object.isFrozen(first.catalog));
