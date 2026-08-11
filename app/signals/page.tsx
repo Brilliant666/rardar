@@ -1,5 +1,6 @@
 import { Nav } from "../components/Nav";
 import { RuntimeStatus } from "../components/RuntimeStatus";
+import { DataFreshnessNotice } from "../components/DataFreshnessNotice";
 import { SignalCard } from "../components/SignalCard";
 import { formatSignalTime } from "../signals";
 import { loadPublishedData } from "../server-data";
@@ -8,11 +9,12 @@ export const metadata = { title: "技术动态" };
 export const dynamic = "force-dynamic";
 
 export default async function SignalsPage() {
-  const { catalog, codexQueue, signalSnapshot } = await loadPublishedData();
+  const { generationId, dataFreshness, catalog, codexQueue, signalSnapshot } = await loadPublishedData();
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-generation={generationId} data-freshness={dataFreshness.freshness}>
       <Nav growthMode={catalog.growthMode} />
       <main className="page-main signals-page">
+        <DataFreshnessNotice dataFreshness={dataFreshness} />
         <header className="page-hero compact-hero">
           <span className="eyebrow">AI & Tech signals</span>
           <h1>大新闻、官方更新，<br />和正在起飞的项目。</h1>
@@ -39,12 +41,12 @@ export default async function SignalsPage() {
 
         <section className="all-signals">
           <div className="section-heading">
-            <span className="section-label">48-hour stream</span>
-            <h2>全部去重动态</h2>
+          <span className="section-label">{dataFreshness.freshness === "stale" ? "Last verified stream" : "48-hour stream"}</span>
+            <h2>{dataFreshness.freshness === "stale" ? "最近一次已验证动态" : "全部去重动态"}</h2>
           </div>
-          <div className="signal-list">
+          {signalSnapshot.signals.length ? <div className="signal-list">
             {signalSnapshot.signals.map((signal, index) => <SignalCard key={signal.id} signal={signal} index={index} />)}
-          </div>
+          </div> : <div className="empty-state compact-empty"><span>0</span><h2>当前没有可用动态</h2><p>已验证 generation 中没有技术动态，Rardar 不会从未发布内容补位。</p></div>}
         </section>
       </main>
     </div>

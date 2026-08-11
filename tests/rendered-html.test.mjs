@@ -137,8 +137,7 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(healthRoute, /data: dataFreshness/);
   assert.match(healthRoute, /status: "degraded"/);
   assert.match(runtimeReadiness, /DEFAULT_STALE_AFTER_HOURS = 36/);
-  assert.match(page, /data-freshness-warning/);
-  assert.match(page, /数据更新已延迟/);
+  assert.match(page, /<DataFreshnessNotice dataFreshness=\{dataFreshness\}/);
   assert.match(publishedBridge, /loadPublishedBundle\(dataDirectory\)/);
   assert.match(publishedBridge, /PUBLISHED_DATA_BRIDGE_PATH/);
   assert.match(publishedBridge, /Cache-Control", "no-store"/);
@@ -165,6 +164,12 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(actionsRoute, /withCurrentProjectIdentityIfPresent/);
   assert.match(feedbackRoute, /withCurrentProjectIdentityIfPresent/);
   assert.match(recommendationsRoute, /withCurrentProjectIdentityIfPresent/);
+  assert.match(actionsRoute, /generationId: published\.generationId, states, actions/);
+  assert.match(feedbackRoute, /generationId: published\.generationId, feedback:/);
+  assert.match(actionsRoute, /expectedGenerationId !== published\.generationId/);
+  assert.match(feedbackRoute, /expectedGenerationId !== published\.generationId/);
+  assert.match(actionsRoute, /error: "stale_generation"/);
+  assert.match(feedbackRoute, /error: "stale_generation"/);
   assert.doesNotMatch(metricsRoute, /FROM project_actions/);
   assert.match(actionsRoute, /allowedActions/);
   assert.match(actionsRoute, /createProjectIdentityContext/);
@@ -183,35 +188,34 @@ test("contains the complete Rardar home experience", async () => {
   assert.doesNotMatch(actionsRoute, /readProjectActionState\(/);
   assert.match(validation, /request\.json\(\)/);
   assert.match(validation, /typeof value === "string"/);
-  assert.match(projectActions, /确认复用/);
-  assert.match(projectActions, /successfulMutationVersion/);
-  assert.match(projectActions, /mutationVersionAtStart/);
-  assert.match(projectActions, /successfulMutationVersion\.current \+= 1/);
+  assert.match(projectActions, /useDecisionState\(projectId\)/);
+  assert.match(projectActions, /decisionStatusForProject\(state\)/);
+  assert.match(projectActions, /已尝试/);
+  assert.match(projectActions, /已克隆/);
+  assert.match(projectActions, /已复用/);
   assert.match(projectActions, /inFlightActions/);
   assert.match(projectActions, /retryKeys/);
   assert.match(projectActions, /createProjectActionIdempotencyKey/);
   assert.match(projectActions, /stableProjectSelector\(\{ projectIdVersion, projectId \}\)/);
-  assert.match(projectActions, /projectIdVersion: String\(project\.projectIdVersion\)/);
-  assert.match(projectActions, /projectId: project\.projectId/);
-  assert.match(projectActions, /recordProjectAction\(requestProject, action, idempotencyKey\)/);
+  assert.match(projectActions, /recordProjectAction\([\s\S]*requestProject,[\s\S]*action,[\s\S]*idempotencyKey,[\s\S]*generationId,/);
+  assert.match(projectActions, /aria-pressed=\{selected\.has\(option\.value\)\}/);
+  assert.match(projectActions, /disabled=\{loading \|\| Boolean\(error\) \|\| pending\.has/);
   assert.doesNotMatch(projectActions, /projectSlug|requestProjectSlug/);
   assert.match(feedbackButtons, /stableProjectSelector\(\{ projectIdVersion, projectId \}\)/);
-  assert.match(feedbackButtons, /projectIdVersion: String\(project\.projectIdVersion\)/);
-  assert.match(feedbackButtons, /projectId: project\.projectId/);
+  assert.match(feedbackButtons, /useDecisionState\(projectId\)/);
   assert.match(feedbackButtons, /body: JSON\.stringify\(\{[\s\S]*\.\.\.project,[\s\S]*value,/);
-  assert.match(feedbackButtons, /detail: \{ \.\.\.project, value \}/);
-  assert.match(feedbackButtons, /if \(saveInFlight\.current\) return/);
-  assert.match(feedbackButtons, /saveInFlight\.current = true/);
-  assert.match(feedbackButtons, /saveInFlight\.current = false/);
-  assert.match(feedbackButtons, /disabled=\{saving\}/);
-  assert.match(feedbackButtons, /mutationVersionAtStart = successfulMutationVersion\.current/);
-  assert.match(feedbackButtons, /isFreshClientRead\(/);
-  assert.match(feedbackButtons, /successfulMutationVersion\.current \+= 1/);
-  assert.match(feedbackButtons, /successfulMutationVersion\.current \+= 1;[\s\S]*setSelected\(value\)/);
+  assert.match(feedbackButtons, /detail: \{ \.\.\.project, value, generationId: payload\.generationId \}/);
+  assert.match(feedbackButtons, /saveInFlight\.current\.has\(identityKey\)/);
+  assert.match(feedbackButtons, /saveInFlight\.current\.set\(requestIdentity, attempt\)/);
+  assert.match(feedbackButtons, /saveInFlight\.current\.get\(requestIdentity\) === attempt/);
+  assert.match(feedbackButtons, /resultForGeneration\(generationId, await response\.json\(\)\)/);
+  assert.match(feedbackButtons, /aria-pressed=\{selected === option\}/);
+  assert.match(feedbackButtons, /disabled=\{loading \|\| saving \|\| Boolean\(error\)\}/);
   assert.doesNotMatch(feedbackButtons, /projectSlug/);
   assert.match(deviceId, /type ClientProjectIdentity = \{ projectIdVersion: 1; projectId: string \}/);
-  assert.match(deviceId, /body: JSON\.stringify\(\{ deviceId, \.\.\.project, action, idempotencyKey \}\)/);
-  assert.match(deviceId, /detail: \{ \.\.\.project, action \}/);
+  assert.match(deviceId, /expectedGenerationId \? \{ generationId: expectedGenerationId \} : \{\}/);
+  assert.match(deviceId, /detail: \{ \.\.\.project, action, generationId: result\.generationId \}/);
+  assert.match(deviceId, /result\.generationId !== expectedGenerationId/);
   assert.doesNotMatch(deviceId, /projectSlug/);
   assert.match(projectPage, /projectIdVersion !== "v1"\) notFound\(\)/);
   assert.match(projectPage, /resolveProjectSelector\(identityContext, \{ projectIdVersion: 1, projectId \}\)/);
@@ -226,12 +230,15 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(legacyProjectRoute, /location: canonicalProjectPath\(project\)/);
   assert.match(legacyProjectRoute, /projectIdentityErrorResponse/);
   assert.doesNotMatch(projectActions, /if \(selected\.has\(action\)\) return/);
-  assert.match(watchlist, /collectWatchStatusesByProjectId/);
-  assert.match(watchlist, /statusByProjectId\.has\(project\.projectId\)/);
-  assert.match(watchlist, /statusByProjectId\.get\(project\.projectId\)/);
+  assert.match(watchlist, /useDecisionState\(project\.projectId\)/);
+  assert.match(watchlist, /decisionStatusForProject\(state\)/);
+  assert.match(watchlist, /stateByProjectId\.get\(project\.projectId\)/);
+  assert.match(watchlist, /status\.watched/);
   assert.match(watchlist, /key=\{project\.projectId\}/);
   assert.doesNotMatch(watchlist, /statusBySlug|next\[item\.projectSlug\]/);
-  assert.match(watchlist, /已收藏/);
+  assert.match(watchlist, /已关注/);
+  assert.match(watchlist, /“待确定”只代表推荐质量反馈，不会自动加入观察列表/);
+  assert.match(watchlist, /还没有关注的项目/);
   assert.match(recommendationsRoute, /rankProjects/);
   assert.match(recommendationsRoute, /createProjectIdentityContext/);
   assert.match(recommendationsRoute, /identityContext\.stableProjects\(published\.projects\)/);
@@ -348,6 +355,7 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(searchWorkbench, /search-overview/);
   assert.match(searchWorkbench, /match-row-rich/);
   assert.match(searchWorkbench, /任务匹配/);
+  assert.match(searchWorkbench, /没有可显示的候选/);
   assert.match(searchWorkbench, /\/100/);
   assert.doesNotMatch(searchWorkbench, /reuseScore|复用价值|\{score\}%/);
   assert.match(projectCard, /关注优先级/);
@@ -386,6 +394,107 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(serverData, /codexQueue/);
   assert.doesNotMatch(page, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
   assert.equal(build, undefined);
+});
+
+test("keeps the launch Decision Flow shared, generation-bound, and accessible", async () => {
+  const [
+    decisionFlow,
+    decisionProvider,
+    decisionSummary,
+    watchButton,
+    deviceId,
+    freshnessNotice,
+    signalCard,
+    homePage,
+    searchPage,
+    signalsPage,
+    projectPage,
+    globalCss,
+  ] = await Promise.all([
+    readFile(new URL("../app/decision-flow.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/DecisionStateProvider.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/ProjectDecisionSummary.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/WatchButton.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/device-id.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/DataFreshnessNotice.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/SignalCard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/search/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/signals/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/project/[projectIdVersion]/[projectId]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(decisionFlow, /export function projectDecisionSummary/);
+  assert.match(decisionFlow, /export function collectDecisionStateByProjectId/);
+  assert.match(decisionFlow, /export function mergeGenerationBoundDecisionReads/);
+  assert.match(decisionFlow, /actionPayload\.generationId !== expectedGenerationId/);
+  assert.match(decisionFlow, /feedbackPayload\.generationId !== expectedGenerationId/);
+  assert.match(decisionFlow, /export function applyDecisionStateEvent/);
+  assert.match(decisionFlow, /export function replayDecisionStateEvents/);
+  assert.doesNotMatch(decisionFlow, /projectSlug|AI认为|爆发概率|预测增长|趋势百分比/);
+
+  assert.match(decisionProvider, /Promise\.all\(\[[\s\S]*\/api\/actions[\s\S]*\/api\/feedback/);
+  assert.match(decisionProvider, /mergeGenerationBoundDecisionReads\([\s\S]*generationId/);
+  assert.match(decisionProvider, /mutationJournal = useRef/);
+  assert.match(decisionProvider, /replayDecisionStateEvents\([\s\S]*merged,[\s\S]*mutationJournal\.current,[\s\S]*mutationVersionAtStart/);
+  assert.match(decisionProvider, /detail\?\.generationId !== generationId/);
+  assert.match(decisionProvider, /addEventListener\(projectActionEventName, applyEvent\)/);
+  assert.match(decisionProvider, /addEventListener\(feedbackEventName, applyEvent\)/);
+  assert.match(decisionProvider, /addEventListener\(generationStaleEventName, markStale\)/);
+  assert.match(decisionProvider, /reload: \(\) => window\.location\.reload\(\)/);
+  assert.doesNotMatch(decisionProvider, /localStorage|projectSlug/);
+
+  const whyIndex = decisionSummary.indexOf("为什么现在值得看");
+  const evidenceIndex = decisionSummary.indexOf("关键证据");
+  const riskIndex = decisionSummary.indexOf("风险 / 注意事项");
+  const actionIndex = decisionSummary.indexOf("下一步");
+  assert.ok(whyIndex >= 0 && whyIndex < evidenceIndex);
+  assert.ok(evidenceIndex < riskIndex && riskIndex < actionIndex);
+  assert.match(decisionSummary, /<ProjectDecisionStatus project=\{project\}/);
+  assert.match(decisionSummary, /data-acted=\{status\.acted \? "true" : "false"\}/);
+  assert.match(decisionSummary, /<WatchButton/);
+  assert.match(decisionSummary, /<FeedbackButtons/);
+  assert.match(decisionSummary, /href=\{canonicalProjectPath\(project\)\}/);
+  assert.match(decisionSummary, /不要把信息缺失理解为低风险/);
+  assert.match(decisionSummary, /当前没有可展开的证据入口/);
+
+  assert.match(watchButton, /stableProjectSelector\(\{ projectIdVersion, projectId \}\)/);
+  assert.match(watchButton, /recordSharedProjectAction\([\s\S]*identityKey,[\s\S]*"saved"[\s\S]*generationId/);
+  assert.match(deviceId, /sharedActionRequests\.get\(scope\)/);
+  assert.match(deviceId, /sharedActionKeys\.get\(scope\)/);
+  assert.match(deviceId, /payload\?\.error === "stale_generation"/);
+  assert.match(watchButton, /aria-pressed=\{status\.watched\}/);
+  assert.match(watchButton, /disabled=\{loading \|\| pending \|\| status\.watched \|\| Boolean\(error\)\}/);
+  assert.match(watchButton, /staleGeneration \? reload : retry/);
+  assert.doesNotMatch(watchButton, /projectSlug|localStorage/);
+
+  assert.match(freshnessNotice, /freshness !== "stale"/);
+  assert.match(freshnessNotice, /role="status"/);
+  assert.match(freshnessNotice, /data-freshness="stale"/);
+  assert.match(freshnessNotice, /数据更新已延迟/);
+  assert.match(signalCard, /data-signal-association="signal-only"/);
+  assert.match(signalCard, /不猜测项目归属/);
+  assert.doesNotMatch(signalCard, /canonicalProjectPath|projectSlug/);
+  assert.match(signalsPage, /当前没有可用动态/);
+
+  for (const route of [homePage, searchPage, signalsPage, projectPage]) {
+    assert.match(route, /data-generation=\{generationId\}/);
+    assert.match(route, /<DataFreshnessNotice dataFreshness=\{dataFreshness\}/);
+  }
+  for (const route of [homePage, searchPage, projectPage]) {
+    assert.match(route, /<DecisionStateProvider key=\{generationId\} generationId=\{generationId\}>/);
+  }
+  assert.match(homePage, /<ProjectDecisionSummary project=\{leadProject\}/);
+  assert.match(projectPage, /<ProjectDecisionSummary[\s\S]*variant="detail"/);
+  assert.match(projectPage, /<ProjectActions[\s\S]*projectId=\{project\.projectId\}/);
+  assert.match(projectPage, /<FeedbackButtons[\s\S]*projectId=\{project\.projectId\}/);
+  assert.match(projectPage, /<WatchButton[\s\S]*projectId=\{project\.projectId\}/);
+  assert.doesNotMatch([homePage, searchPage, projectPage].join("\n"), /alert\(/);
+
+  assert.match(globalCss, /button:focus-visible/);
+  assert.match(globalCss, /@media \(max-width: 980px\)/);
+  assert.match(globalCss, /@media \(max-width: 680px\)/);
 });
 
 test("removes starter-only assets and metadata", async () => {

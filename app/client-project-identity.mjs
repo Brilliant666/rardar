@@ -110,11 +110,8 @@ function addWatchStatus(statusByProjectId, record, label) {
 
 export function collectWatchStatusesByProjectId(feedback, actions) {
   const statusByProjectId = new Map();
-  for (const item of Array.isArray(feedback) ? feedback : []) {
-    if (item?.value === "待确定") addWatchStatus(statusByProjectId, item, "待确定");
-  }
   for (const item of Array.isArray(actions) ? actions : []) {
-    if (item?.action === "saved") addWatchStatus(statusByProjectId, item, "已收藏");
+    if (item?.action === "saved") addWatchStatus(statusByProjectId, item, "已关注");
   }
   return statusByProjectId;
 }

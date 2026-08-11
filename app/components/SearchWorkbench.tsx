@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { canonicalProjectPath } from "../client-project-identity.mjs";
 import { formatNumber, type StableProject } from "../data";
+import { ProjectDecisionSummary } from "./ProjectDecisionSummary";
 
 type IntentRule = {
   label: string;
@@ -142,17 +143,24 @@ export function SearchWorkbench({
 
   const intent = useMemo(() => analyzeIntent(submitted), [submitted]);
 
-  const results = useMemo(() => {
-    if (!submitted) return [];
+  const searchResults = useMemo(() => {
+    if (!submitted) return { items: [], hasStrongMatch: false };
     const ranked = projects
       .map((project) => matchProject(project, submitted, intent.rules, intent.tokens))
       .sort((a, b) => b.score - a.score || b.project.attentionScore - a.project.attentionScore);
     const strong = ranked.filter((result) => result.strongMatch);
-    return (strong.length ? strong : ranked).slice(0, compact ? 3 : 5);
+    return {
+      items: (strong.length ? strong : ranked).slice(0, compact ? 3 : 5),
+      hasStrongMatch: strong.length > 0,
+    };
   }, [compact, intent, projects, submitted]);
 
   const displayedResults = submitted
-    ? results
+    ? searchResults.items.map((result) => searchResults.hasStrongMatch ? result : {
+        ...result,
+        score: null,
+        reasons: [result.project.heatLabel ?? "可继续验证的候选", result.project.analysisState],
+      })
     : projects.slice(0, 3).map((project) => ({
         project,
         score: null,
@@ -221,10 +229,28 @@ export function SearchWorkbench({
 
       {(submitted || !compact) && (
         <div className={`search-results ${compact ? "" : "full-search-results"}`} aria-live="polite">
+          {compact && submitted ? (
+            <p className="compact-match-status">
+              {searchResults.hasStrongMatch
+                ? `找到 ${displayedResults.length} 个明确匹配`
+                : "未找到明确匹配；以下仅为可继续验证的候选。"}
+            </p>
+          ) : null}
           {!compact && (
             <div className="match-heading">
-              <div><span className="section-label">{submitted ? "Task matches" : "Radar picks"}</span><strong>{submitted ? `找到 ${displayedResults.length} 个优先匹配` : "当前高价值候选"}</strong></div>
-              <small>{submitted ? "已按任务能力、事实证据与静态就绪线索重排" : "输入任务后将重新计算匹配顺序"}</small>
+              <div>
+                <span className="section-label">{submitted ? "Task matches" : "Radar picks"}</span>
+                <strong>{submitted
+                  ? searchResults.hasStrongMatch
+                    ? `找到 ${displayedResults.length} 个明确匹配`
+                    : "未找到明确匹配"
+                  : "当前高价值候选"}</strong>
+              </div>
+              <small>{submitted
+                ? searchResults.hasStrongMatch
+                  ? "已按既有任务规则和证据顺序展示"
+                  : "以下是可继续验证的高价值候选，不代表已经匹配你的任务"
+                : "输入任务后将重新计算匹配顺序"}</small>
             </div>
           )}
           {submitted && (
@@ -237,25 +263,30 @@ export function SearchWorkbench({
           )}
           <div className="match-list">
             {displayedResults.map(({ project, score, reasons }, index) => (
-              <Link href={canonicalProjectPath(project)} key={project.projectId} className={`match-row ${compact ? "" : "match-row-rich"}`}>
+              <article key={project.projectId} className={`match-row ${compact ? "" : "match-row-rich"}`}>
                 <span>{String(index + 1).padStart(2, "0")}</span>
                 <div className="match-identity">
-                  <strong>{project.repo}</strong>
+                  <strong><Link href={canonicalProjectPath(project)}>{project.repo}</Link></strong>
                   <p>{project.description}</p>
                   <small>{reasons.join(" · ")}</small>
                 </div>
-                {compact ? <b>{score === null ? "—" : score}/100</b> : (
+                {compact ? <b>{score === null ? "需验证" : `${score}/100`}</b> : (
                   <>
                     <div className="match-stat"><span>区间增长</span><strong className={project.growthValue < 0 ? "trend-down" : "trend-up"}>{project.trend}</strong><small>★ {formatNumber(project.stars)}</small></div>
                     <div className="match-stat reuse-stat"><span>任务匹配</span><strong>{score === null ? "—" : `${score}/100`}</strong><small>{project.recommendation}</small></div>
                     <div className="match-stat"><span>许可证</span><strong>{project.license}</strong><small>{project.analysisState}</small></div>
-                    <div className="match-why"><span>为什么现在</span><p>{project.whyNow}</p></div>
                   </>
                 )}
-              </Link>
+                <ProjectDecisionSummary project={project} variant="compact" />
+              </article>
             ))}
           </div>
-          <p className="model-note">匹配依据来自本地 Codex 能力画像、仓库事实与可解释任务规则；没有明确命中时不会伪造高匹配度。 <strong>查看全部 {projects.length} 个候选 →</strong></p>
+          {!displayedResults.length ? (
+            <div className="empty-state compact-empty">
+              <span>0</span><h2>没有可显示的候选</h2><p>当前已验证 Catalog 为空，Rardar 不会从未发布数据补造搜索结果。</p>
+            </div>
+          ) : null}
+          <p className="model-note">匹配依据来自现有能力画像、仓库事实与可解释任务规则；没有明确命中时不会伪造高匹配度。 <strong>当前 Catalog 共 {projects.length} 个候选</strong></p>
         </div>
       )}
     </div>
