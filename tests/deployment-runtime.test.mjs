@@ -20,7 +20,41 @@ import test from "node:test";
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const python = resolvePythonExecutable(process.env.RARDAR_PYTHON || "python");
 const fixtureHelper = join(repositoryRoot, "tests", "http_generation_fixture.py");
+const networkInterfacesProbe = join(
+  repositoryRoot,
+  "scripts",
+  "systemd-network-interfaces-probe.mjs",
+);
 const cleanupTimeout = 80_000;
+
+function parseUnitDirectives(unit) {
+  const directives = new Map();
+  let section = null;
+  for (const rawLine of unit.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith(";")) continue;
+    const sectionMatch = line.match(/^\[([^\]]+)\]$/);
+    if (sectionMatch) {
+      section = sectionMatch[1];
+      continue;
+    }
+    const separator = line.indexOf("=");
+    if (!section || separator < 1) continue;
+    const name = line.slice(0, separator).trim();
+    const value = line.slice(separator + 1).trim();
+    const key = `${section}.${name}`;
+    const values = directives.get(key) ?? [];
+    values.push(value);
+    directives.set(key, values);
+  }
+  return directives;
+}
+
+function requireSingleDirective(directives, section, name) {
+  const values = directives.get(`${section}.${name}`) ?? [];
+  assert.equal(values.length, 1, `${section}.${name} must have one authoritative definition`);
+  return values[0];
+}
 
 function resolvePythonExecutable(command) {
   const completed = spawnSync(command, ["-c", "import sys; print(sys.executable)"], {
@@ -519,6 +553,67 @@ test("Always-on deployment keeps one foreground manager behind loopback", async 
   }
   assert.doesNotMatch(example, /ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+/);
   assert.doesNotMatch(example, /GITHUB_TOKEN|replace-with-a-read-only-github-token/);
+});
+
+test("systemd sandbox grants exactly the address families required by the runtime", async () => {
+  const [unit, runtimeSettings] = await Promise.all([
+    source("deploy/systemd/rardar.service"),
+    source("pipeline/runtime_settings.py"),
+  ]);
+  const directives = parseUnitDirectives(unit);
+  const familyValue = requireSingleDirective(
+    directives,
+    "Service",
+    "RestrictAddressFamilies",
+  );
+  const familyTokens = familyValue.split(/\s+/).filter(Boolean);
+  const families = new Set(familyTokens);
+
+  assert.equal(familyTokens.length, families.size, "address families must not be duplicated");
+  assert.deepEqual(
+    [...families].sort(),
+    ["AF_INET", "AF_INET6", "AF_NETLINK", "AF_UNIX"],
+  );
+  assert.equal(families.has("AF_PACKET"), false);
+  assert.equal(families.has("AF_RAW"), false);
+
+  for (const [name, expected] of [
+    ["User", "rardar"],
+    ["NoNewPrivileges", "true"],
+    ["CapabilityBoundingSet", ""],
+    ["AmbientCapabilities", ""],
+    ["ProtectSystem", "strict"],
+    ["ProtectHome", "true"],
+    ["PrivateDevices", "true"],
+    ["ProtectKernelTunables", "true"],
+    ["ProtectKernelModules", "true"],
+    ["ProtectKernelLogs", "true"],
+    ["ProtectControlGroups", "true"],
+    ["RestrictSUIDSGID", "true"],
+    ["LockPersonality", "true"],
+    ["KillMode", "control-group"],
+  ]) {
+    assert.equal(requireSingleDirective(directives, "Service", name), expected);
+  }
+  assert.match(runtimeSettings, /^RUNTIME_HOST = "127\.0\.0\.1"$/m);
+  assert.doesNotMatch(unit, /0\.0\.0\.0|\[::\]/);
+});
+
+test("network interfaces probe exercises only the local Node API", async () => {
+  const probe = await source("scripts/systemd-network-interfaces-probe.mjs");
+  assert.match(probe, /from "node:os"/);
+  assert.match(probe, /networkInterfaces\(\)/);
+  assert.doesNotMatch(probe, /fetch\(|https?:|\.listen\(|\.bind\(/);
+
+  const completed = spawnSync(process.execPath, [networkInterfacesProbe], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    timeout: 10_000,
+    windowsHide: true,
+  });
+  assert.ifError(completed.error);
+  assert.equal(completed.status, 0, completed.stderr);
+  assert.equal(completed.stdout.trim(), "AF_NETLINK_PROBE_OK");
 });
 
 test("runtime telemetry is proxied through the website without exposing the status port", async () => {
