@@ -52,11 +52,11 @@ from pipeline.schema_validation import (
     ArtifactKind,
     ArtifactValidationError,
     _is_rfc3339,
-    load_validated_json,
     require_valid,
     strict_json_dumps,
     strict_json_loads,
 )
+from pipeline.stable_read import StableReadError, stable_read
 
 
 TOOL_VERSION = "1"
@@ -1396,19 +1396,28 @@ def _load_stable_reference(
         )
     path = root / Path(relative)
     try:
-        payload = load_validated_json(path, kind, expected_repository=repository)
-        source_bytes = path.read_bytes()
-    except (OSError, ArtifactValidationError, TypeError, ValueError) as error:
+        snapshot = stable_read(path, expected_sha256=expected_sha256)
+        raw_payload = strict_json_loads(snapshot.content.decode("utf-8"))
+        if not isinstance(raw_payload, dict):
+            raise ValueError("stable reference must be a JSON object")
+        payload = require_valid(
+            kind,
+            raw_payload,
+            source_path=path,
+            expected_repository=repository,
+        )
+        source_bytes = snapshot.content
+    except (
+        ArtifactValidationError,
+        StableReadError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as error:
         raise ArtifactConflictResolutionError(
             "invalid_stable_reference",
             f"current ready stable reference cannot be validated: {path}: {error}",
         ) from None
-    actual_sha = _sha256_bytes(source_bytes)
-    if actual_sha != expected_sha256:
-        raise ArtifactConflictResolutionError(
-            "stable_sha256_mismatch",
-            "current ready stable reference changed or does not match the explicit SHA-256",
-        )
     if payload.get("schemaVersion") != 2:
         raise ArtifactConflictResolutionError(
             "stable_reference_version_mismatch",
@@ -1733,17 +1742,6 @@ def _preflight(
     return preflight
 
 
-def _file_identity(metadata: os.stat_result) -> _FileIdentity:
-    return (
-        int(metadata.st_dev),
-        int(metadata.st_ino),
-        int(metadata.st_mode),
-        int(metadata.st_size),
-        int(metadata.st_mtime_ns),
-        int(metadata.st_ctime_ns),
-    )
-
-
 def _read_safe_regular_snapshot(
     path: Path,
     directory: Path,
@@ -1762,41 +1760,21 @@ def _read_safe_regular_snapshot(
             f"{label} is unavailable or is a filesystem link: {path}",
         )
     try:
-        before = path.lstat()
         resolved = path.resolve(strict=True)
-        if not stat.S_ISREG(before.st_mode) or not _same_path(resolved.parent, directory):
+        if not _same_path(resolved.parent, directory):
             raise ArtifactConflictResolutionError(
                 code,
                 f"{label} is not a direct regular file: {path}",
             )
-        with path.open("rb") as handle:
-            opened_before = os.fstat(handle.fileno())
-            if _file_identity(opened_before) != _file_identity(before):
-                raise ArtifactConflictResolutionError(
-                    code,
-                    f"{label} changed while it was opened: {path}",
-                )
-            source_bytes = handle.read()
-            opened_after = os.fstat(handle.fileno())
-            if _file_identity(opened_after) != _file_identity(opened_before):
-                raise ArtifactConflictResolutionError(
-                    code,
-                    f"{label} changed through its open handle while it was read: {path}",
-                )
-        after = path.lstat()
+        snapshot = stable_read(path)
     except ArtifactConflictResolutionError:
         raise
-    except OSError as error:
+    except (OSError, StableReadError) as error:
         raise ArtifactConflictResolutionError(
             code,
             f"{label} could not be read safely: {path}: {error}",
         ) from None
-    if _file_identity(after) != _file_identity(before):
-        raise ArtifactConflictResolutionError(
-            code,
-            f"{label} changed while it was read: {path}",
-        )
-    return source_bytes, _file_identity(after)
+    return snapshot.content, snapshot.identity
 
 
 def _read_safe_regular_bytes(

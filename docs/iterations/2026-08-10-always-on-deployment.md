@@ -152,3 +152,14 @@ systemd-analyze verify: Windows 本地明确跳过；Ubuntu GitHub Verify 必须
 ```
 
 创建 Draft PR 后停止。不得转 Ready、合并、执行真实服务器部署或开始 P1-6C2/TrendRadar/P2。
+
+## 合并与首次 release Verify 后置状态
+
+PR #15 已以 Squash merge 提交 `283321186f75d3d54e436d68dc1c6c55bab91fa7`
+进入 `main`，main Verify run `31371350520` 为 `SUCCESS`。随后获授权的
+`PROD-DEPLOY-01` 在 Ubuntu 24.04 exact release 运行完整 Verify 时，唯一失败是
+Linux 同长度原地改写 stable-reader 回归测试（50 次中 21 次失败）。部署因此保持
+`BLOCKED_RELEASE_VERIFY`，没有传输 data/D1、安装 systemd 或切换 Server Primary。
+
+该问题由独立 `fix/linux-stable-read-integrity` hotfix 处理；本记录中的 Always-on v1
+功能范围已经完成，不在 hotfix 中重做。服务器旧 release 必须原样保留为失败证据。

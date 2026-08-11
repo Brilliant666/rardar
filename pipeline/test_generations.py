@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pipeline.generations as generation_module
+import pipeline.stable_read as stable_read_module
 from pipeline.codex_queue import build_codex_queue
 from pipeline.generations import (
     CandidateGenerationError,
@@ -247,6 +248,59 @@ class GenerationProtocolTests(unittest.TestCase):
             self.assertEqual(pointer["generationId"], "generation-1")
             self.assertIsNone(pointer["previousGenerationId"])
 
+    def test_ready_manifest_artifact_same_length_mutation_fails_integrity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data_dir = Path(temporary) / "data"
+            _seed_legacy(data_dir)
+            published = publish_candidate_generation(
+                _candidate(data_dir, "generation-1", "bootstrap")
+            )
+            artifact = published.current.root / "signals" / "latest.json"
+            original_bytes = artifact.read_bytes()
+            mutated_bytes = b"[" + original_bytes[1:]
+            self.assertEqual(len(mutated_bytes), len(original_bytes))
+            inode_before = artifact.stat().st_ino
+
+            ready_to_mutate = threading.Event()
+            mutation_done = threading.Event()
+            original_snapshot = stable_read_module._read_regular_snapshot
+            intercepted = False
+
+            def pause_after_artifact_snapshot_a(path: Path):
+                nonlocal intercepted
+                snapshot = original_snapshot(path)
+                if path == artifact and not intercepted:
+                    intercepted = True
+                    ready_to_mutate.set()
+                    self.assertTrue(mutation_done.wait(5))
+                return snapshot
+
+            def mutate_same_inode() -> None:
+                self.assertTrue(ready_to_mutate.wait(5))
+                with artifact.open("r+b") as handle:
+                    handle.write(mutated_bytes)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                mutation_done.set()
+
+            writer = threading.Thread(target=mutate_same_inode)
+            writer.start()
+            try:
+                with patch.object(
+                    stable_read_module,
+                    "_read_regular_snapshot",
+                    side_effect=pause_after_artifact_snapshot_a,
+                ):
+                    with self.assertRaises(CurrentGenerationError) as raised:
+                        resolve_current_generation(data_dir)
+            finally:
+                writer.join(timeout=5)
+
+            self.assertEqual(raised.exception.code, "integrity_mismatch")
+            self.assertTrue(intercepted)
+            self.assertFalse(writer.is_alive())
+            self.assertEqual(artifact.stat().st_ino, inode_before)
+
     def test_schema_failure_retains_candidate_and_never_switches_current(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             data_dir = Path(temporary) / "data"
@@ -402,10 +456,19 @@ class GenerationProtocolTests(unittest.TestCase):
             finalize_candidate_generation(second)
             pointer_before = (data_dir / "current.json").read_bytes()
 
-            def fail_second(root: Path, *, require_complete: bool = False):
+            def fail_second(
+                root: Path,
+                *,
+                require_complete: bool = False,
+                expected_hashes: dict[str, str] | None = None,
+            ):
                 if Path(root).name == "generation-2":
                     raise OSError("simulated candidate inventory interruption")
-                return original_inventory(root, require_complete=require_complete)
+                return original_inventory(
+                    root,
+                    require_complete=require_complete,
+                    expected_hashes=expected_hashes,
+                )
 
             with patch("pipeline.generations._artifact_inventory", side_effect=fail_second):
                 with self.assertRaises(CandidateGenerationError) as publish_error:
@@ -416,10 +479,19 @@ class GenerationProtocolTests(unittest.TestCase):
             publish_candidate_generation(second)
             rollback_pointer = (data_dir / "current.json").read_bytes()
 
-            def fail_first(root: Path, *, require_complete: bool = False):
+            def fail_first(
+                root: Path,
+                *,
+                require_complete: bool = False,
+                expected_hashes: dict[str, str] | None = None,
+            ):
                 if Path(root).name == "generation-1":
                     raise OSError("simulated rollback inventory interruption")
-                return original_inventory(root, require_complete=require_complete)
+                return original_inventory(
+                    root,
+                    require_complete=require_complete,
+                    expected_hashes=expected_hashes,
+                )
 
             with patch("pipeline.generations._artifact_inventory", side_effect=fail_first):
                 with self.assertRaises(CandidateGenerationError) as rollback_error:
@@ -1175,10 +1247,21 @@ class GenerationProtocolTests(unittest.TestCase):
             def report_pointer_as_link(path: Path) -> bool:
                 return Path(path).name == "current.json" or original_link_check(path)
 
-            def reject_pointer_read(path: Path, *, code: str, stage: str):
+            def reject_pointer_read(
+                path: Path,
+                *,
+                code: str,
+                stage: str,
+                **kwargs: object,
+            ):
                 if Path(path).name == "current.json":
                     raise AssertionError("a linked current pointer must never be read")
-                return original_read_object(path, code=code, stage=stage)
+                return original_read_object(
+                    path,
+                    code=code,
+                    stage=stage,
+                    **kwargs,
+                )
 
             with patch(
                 "pipeline.generations._is_filesystem_link",
@@ -1283,7 +1366,13 @@ class GenerationProtocolTests(unittest.TestCase):
             rollback_thread = threading.local()
             original_verify = generation_module._verify_manifest_integrity
 
-            def blocking_verify(root: Path, generation_id: str, *, verify_audit: bool):
+            def blocking_verify(
+                root: Path,
+                generation_id: str,
+                *,
+                verify_audit: bool,
+                manifest: dict[str, object] | None = None,
+            ):
                 if (
                     getattr(rollback_thread, "active", False)
                     and generation_id == "generation-1"
@@ -1291,7 +1380,12 @@ class GenerationProtocolTests(unittest.TestCase):
                 ):
                     entered_target_validation.set()
                     self.assertTrue(release_target_validation.wait(10))
-                return original_verify(root, generation_id, verify_audit=verify_audit)
+                return original_verify(
+                    root,
+                    generation_id,
+                    verify_audit=verify_audit,
+                    manifest=manifest,
+                )
 
             def run_rollback():
                 rollback_thread.active = True

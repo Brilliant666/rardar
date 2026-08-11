@@ -21,11 +21,13 @@ from pipeline.project_identity import (
     legacy_slug_for_repository,
 )
 from pipeline.schema_validation import (
+    ArtifactValidationError,
     ArtifactKind,
     atomic_write_validated_json,
-    load_validated_json,
     require_valid,
+    strict_json_loads,
 )
+from pipeline.stable_read import StableReadError, stable_read_bytes
 
 
 PROJECT_ARTIFACT_KINDS = {
@@ -115,7 +117,23 @@ def _records(directory: Path, kind: ArtifactKind) -> list[ProjectArtifactRecord]
                 "unsafe_project_artifact_entry",
                 f"project artifact cannot be a filesystem link: {path}",
             )
-        payload = load_validated_json(path, kind)
+        try:
+            source_bytes = stable_read_bytes(path)
+            raw = strict_json_loads(source_bytes.decode("utf-8"))
+            if not isinstance(raw, dict):
+                raise ValueError("project artifact must be a JSON object")
+            payload = require_valid(kind, raw, source_path=path)
+        except (
+            ArtifactValidationError,
+            StableReadError,
+            TypeError,
+            UnicodeDecodeError,
+            ValueError,
+        ) as error:
+            raise ProjectArtifactError(
+                "project_artifact_read_failed",
+                f"project artifact could not be read as one stable value: {path}: {error}",
+            ) from None
         version = payload.get("schemaVersion")
         if not isinstance(version, int) or isinstance(version, bool):
             raise ProjectArtifactError(f"artifact has no integer schemaVersion: {path}")
@@ -126,7 +144,7 @@ def _records(directory: Path, kind: ArtifactKind) -> list[ProjectArtifactRecord]
                 repository_key=_repository_key(payload.get("repository")),
                 schema_version=version,
                 kind=kind,
-                source_bytes=path.read_bytes(),
+                source_bytes=source_bytes,
             )
         )
     return records
@@ -344,9 +362,18 @@ def _verify_record_unchanged(
             f"project artifact became unavailable or unsafe: {record.path}",
         )
     try:
-        current_bytes = record.path.read_bytes()
-        current_payload = load_validated_json(record.path, record.kind)
-    except (OSError, TypeError, ValueError) as error:
+        current_bytes = stable_read_bytes(record.path)
+        raw = strict_json_loads(current_bytes.decode("utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("project artifact must be a JSON object")
+        current_payload = require_valid(record.kind, raw, source_path=record.path)
+    except (
+        ArtifactValidationError,
+        StableReadError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as error:
         raise ProjectArtifactError(
             "project_artifact_changed_during_adoption",
             f"project artifact changed after preflight: {record.path}: {error}",
@@ -366,12 +393,23 @@ def _verify_adoption_target(plan: _AdoptionPlan, candidate_root: Path) -> None:
             f"stable identity target became unavailable or unsafe: {plan.target}",
         )
     try:
-        payload = load_validated_json(
-            plan.target,
+        source_bytes = stable_read_bytes(plan.target)
+        raw = strict_json_loads(source_bytes.decode("utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("project artifact must be a JSON object")
+        payload = require_valid(
             plan.source.kind,
+            raw,
+            source_path=plan.target,
             expected_repository=str(plan.expected_payload["repository"]),
         )
-    except (OSError, TypeError, ValueError) as error:
+    except (
+        ArtifactValidationError,
+        StableReadError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as error:
         raise ProjectArtifactError(
             "project_artifact_target_changed",
             f"stable identity target failed verification: {plan.target}: {error}",

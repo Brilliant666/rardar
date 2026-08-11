@@ -33,6 +33,7 @@ from pipeline.schema_validation import (
     require_valid,
     strict_json_loads,
 )
+from pipeline.stable_read import StableReadError, stable_read_bytes
 
 
 STAGING_KINDS = {
@@ -256,9 +257,9 @@ def _load_artifact(
 ) -> _Artifact:
     _assert_safe_regular_file(path, directory)
     try:
-        source_bytes = path.read_bytes()
+        source_bytes = stable_read_bytes(path)
         payload = strict_json_loads(source_bytes.decode("utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError) as error:
+    except (OSError, StableReadError, UnicodeDecodeError, ValueError) as error:
         raise ProjectIdentityMigrationError(
             "invalid_source_artifact",
             f"flat staging artifact is not strict UTF-8 JSON: {path}: {error}",
@@ -474,8 +475,8 @@ def _verify_source_unchanged(action: _MigrationAction) -> None:
     source_label = "legacy" if action.direction == TO_STABLE_V2 else "stable"
     _assert_safe_regular_file(action.source.path, action.source.path.parent)
     try:
-        current = action.source.path.read_bytes()
-    except OSError as error:
+        current = stable_read_bytes(action.source.path)
+    except StableReadError as error:
         raise ProjectIdentityMigrationError(
             "source_changed_during_apply",
             f"{source_label} source became unavailable during apply: "
@@ -492,14 +493,21 @@ def _verify_target(action: _MigrationAction) -> None:
     target_label = "stable" if action.direction == TO_STABLE_V2 else "legacy"
     _assert_safe_regular_file(action.target, action.target.parent)
     try:
-        payload = strict_json_loads(action.target.read_text(encoding="utf-8"))
+        target_bytes = stable_read_bytes(action.target)
+        payload = strict_json_loads(target_bytes.decode("utf-8"))
         validated = require_valid(
             action.source.kind,
             payload,
             source_path=action.target,
             expected_repository=action.source.repository,
         )
-    except (OSError, ArtifactValidationError, TypeError, ValueError) as error:
+    except (
+        ArtifactValidationError,
+        StableReadError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as error:
         raise ProjectIdentityMigrationError(
             "target_changed_during_apply",
             f"{target_label} target failed post-write verification: "

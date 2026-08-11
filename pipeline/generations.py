@@ -14,7 +14,6 @@ content-addressed by its manifest and must never be edited in place.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import re
 import shutil
@@ -33,6 +32,7 @@ from pipeline.schema_validation import (
     strict_json_loads,
     validate_data_tree,
 )
+from pipeline.stable_read import StableReadError, stable_read
 
 
 GenerationOperation = Literal["bootstrap", "refresh", "derive"]
@@ -341,14 +341,40 @@ def _safe_relative_artifact(value: object) -> str:
     return normalized
 
 
-def _read_object(path: Path, *, code: str, stage: str) -> dict[str, Any]:
+def _read_object(
+    path: Path,
+    *,
+    code: str,
+    stage: str,
+    expected_sha256: str | None = None,
+    digest_mismatch_code: str | None = None,
+    digest_mismatch_stage: str | None = None,
+    max_attempts: int = 1,
+) -> dict[str, Any]:
     try:
-        payload = strict_json_loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
+        snapshot = stable_read(
+            path,
+            expected_sha256=expected_sha256,
+            max_attempts=max_attempts,
+        )
+        payload = strict_json_loads(snapshot.content.decode("utf-8"))
+    except (OSError, StableReadError, UnicodeDecodeError, ValueError) as error:
+        effective_code = (
+            digest_mismatch_code
+            if isinstance(error, StableReadError)
+            and error.reason == "digest_mismatch"
+            and digest_mismatch_code is not None
+            else code
+        )
         raise GenerationProtocolError(
-            code,
+            effective_code,
             f"cannot read trusted JSON object {path}: {error}",
-            stage=stage,
+            stage=(
+                digest_mismatch_stage
+                if effective_code == digest_mismatch_code
+                and digest_mismatch_stage is not None
+                else stage
+            ),
         ) from None
     if not isinstance(payload, dict):
         raise GenerationProtocolError(
@@ -576,19 +602,21 @@ def _validate_manifest(payload: dict[str, Any], *, expected_id: str | None = Non
     return payload
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
+def _sha256(path: Path, *, expected_sha256: str | None = None) -> str:
     try:
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-    except OSError as error:
+        return stable_read(path, expected_sha256=expected_sha256).sha256
+    except StableReadError as error:
+        code = (
+            "integrity_mismatch"
+            if expected_sha256 is not None
+            and error.reason in {"concurrent_change", "digest_mismatch"}
+            else "artifact_read_failed"
+        )
         raise GenerationProtocolError(
-            "artifact_read_failed",
+            code,
             f"generation artifact could not be hashed: {path}: {error}",
             stage="integrity",
         ) from None
-    return digest.hexdigest()
 
 
 def _manifest_sha256(root: Path) -> str:
@@ -612,9 +640,14 @@ def _artifact_inventory(
     root: Path,
     *,
     require_complete: bool = False,
+    expected_hashes: dict[str, str] | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     try:
-        return _artifact_inventory_unchecked(root, require_complete=require_complete)
+        return _artifact_inventory_unchecked(
+            root,
+            require_complete=require_complete,
+            expected_hashes=expected_hashes,
+        )
     except GenerationProtocolError:
         raise
     except OSError as error:
@@ -629,6 +662,7 @@ def _artifact_inventory_unchecked(
     root: Path,
     *,
     require_complete: bool,
+    expected_hashes: dict[str, str] | None,
 ) -> tuple[list[str], dict[str, str]]:
     root = root.resolve()
     _require_safe_existing_path(root, root, directory=True)
@@ -647,7 +681,8 @@ def _artifact_inventory_unchecked(
         relative = path.relative_to(root).as_posix()
         normalized = _safe_relative_artifact(relative)
         relative_paths.append(normalized)
-        hashes[normalized] = _sha256(path)
+        expected = None if expected_hashes is None else expected_hashes.get(normalized)
+        hashes[normalized] = _sha256(path, expected_sha256=expected)
 
     known = set(relative_paths)
     unexpected: list[str] = []
@@ -718,10 +753,22 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
                 pass
 
 
-def _load_manifest(root: Path, *, expected_id: str | None = None) -> dict[str, Any]:
+def _load_manifest(
+    root: Path,
+    *,
+    expected_id: str | None = None,
+    expected_sha256: str | None = None,
+) -> dict[str, Any]:
     manifest_path = root / "manifest.json"
     _require_safe_existing_path(manifest_path, root.resolve())
-    payload = _read_object(manifest_path, code="manifest_invalid", stage="manifest")
+    payload = _read_object(
+        manifest_path,
+        code="manifest_invalid",
+        stage="manifest",
+        expected_sha256=expected_sha256,
+        digest_mismatch_code="manifest_digest_mismatch",
+        digest_mismatch_stage="integrity",
+    )
     return _validate_manifest(payload, expected_id=expected_id)
 
 
@@ -805,9 +852,11 @@ def _verify_manifest_integrity(
     generation_id: str,
     *,
     verify_audit: bool,
+    manifest: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     _require_safe_existing_path(root, root.resolve(), directory=True)
-    manifest = _load_manifest(root, expected_id=generation_id)
+    if manifest is None:
+        manifest = _load_manifest(root, expected_id=generation_id)
     if manifest.get("state") != "ready":
         raise CandidateGenerationError(
             "candidate_not_ready",
@@ -816,7 +865,13 @@ def _verify_manifest_integrity(
             stage="manifest",
         )
     try:
-        artifacts, hashes = _artifact_inventory(root, require_complete=True)
+        manifest_hashes = manifest.get("hashes")
+        expected_hashes = manifest_hashes if isinstance(manifest_hashes, dict) else None
+        artifacts, hashes = _artifact_inventory(
+            root,
+            require_complete=True,
+            expected_hashes=expected_hashes,
+        )
     except GenerationProtocolError as error:
         if isinstance(error, CandidateGenerationError) and error.generation_id == generation_id:
             raise
@@ -882,6 +937,18 @@ def _verify_manifest_integrity(
                 generation_id=generation_id,
                 stage="audit",
             )
+    confirmed_artifacts, confirmed_hashes = _artifact_inventory(
+        root,
+        require_complete=True,
+        expected_hashes=expected_hashes,
+    )
+    if confirmed_artifacts != artifacts or confirmed_hashes != hashes:
+        raise CandidateGenerationError(
+            "integrity_mismatch",
+            f"generation artifacts changed during verification: {generation_id}",
+            generation_id=generation_id,
+            stage="integrity",
+        )
     return manifest, audit
 
 
@@ -932,7 +999,12 @@ def resolve_current_generation(
     try:
         _require_safe_existing_path(pointer_path, canonical)
         pointer = _validate_pointer(
-            _read_object(pointer_path, code="current_pointer_invalid", stage="pointer")
+            _read_object(
+                pointer_path,
+                code="current_pointer_invalid",
+                stage="pointer",
+                max_attempts=3,
+            )
         )
     except GenerationProtocolError as error:
         if isinstance(error, CurrentGenerationError):
@@ -952,9 +1024,9 @@ def resolve_current_generation(
             stage="resolve",
         )
     try:
-        _require_safe_existing_path(root, root.resolve(), directory=True)
-        _require_safe_existing_path(root / "manifest.json", root.resolve())
-        actual_manifest_sha = _manifest_sha256(root)
+        resolved_root = root.resolve()
+        _require_safe_existing_path(root, resolved_root, directory=True)
+        _require_safe_existing_path(root / "manifest.json", resolved_root)
     except GenerationProtocolError as error:
         raise CurrentGenerationError(
             "manifest_invalid",
@@ -969,18 +1041,32 @@ def resolve_current_generation(
             generation_id=generation_id,
             stage="manifest",
         ) from None
-    if pointer["manifestSha256"] != actual_manifest_sha:
-        raise CurrentGenerationError(
-            "manifest_digest_mismatch",
-            f"current pointer manifest digest does not match generation {generation_id}",
-            generation_id=generation_id,
-            stage="integrity",
+    try:
+        manifest = _load_manifest(
+            root,
+            expected_id=generation_id,
+            expected_sha256=str(pointer["manifestSha256"]),
         )
+    except GenerationProtocolError as error:
+        raise CurrentGenerationError(
+            error.code,
+            f"current generation manifest is invalid: {error}",
+            generation_id=generation_id,
+            stage=error.stage,
+        ) from None
+    except OSError as error:
+        raise CurrentGenerationError(
+            "manifest_invalid",
+            f"current generation manifest is unavailable: {error}",
+            generation_id=generation_id,
+            stage="manifest",
+        ) from None
     try:
         manifest, _ = _verify_manifest_integrity(
             root,
             generation_id,
             verify_audit=verify_audit,
+            manifest=manifest,
         )
     except GenerationProtocolError as error:
         raise CurrentGenerationError(
@@ -1376,6 +1462,17 @@ def finalize_candidate_generation(candidate: CandidateGeneration) -> dict[str, A
             "hashes": hashes,
             "audit": _audit_summary(audit, validated_count),
         }
+        confirmed_artifacts, confirmed_hashes = _artifact_inventory(
+            expected_path,
+            require_complete=True,
+        )
+        if confirmed_artifacts != artifacts or confirmed_hashes != hashes:
+            raise CandidateGenerationError(
+                "integrity_mismatch",
+                "candidate artifacts changed during Schema and audit verification",
+                generation_id=candidate.generation_id,
+                stage="manifest",
+            )
         _write_manifest(expected_path, ready)
         return ready
     except CandidateGenerationError as error:

@@ -10,7 +10,6 @@ an explicit rollback target or the complete bundle fails closed.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -36,6 +35,7 @@ from pipeline.project_identity import (
     validate_project_identity,
 )
 from pipeline.schema_validation import strict_json_dumps, strict_json_loads
+from pipeline.stable_read import StableReadError, stable_read_bytes
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -61,10 +61,6 @@ def _fail(
     )
 
 
-def _sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
 def _read_catalog(
     root: Path,
     manifest: dict[str, Any],
@@ -74,19 +70,24 @@ def _read_catalog(
     expected = manifest.get("hashes", {}).get(relative)
     path = root / "catalog" / "latest.json"
     _require_safe_existing_path(path, root.resolve())
-    try:
-        raw = path.read_bytes()
-    except OSError as error:
+    if not isinstance(expected, str):
         _fail(
-            "historical_catalog_unavailable",
-            f"verified Catalog cannot be read for generation {generation_id}: {error}",
+            "historical_catalog_hash_mismatch",
+            f"Catalog has no trusted manifest digest: {generation_id}",
             generation_id=generation_id,
             stage="integrity",
         )
-    if not isinstance(expected, str) or _sha256_bytes(raw) != expected:
+    try:
+        raw = stable_read_bytes(path, expected_sha256=expected)
+    except StableReadError as error:
+        code = (
+            "historical_catalog_hash_mismatch"
+            if error.reason == "digest_mismatch"
+            else "historical_catalog_unavailable"
+        )
         _fail(
-            "historical_catalog_hash_mismatch",
-            f"Catalog changed after generation verification: {generation_id}",
+            code,
+            f"verified Catalog cannot be read stably for generation {generation_id}: {error}",
             generation_id=generation_id,
             stage="integrity",
         )

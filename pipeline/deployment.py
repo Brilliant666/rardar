@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import errno
-import hashlib
 import http.client
 import ipaddress
 import json
@@ -37,6 +36,7 @@ from pipeline.runtime_settings import (
     load_runtime_layout,
     load_runtime_settings,
 )
+from pipeline.stable_read import StableReadError, stable_read
 
 
 SCHEMA_VERSION = 1
@@ -480,6 +480,14 @@ def _check_release(home: Path) -> dict[str, Any]:
             "release_path_type_invalid",
             "release paths have an unexpected type: " + ", ".join(wrong_type),
         )
+    for relative in REQUIRED_RELEASE_FILES:
+        try:
+            stable_read(home / relative)
+        except StableReadError as error:
+            _fail(
+                "release_file_unstable",
+                f"release file could not be read as one stable value: {relative}: {error}",
+            )
     environment_search_roots = (home, home / "deploy" / "systemd")
     untrusted_environment_files = sorted(
         str(path.relative_to(home)).replace(os.sep, "/")
@@ -790,30 +798,32 @@ def _walk_regular_files(root: Path) -> list[Path]:
 
 def _is_sqlite(path: Path) -> bool:
     try:
-        with path.open("rb") as handle:
-            return handle.read(16) == b"SQLite format 3\x00"
-    except OSError as error:
+        snapshot = stable_read(path, max_attempts=SQLITE_SNAPSHOT_ATTEMPTS)
+        return snapshot.content[:16] == b"SQLite format 3\x00"
+    except StableReadError as error:
         _fail("vinext_state_unreadable", f"cannot inspect {path}: {error}")
 
 
 def _file_digest(path: Path) -> tuple[int, int, int, int, int, str]:
-    metadata = os.lstat(path)
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-        _fail("sqlite_snapshot_unsafe", f"SQLite state is not a regular file: {path}")
-    digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
-            while chunk := handle.read(1024 * 1024):
-                digest.update(chunk)
-    except OSError as error:
-        _fail("sqlite_snapshot_failed", f"cannot read SQLite state {path}: {error}")
+        snapshot = stable_read(path, max_attempts=SQLITE_SNAPSHOT_ATTEMPTS)
+    except StableReadError as error:
+        code = (
+            "sqlite_snapshot_unsafe"
+            if error.reason == "unsafe_type"
+            else "sqlite_snapshot_failed"
+        )
+        if error.reason == "concurrent_change":
+            code = "sqlite_snapshot_unstable"
+        _fail(code, f"cannot read SQLite state {path}: {error}")
+    identity = snapshot.identity
     return (
-        metadata.st_dev,
-        metadata.st_ino,
-        metadata.st_mode,
-        metadata.st_size,
-        metadata.st_mtime_ns,
-        digest.hexdigest(),
+        identity[0],
+        identity[1],
+        identity[2],
+        identity[3],
+        identity[4],
+        snapshot.sha256,
     )
 
 
