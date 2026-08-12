@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -11,14 +12,16 @@ from pipeline.analyze_repository import RemoteCloneLifecycleError, StaticEvidenc
 from pipeline.audit_data import audit_data
 from pipeline.generations import (
     CandidateGenerationError,
+    GenerationProtocolError,
     create_candidate_generation,
     publish_candidate_generation,
     resolve_current_generation,
 )
-from pipeline.refresh import _write_json_batch, refresh
+from pipeline.refresh import _history_name, _refresh_candidate_tree, _write_json_batch, refresh
 from pipeline.project_identity import identity_for_repository
 from pipeline.scheduler import committed_refresh_at
 from pipeline.schema_validation import ArtifactValidationError
+from pipeline.stable_read import StableReadError
 from pipeline.test_generations import _seed_legacy
 
 
@@ -89,6 +92,165 @@ class TwoProjectClient(StubClient):
 
 
 class RefreshTests(unittest.TestCase):
+    def test_refresh_preserves_crlf_base_snapshot_bytes_in_history(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            _seed_legacy(data_dir)
+            legacy_snapshot = data_dir / "snapshots/latest.json"
+            payload = json.loads(legacy_snapshot.read_text(encoding="utf-8"))
+            crlf_bytes = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").replace(
+                "\n", "\r\n"
+            ).encode("utf-8")
+            legacy_snapshot.write_bytes(crlf_bytes)
+            candidate = create_candidate_generation(
+                data_dir,
+                "bootstrap",
+                generation_id="crlf-seed",
+                created_at=SEED_PUBLISHED_AT,
+            )
+            publish_candidate_generation(candidate, published_at=SEED_PUBLISHED_AT)
+            before = resolve_current_generation(data_dir)
+            base_snapshot = before.root / "snapshots/latest.json"
+            base_bytes = base_snapshot.read_bytes()
+            self.assertIn(b"\r\n", base_bytes)
+
+            with patch("pipeline.refresh.collect_signals", return_value=_signals(FIRST_REFRESH_AT)):
+                refresh(
+                    data_dir,
+                    FIRST_REFRESH_AT,
+                    analyze_top=0,
+                    client=StubClient(100),
+                    collect_external_signals=True,
+                )
+
+            current = resolve_current_generation(data_dir)
+            archived = current.root / "snapshots/history" / _history_name(payload)
+            self.assertEqual(archived.read_bytes(), base_bytes)
+            self.assertEqual(
+                current.manifest["hashes"][archived.relative_to(current.root).as_posix()],
+                hashlib.sha256(base_bytes).hexdigest(),
+            )
+
+    def test_history_archive_create_only_rejects_any_existing_target(self) -> None:
+        with tempfile.TemporaryDirectory() as seed_directory:
+            seed = Path(seed_directory)
+            _seed_legacy(seed)
+            intended = (seed / "snapshots/latest.json").read_bytes()
+            same_length_mutation = intended.replace(b"2026-07-11", b"2026-07-10")
+            self.assertEqual(len(same_length_mutation), len(intended))
+            cases = {
+                "identical": intended,
+                "different": b'{"different": true}\n',
+                "same-length-mutation": same_length_mutation,
+                "corrupt": b"not-json\n",
+            }
+            for label, existing in cases.items():
+                with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    target = root / "snapshots/history/base.json"
+                    target.parent.mkdir(parents=True)
+                    target.write_bytes(existing)
+
+                    with self.assertRaises(FileExistsError):
+                        _write_json_batch(
+                            [(target, intended)],
+                            create_only={target},
+                            root=root,
+                        )
+
+                    self.assertEqual(target.read_bytes(), existing)
+
+    def test_history_archive_create_only_rejects_symlink_without_touching_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            history = root / "snapshots/history"
+            history.mkdir(parents=True)
+            outside = root / "outside.json"
+            outside.write_bytes(b"outside\n")
+            target = history / "base.json"
+            try:
+                target.symlink_to(outside)
+            except (OSError, NotImplementedError):
+                self.skipTest("symbolic links are unavailable on this platform")
+
+            with self.assertRaises(ValueError):
+                _write_json_batch(
+                    [(target, b"{}\n")],
+                    create_only={target},
+                    root=root,
+                )
+
+            self.assertEqual(outside.read_bytes(), b"outside\n")
+            self.assertTrue(target.is_symlink())
+
+    def test_history_archive_create_only_race_rolls_back_other_batch_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / "fixture"
+            _seed_legacy(fixture)
+            regular = root / "misc/regular.json"
+            archive = root / "snapshots/history/base.json"
+            regular.parent.mkdir(parents=True)
+            archive.parent.mkdir(parents=True)
+            regular.write_text('{"version": 1}\n', encoding="utf-8")
+            raced = b"{\"raced\": true}\n"
+            archive_bytes = (fixture / "snapshots/latest.json").read_bytes()
+
+            def race_link(source: Path, target: Path) -> None:
+                Path(target).write_bytes(raced)
+                raise FileExistsError("simulated concurrent create")
+
+            with patch("pipeline.refresh.os.link", side_effect=race_link):
+                with self.assertRaises(FileExistsError):
+                    _write_json_batch(
+                        [
+                            (regular, {"version": 2}),
+                            (archive, archive_bytes),
+                        ],
+                        create_only={archive},
+                        root=root,
+                    )
+
+            self.assertEqual(json.loads(regular.read_text(encoding="utf-8")), {"version": 1})
+            self.assertEqual(archive.read_bytes(), raced)
+
+    def test_refresh_rejects_an_unstable_base_snapshot_without_advancing_current(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            _bootstrap(data_dir)
+            pointer_before = (data_dir / "current.json").read_bytes()
+            generation_before = resolve_current_generation(data_dir).generation_id
+            failure = StableReadError(
+                "concurrent_change",
+                data_dir / "snapshots/latest.json",
+                "simulated concurrent base snapshot mutation",
+                retryable=True,
+            )
+
+            with patch("pipeline.refresh.stable_read", side_effect=failure):
+                with self.assertRaisesRegex(
+                    GenerationProtocolError,
+                    "base snapshot could not be read stably",
+                ) as raised:
+                    refresh(
+                        data_dir,
+                        FIRST_REFRESH_AT,
+                        analyze_top=0,
+                        client=StubClient(100),
+                        collect_external_signals=False,
+                    )
+
+            self.assertEqual(raised.exception.code, "snapshot_unavailable")
+            self.assertEqual((data_dir / "current.json").read_bytes(), pointer_before)
+            self.assertEqual(resolve_current_generation(data_dir).generation_id, generation_before)
+            candidates = list((data_dir / "generations/.candidates").iterdir())
+            self.assertEqual(len(candidates), 1)
+            manifest = json.loads(
+                (candidates[0] / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["state"], "failed")
+            self.assertEqual(manifest["failureStage"], "build")
+
     def test_recoverable_static_analysis_failure_publishes_degraded_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data_dir = Path(directory)

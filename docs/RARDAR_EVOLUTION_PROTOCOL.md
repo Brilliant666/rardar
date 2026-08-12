@@ -91,7 +91,7 @@ git remote -v
 
 PR #13 合并只代表 P1-6C1 完成，不代表整个 P1-6 完成；现有 unresolved legacy slug collision 发布门禁继续保持，只有未来独立的 P1-6C2 才能在完整证据和回滚协议下处理 collision history。默认优先级仍会把 P1-6C2 视为后续未完成项，但用户可按本协议明确指定另一个有边界的目标。
 
-Always-on Deployment v1 已由 PR #15、提交 `283321186f75d3d54e436d68dc1c6c55bab91fa7` 完成。当前用户明确选择的 override 是 Linux Stable Read Integrity hotfix：真实 `PROD-DEPLOY-01` 的 Ubuntu release Verify 暴露了同 inode、同长度原地改写不能只靠 metadata 证明稳定的问题。本轮只交付共享双 snapshot 字节读取、expected SHA 绑定、有限 pointer retry 和确定性并发测试；P1-6C2 继续 deferred，部署保持阻塞。该 hotfix 不能被解释为 P1-6C2、真实部署或 Phase 0 完成。每次合并后仍需从最新 `main` 和迭代记录重新确认状态。
+Always-on Deployment v1 已由 PR #15、提交 `283321186f75d3d54e436d68dc1c6c55bab91fa7` 完成；Linux Stable Read Integrity 与 systemd AF_NETLINK compatibility 又分别由 PR #16、提交 `d20f398` 和 PR #17、提交 `d3794cb` 完成，`PROD-DEPLOY-01` 已完成 exact release cutover。当前用户明确选择的 override 是 Historical Snapshot Publication hotfix：2026-08-12 Server Primary 自然 refresh 的三个 ready candidate 都因 producer 将 CRLF base snapshot 重序列化为 LF 而被 byte-exact history invariant 正确拒绝。本轮只修 stable-read 原始字节归档与 create-only/no-replace producer；P1-6C2 继续 deferred，production 只读。该 hotfix不能被解释为 P1-6C2、Public Edge、candidate maintenance 或 Phase 0 完成。每次合并后仍需从最新 `main` 和迭代记录重新确认状态。
 
 不得跳过可信数据基线，直接构建复杂 Agent、向量检索或自动执行系统。
 

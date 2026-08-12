@@ -82,23 +82,23 @@ P1-6C2 collision history 仍未完成，但经用户明确决策继续 deferred�
 
 PR #15 已通过 Squash merge 提交 `283321186f75d3d54e436d68dc1c6c55bab91fa7` 合并到 `main`，对应 main Verify run `31371350520` 为 `SUCCESS`。Always-on v1 的 systemd、canonical path、offline/online checker 与隔离 lifecycle 工程已经进入 main，不得重复实现。
 
-真实 `PROD-DEPLOY-01` 在 Ubuntu exact release 的完整 Verify 中被 Linux stable-read 回归门禁阻止，状态为 `BLOCKED_RELEASE_VERIFY`；没有 data/D1 传输、systemd 安装或 Primary cutover。
+Linux Stable Read Integrity 已由 PR #16、提交 `d20f398` 完成；systemd AF_NETLINK compatibility 已由 PR #17、提交 `d3794cb` 完成。`PROD-DEPLOY-01` 随后使用 exact `d3794cb` release 完成 cutover，Server Primary 为唯一 active Runtime，Windows Primary 保持停止。
 
-## 当前 Linux Stable Read Integrity hotfix
+## 当前 Historical Snapshot Publication hotfix
 
 本轮是用户显式授权、优先于默认 P1-6C2 队列的单一修复目标：
 
-> 建立跨 Windows/Linux 的内容级 stable byte read，使同 inode、同长度原地改写在确定性的 snapshot A/B 窗口内 fail closed，并让测试不再依赖调度或文件时间戳运气。
+> 修复 refresh producer 在跨平台 daily rollover 时重序列化 immutable base snapshot、丢失原始换行字节，进而被正确的 byte-exact publication invariant 拒绝的问题。
 
 当前分支：
 
 ```text
-fix/linux-stable-read-integrity
+fix/historical-snapshot-publication
 ```
 
-必须同时修复 production primitive 与 deterministic concurrency test。metadata 只能作为 path/type/object identity 的额外拒绝信号；成功读取必须由两次独立 no-follow FD 全量读取的 bytes 和 SHA-256 一致性证明，有 expected SHA 时直接绑定同一份 bytes。mutable `current.json` 只允许很小的 bounded retry，最终只能返回完整旧版本或完整新版本；ready manifest/artifact、resolver evidence、D1 byte copy 和 release required files 必须复用同一契约或已有的更强 cryptographic binding。
+producer 必须对 candidate 内克隆的 base snapshot 执行共享 stable-read，从同一份被证明稳定的原始 bytes 解析语义并以 create-only/no-replace 方式归档这些原始 bytes。任何已存在、非 regular、symlink/junction/reparse 或竞态出现的 history target 都 fail closed；不把“相同字节已存在”扩展成普通 daily producer 的幂等成功，也不放宽 publication 的 manifest hash、Audit、base CAS 或 byte-exact history invariant。
 
-本轮只在长期开发 worktree、服务器新 head 的独立 scratch release 和 GitHub Ubuntu CI 中验证。不得停止或 refresh Windows Primary，不得修改 Primary data/D1，不得删除 failed candidates，不得修改服务器旧失败 release，不得切换 `/opt/rardar/current`、安装 systemd 或继续 `PROD-DEPLOY-01`。完成 Windows/Ubuntu 200 轮压力、两端 full Verify/build 和 GitHub Verify 后，只创建/更新 Draft PR 并停止；不得转 Ready 或 merge。
+本轮只在长期开发 worktree、服务器新 head 的独立 scratch release和 GitHub Ubuntu CI 中验证。Production 只读：不得 refresh/restart Server Primary，不得切换 `/opt/rardar/current`，不得修改 current、D1、21 个 historical failed candidates 或 3 个 ready/unpublished forensic candidates。完成 old-main 10/10 reproduction、两端 full Verify/build、isolated fixture 与 GitHub Verify 后，只创建 Draft PR 并停止；不得转 Ready 或 merge，PR #18 保持 Draft 且不依赖本 hotfix。
 
 ## Always-on Deployment v1 已交付合同（历史记录）
 

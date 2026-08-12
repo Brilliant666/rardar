@@ -152,10 +152,8 @@ def _ready_refresh_candidate(data_dir: Path, identifier: str):
             None,
             True,
         )
-    # The refresh protocol requires one byte-exact archive of the published
-    # current snapshot.  JSON reserialization normalizes line endings on Linux,
-    # while checked-out repository fixtures may contain CRLF bytes.  Restore the
-    # exact source bytes before finalize hashes the ready candidate.
+    # The producer must preserve the published snapshot's original bytes;
+    # publication deliberately rejects a merely semantic archive.
     source_snapshot = current.root / "snapshots/latest.json"
     captured_at = snapshot.get("captured_at")
     matching_archives = [
@@ -167,7 +165,8 @@ def _ready_refresh_candidate(data_dir: Path, identifier: str):
         raise AssertionError(
             "refresh test fixture must contain exactly one current snapshot archive"
         )
-    matching_archives[0].write_bytes(source_snapshot.read_bytes())
+    if matching_archives[0].read_bytes() != source_snapshot.read_bytes():
+        raise AssertionError("refresh producer did not preserve byte-exact snapshot history")
     finalize_candidate_generation(candidate)
     return candidate, current
 
