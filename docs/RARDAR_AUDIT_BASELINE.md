@@ -24,7 +24,7 @@
 
 P1-6B 已在 `main` 完成，正式 Primary Runtime D1 adoption、完整重启和重复 adoption no-op 均已通过。P1-6C1 也已通过 PR #13 进入 `main`；P1-6 整体仍未完成，因为 P1-6C2 collision history 尚未交付。用户已明确将 P1-6C2 deferred；这不等于关闭 P1-6 或放宽 legacy slug collision gate。
 
-Runtime Operational Readiness 已由 PR #14 通过 Squash merge 提交 `e61e3ff35390ab9f915818f72e5e3321896fd17e` 完成，对应 main push Verify run `31351088836` 为 `SUCCESS`。Always-on Deployment v1 也已由 PR #15 通过 Squash merge 提交 `283321186f75d3d54e436d68dc1c6c55bab91fa7` 进入 main，对应 Verify run `31371350520` 为 `SUCCESS`。首次真实 release Verify 暴露了 Linux 同长度原地改写的 stable-read 完整性门禁，因此 `PROD-DEPLOY-01` 保持阻塞；当前独立 hotfix 只收紧共享字节读取与确定性并发测试，不执行部署，也不改变上表的 P1 完成状态。
+Runtime Operational Readiness 已由 PR #14 通过 Squash merge提交 `e61e3ff35390ab9f915818f72e5e3321896fd17e` 完成，对应 main push Verify run `31351088836` 为 `SUCCESS`。Always-on Deployment v1 也已由 PR #15 通过 Squash merge 提交 `283321186f75d3d54e436d68dc1c6c55bab91fa7` 进入 main，对应 Verify run `31371350520` 为 `SUCCESS`。Linux stable-read 与 AF_NETLINK 两个部署 blocker 后续分别由 PR #16、提交 `d20f398` 和 PR #17、提交 `d3794cb` 关闭，`PROD-DEPLOY-01` 已完成 Server Primary cutover。2026-08-12 首次无人值守自然 refresh 的 source、Schema 和 Audit 均成功，但三个 ready candidate 都因历史快照不是 published base 的 byte-exact archive 而被 publication gate 正确拒绝；当前独立 hotfix 只修 producer 的原始字节归档，不执行 production refresh、candidate maintenance，也不改变上表的 P1 完成状态。
 
 以下章节保留 `fa2e064` 时点的原始审查内容，不重写历史事实。
 

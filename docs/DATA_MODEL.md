@@ -95,6 +95,8 @@ Catalog v3 只能配 Queue v2；Catalog v1/v2 继续配 Queue v1。未知组合�
 - `current.json` 是唯一可变发布状态，字段包含当前代、上一代、发布时间和 manifest 哈希；
 - ready generation 不允许原地修改；读取时会再次核对 manifest 与全部产物哈希；
 - Git 属性对 `data/current.json` 与 `data/generations/**` 禁用换行转换，保证不同平台 checkout 后仍保持 manifest 绑定的原始字节；
+- refresh daily rollover 必须对 candidate 内克隆的 published base `snapshots/latest.json` 使用共享 stable-read，并从同一份被证明稳定的原始 bytes 解析增长语义、创建 history archive；history target 只能以同目录临时文件加原子 create-only/no-replace 首次创建，已存在（即使字节相同）、symlink/junction/reparse、非 regular 或竞态 target 都 fail closed，绝不覆盖；
+- publication 在 pointer 切换前继续要求新 history 中恰好有一份与 base snapshot byte-exact 的 archive，并要求旧 history 集合及字节完全连续；语义相同但换行或其他表示不同不能通过该不变量；
 - `healthy` 或只有 warning 的 `degraded` 审计结果可以发布，`errorCount` 必须为 0；
 - Schema、审计、临时写入、目录重命名、指针替换或并发 CAS 任一步失败，旧 current 和增长快照保持不变；
 - 构建、Schema 或审计失败写入 failed manifest；发布冲突后的 ready candidate 与指针中断后的 orphan generation 保持不可变，错误码、candidate ID 和阶段由命令或 scheduler 状态记录；
