@@ -87,7 +87,7 @@ export function PersonalizedDailyList({
           {failed ? " 个性化接口暂时不可用，已保留证据基础排序。" : ""}
         </p>
       </div>
-      <div className="daily-list">
+      {rankedProjects.length ? <div className="daily-list">
         {rankedProjects.map(({ project, reason }, index) => (
           <ProjectCard
             key={project.projectId}
@@ -96,7 +96,13 @@ export function PersonalizedDailyList({
             rankingReason={reason}
           />
         ))}
-      </div>
+      </div> : (
+        <div className="empty-state compact-empty">
+          <span>0</span>
+          <h2>今天还没有可用推荐</h2>
+          <p>当前已验证 generation 没有 Daily Five 项目。Rardar 不会用未审计候选补位。</p>
+        </div>
+      )}
     </>
   );
 }

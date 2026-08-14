@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { canonicalProjectPath } from "../client-project-identity.mjs";
 import { formatNumber, type StableProject } from "../data";
-import { FeedbackButtons } from "./FeedbackButtons";
+import { ProjectDecisionSummary } from "./ProjectDecisionSummary";
 
 export function ProjectCard({
   project,
@@ -50,20 +50,17 @@ export function ProjectCard({
           </div>
         </div>
       </div>
-      {!compact && <p className="why-now"><span>为什么现在</span>{project.whyNow}</p>}
       <div className="project-meta">
         <span>★ {formatNumber(project.stars)}</span>
         <span className={project.growthValue < 0 ? "trend-down" : "trend-up"} title={project.growthLabel}>{project.trend}</span>
         <span>{project.language}</span>
         <span>{project.license}</span>
-        <span className="action-tag">建议：{project.recommendation}</span>
       </div>
-      {!compact && (
-        <FeedbackButtons
-          projectIdVersion={project.projectIdVersion}
-          projectId={project.projectId}
-        />
-      )}
+      <ProjectDecisionSummary
+        project={project}
+        variant={compact ? "compact" : "card"}
+        showFeedback={!compact}
+      />
     </article>
   );
 }

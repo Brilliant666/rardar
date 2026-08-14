@@ -1,4 +1,6 @@
 import { Nav } from "../components/Nav";
+import { DataFreshnessNotice } from "../components/DataFreshnessNotice";
+import { DecisionStateProvider } from "../components/DecisionStateProvider";
 import { SearchWorkbench } from "../components/SearchWorkbench";
 import { loadPublishedData } from "../server-data";
 
@@ -6,11 +8,13 @@ export const metadata = { title: "找项目" };
 export const dynamic = "force-dynamic";
 
 export default async function SearchPage() {
-  const { catalog, projects } = await loadPublishedData();
+  const { generationId, dataFreshness, catalog, projects } = await loadPublishedData();
   return (
-    <div className="app-shell search-page">
-      <Nav growthMode={catalog.growthMode} />
-      <main className="page-main search-page-main">
+    <div className="app-shell search-page" data-generation={generationId} data-freshness={dataFreshness.freshness}>
+      <DecisionStateProvider key={generationId} generationId={generationId}>
+        <Nav growthMode={catalog.growthMode} />
+        <main className="page-main search-page-main">
+        <DataFreshnessNotice dataFreshness={dataFreshness} />
         <header className="page-hero search-page-hero">
           <div className="search-hero-copy">
             <span className="eyebrow">Find projects · Task scout</span>
@@ -33,7 +37,8 @@ export default async function SearchPage() {
           <div><span>02 · 可复用模块</span><p>识别 SDK、CLI、API 和可独立拆分的核心能力。</p></div>
           <div><span>03 · 组合方案</span><p>一个仓库不够时，给出多个项目的组合路线与风险。</p></div>
         </section>
-      </main>
+        </main>
+      </DecisionStateProvider>
     </div>
   );
 }

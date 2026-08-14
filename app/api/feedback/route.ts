@@ -60,9 +60,9 @@ export async function GET(request: Request) {
       .map((row) => withCurrentProjectIdentityIfPresent(identityContext, row))
       .filter((row) => row !== null);
     if (project) {
-      return Response.json({ feedback: rows[0] ?? null }, { headers: noStoreHeaders });
+      return Response.json({ generationId: published.generationId, feedback: rows[0] ?? null }, { headers: noStoreHeaders });
     }
-    return Response.json({ feedback: rows }, { headers: noStoreHeaders });
+    return Response.json({ generationId: published.generationId, feedback: rows }, { headers: noStoreHeaders });
   } catch (error) {
     const response = projectIdentityErrorResponse(error);
     if (response) return response;
@@ -83,6 +83,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "invalid feedback" }, { status: 400 });
     }
     rejectClientEvidence(payload);
+    const expectedGenerationId = trimmedString(payload, "generationId");
+    if (expectedGenerationId && expectedGenerationId !== published.generationId) {
+      return Response.json(
+        { error: "stale_generation", generationId: published.generationId },
+        { status: 409, headers: noStoreHeaders },
+      );
+    }
     const project = resolveProjectSelector(identityContext, selectorFromRecord(payload));
     const deviceId = trimmedString(payload, "deviceId");
     const value = trimmedString(payload, "value");
@@ -102,6 +109,7 @@ export async function POST(request: Request) {
     const feedback = withCurrentProjectIdentity(identityContext, result.feedback);
     return Response.json({
       ok: true,
+      generationId: published.generationId,
       projectIdVersion: 1,
       projectId: project.projectId,
       projectSlug: project.projectSlug,

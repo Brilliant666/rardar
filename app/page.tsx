@@ -4,9 +4,11 @@ import { SearchWorkbench } from "./components/SearchWorkbench";
 import { DecisionMetrics } from "./components/DecisionMetrics";
 import { SignalDigest } from "./components/SignalDigest";
 import { PersonalizedDailyList } from "./components/PersonalizedDailyList";
+import { DataFreshnessNotice } from "./components/DataFreshnessNotice";
+import { DecisionStateProvider } from "./components/DecisionStateProvider";
+import { ProjectDecisionSummary } from "./components/ProjectDecisionSummary";
 import { canonicalProjectPath } from "./client-project-identity.mjs";
 import { formatCapturedDate, formatNumber } from "./data";
-import { formatSnapshotAge } from "./runtime-readiness.mjs";
 import { loadPublishedData } from "./server-data";
 
 export const dynamic = "force-dynamic";
@@ -27,18 +29,11 @@ export default async function Home() {
   const longTermCount = catalog.dailyTrackCounts?.longTerm ?? 2;
 
   return (
-    <div className="app-shell" data-generation={generationId}>
-      <Nav growthMode={catalog.growthMode} />
-      <main>
-        {dataFreshness.freshness === "stale" ? (
-          <aside className="data-freshness-warning" role="status" data-freshness="stale">
-            <strong>数据更新已延迟</strong>
-            <span>
-              最近一次成功快照：{formatCapturedDate(dataFreshness.snapshotCapturedAt)}
-              {" · "}当前数据年龄：{formatSnapshotAge(dataFreshness.ageSeconds)}
-            </span>
-          </aside>
-        ) : null}
+    <div className="app-shell" data-generation={generationId} data-freshness={dataFreshness.freshness}>
+      <DecisionStateProvider key={generationId} generationId={generationId}>
+        <Nav growthMode={catalog.growthMode} />
+        <main>
+        <DataFreshnessNotice dataFreshness={dataFreshness} />
         <section className="hero">
           <div className="hero-copy">
             <span className="eyebrow">
@@ -53,14 +48,14 @@ export default async function Home() {
           </div>
           <div className="hero-side">
             {leadProject ? (
-              <Link className="hero-lead-card" href={canonicalProjectPath(leadProject)}>
+              <article className="hero-lead-card">
                 <div className="hero-lead-topline">
                   <span>今日 01 · {leadProject.heatTrack === "long_term" ? "长期高热" : "近期动量"}</span>
-                  <b>{leadProject.recommendation} →</b>
+                  <b>建议：{leadProject.recommendation}</b>
                 </div>
                 <div>
-                  <small>{leadProject.repo}</small>
-                  <h2>{leadProject.title}</h2>
+                  <small><Link href={canonicalProjectPath(leadProject)}>{leadProject.repo}</Link></small>
+                  <h2><Link href={canonicalProjectPath(leadProject)}>{leadProject.title}</Link></h2>
                   <p>{leadProject.description}</p>
                 </div>
                 <div className="hero-lead-metrics">
@@ -68,7 +63,8 @@ export default async function Home() {
                   <div><strong>{leadProject.engineeringReadiness ?? "—"}</strong><span>静态工程就绪度</span></div>
                   <div><strong>{formatNumber(leadProject.stars)}</strong><span>累计 Star</span></div>
                 </div>
-              </Link>
+                <ProjectDecisionSummary project={leadProject} variant="hero" showFeedback={false} />
+              </article>
             ) : (
               <div className="hero-lead-card hero-lead-empty">等待真实快照</div>
             )}
@@ -102,7 +98,11 @@ export default async function Home() {
           />
         </section>
 
-        <SignalDigest signalSnapshot={signalSnapshot} codexQueue={codexQueue} />
+        <SignalDigest
+          signalSnapshot={signalSnapshot}
+          codexQueue={codexQueue}
+          stale={dataFreshness.freshness === "stale"}
+        />
 
         <section className="home-search">
           <div className="section-heading inline-heading">
@@ -128,11 +128,12 @@ export default async function Home() {
             <div><span>03</span><strong>热度不替代任务匹配</strong><p>关注优先级、工程证据与任务复用匹配分别解释，不让流量冒充适用性。</p></div>
           </div>
         </section>
-      </main>
-      <footer className="site-footer">
-        <strong>Rardar</strong>
-        <p>开源情报与项目复用雷达 · 首版产品原型</p>
-      </footer>
+        </main>
+        <footer className="site-footer">
+          <strong>Rardar</strong>
+          <p>开源情报与项目复用雷达 · 首版产品原型</p>
+        </footer>
+      </DecisionStateProvider>
     </div>
   );
 }

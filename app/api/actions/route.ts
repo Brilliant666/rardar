@@ -66,7 +66,7 @@ export async function GET(request: Request) {
       .filter((state) => state !== null);
     const actions = stableStateToActionProjection(states)
       .map((action) => withCurrentProjectIdentity(identityContext, action));
-    return Response.json({ states, actions }, { headers: noStoreHeaders });
+    return Response.json({ generationId: published.generationId, states, actions }, { headers: noStoreHeaders });
   } catch (error) {
     const response = projectIdentityErrorResponse(error);
     if (response) return response;
@@ -87,6 +87,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "invalid project action" }, { status: 400 });
     }
     rejectClientEvidence(payload);
+    const expectedGenerationId = trimmedString(payload, "generationId");
+    if (expectedGenerationId && expectedGenerationId !== published.generationId) {
+      return Response.json(
+        { error: "stale_generation", generationId: published.generationId },
+        { status: 409, headers: noStoreHeaders },
+      );
+    }
     const project = resolveProjectSelector(identityContext, selectorFromRecord(payload));
     const deviceId = trimmedString(payload, "deviceId");
     const action = trimmedString(payload, "action");
@@ -123,6 +130,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         ok: true,
+        generationId: published.generationId,
         projectIdVersion: 1,
         projectId: project.projectId,
         projectSlug: project.projectSlug,

@@ -50,6 +50,19 @@ function visibleServerHtml(html) {
     .replaceAll(/<!--[\s\S]*?-->/g, "");
 }
 
+function assertDecisionFlowHtml(html, generationId) {
+  const visible = visibleServerHtml(html);
+  assert.match(html, new RegExp(`data-generation="${generationId}"`));
+  const whyIndex = visible.indexOf("为什么现在值得看");
+  const evidenceIndex = visible.indexOf("关键证据");
+  const riskIndex = visible.indexOf("风险 / 注意事项");
+  const actionIndex = visible.indexOf("下一步");
+  assert.ok(whyIndex >= 0, "Decision Flow must render Why now");
+  assert.ok(evidenceIndex > whyIndex, "Decision Flow must render Evidence after Why now");
+  assert.ok(riskIndex > evidenceIndex, "Decision Flow must render Risk after Evidence");
+  assert.ok(actionIndex > riskIndex, "Decision Flow must render Action after Risk");
+}
+
 function loopbackEnvironment(temporaryRoot, dataDirectory, port, overrides = {}) {
   const bypass = [process.env.NO_PROXY, process.env.no_proxy, "127.0.0.1", "localhost"]
     .filter(Boolean)
@@ -447,6 +460,7 @@ test(
       assert.match(homeAText, /静态工程就绪度/);
       assert.doesNotMatch(homeAText, /全球影响力|复用价值|建议：复用/);
       assert.doesNotMatch(homeAText, /数据更新已延迟/);
+      assertDecisionFlowHtml(homeAText, fixture.generationA);
 
       const canonicalPath = canonicalProjectRoute(fixture.projectId);
       assert.ok(homeAText.includes(canonicalPath), "home SSR must link to the canonical project ID");
@@ -460,6 +474,7 @@ test(
       assert.match(canonicalAText, new RegExp(`data-generation="${fixture.generationA}"`));
       assert.match(canonicalAText, new RegExp(`data-project-id="${fixture.projectId}"`));
       assert.ok(canonicalAText.includes(fixture.projectRepository));
+      assertDecisionFlowHtml(canonicalAText, fixture.generationA);
 
       const legacyRedirect = await request(
         baseUrl,
@@ -539,12 +554,19 @@ test(
 
       const signals = await request(baseUrl, "/signals", "text/html");
       assert.equal(signals.status, 200);
+      const signalsText = await signals.text();
+      assert.match(signalsText, new RegExp(`data-generation="${fixture.generationA}"`));
+      assert.match(signalsText, /data-signal-association="signal-only"/);
+      assert.match(signalsText, /不猜测项目归属/);
+      assert.doesNotMatch(signalsText, /\/project\/v1\//);
       const search = await request(baseUrl, "/search", "text/html");
       assert.equal(search.status, 200);
       const searchText = await search.text();
       assert.match(searchText, /任务匹配/);
       assert.match(searchText, /\/100/);
       assert.doesNotMatch(searchText, /复用价值/);
+      assert.ok(searchText.includes(canonicalPath));
+      assertDecisionFlowHtml(searchText, fixture.generationA);
 
       const d1Response = await request(
         baseUrl,
@@ -553,7 +575,52 @@ test(
       );
       assert.equal(d1Response.status, 200);
       const d1Payload = await d1Response.json();
+      assert.equal(d1Payload.generationId, fixture.generationA);
       assert.ok(Array.isArray(d1Payload.actions));
+
+      const staleMutationDeviceId = "vinext-stale-generation-write";
+      const staleGenerationAction = await postJson(baseUrl, "/api/actions", {
+        deviceId: staleMutationDeviceId,
+        projectIdVersion: 1,
+        projectId: fixture.projectId,
+        action: "saved",
+        idempotencyKey: "vinext-stale-generation-saved-0001",
+        generationId: fixture.generationB,
+      });
+      assert.equal(staleGenerationAction.status, 409);
+      assert.deepEqual(await staleGenerationAction.json(), {
+        error: "stale_generation",
+        generationId: fixture.generationA,
+      });
+      const staleGenerationFeedback = await postJson(baseUrl, "/api/feedback", {
+        deviceId: staleMutationDeviceId,
+        projectIdVersion: 1,
+        projectId: fixture.projectId,
+        value: "有用",
+        generationId: fixture.generationB,
+      });
+      assert.equal(staleGenerationFeedback.status, 409);
+      assert.deepEqual(await staleGenerationFeedback.json(), {
+        error: "stale_generation",
+        generationId: fixture.generationA,
+      });
+      const stateAfterRejectedWrites = await request(
+        baseUrl,
+        `/api/actions?deviceId=${encodeURIComponent(staleMutationDeviceId)}`,
+      );
+      assert.equal(stateAfterRejectedWrites.status, 200);
+      const stateAfterRejectedWritesPayload = await stateAfterRejectedWrites.json();
+      assert.equal(stateAfterRejectedWritesPayload.generationId, fixture.generationA);
+      assert.deepEqual(stateAfterRejectedWritesPayload.states, []);
+      assert.deepEqual(stateAfterRejectedWritesPayload.actions, []);
+      const feedbackAfterRejectedWrite = await request(
+        baseUrl,
+        `/api/feedback?deviceId=${encodeURIComponent(staleMutationDeviceId)}`,
+      );
+      assert.equal(feedbackAfterRejectedWrite.status, 200);
+      const feedbackAfterRejectedWritePayload = await feedbackAfterRejectedWrite.json();
+      assert.equal(feedbackAfterRejectedWritePayload.generationId, fixture.generationA);
+      assert.deepEqual(feedbackAfterRejectedWritePayload.feedback, []);
 
       const actionDeviceId = "vinext-action-events";
       const recommendationPath = `/api/recommendations?deviceId=${encodeURIComponent(actionDeviceId)}`;
@@ -569,6 +636,7 @@ test(
         projectId: fixture.projectId,
         action: "tried",
         idempotencyKey: "vinext-concurrent-attempt-0001",
+        generationId: fixture.generationA,
       };
       const serverTimeLowerBound = Date.now() - 2_000;
       const concurrentResponses = await Promise.all(
@@ -579,6 +647,7 @@ test(
       const concurrentPayloads = await Promise.all(concurrentResponses.map((response) => response.json()));
       assert.equal(concurrentPayloads.filter((payload) => payload.recorded).length, 1);
       assert.equal(concurrentPayloads.filter((payload) => payload.idempotentReplay).length, 7);
+      assert.ok(concurrentPayloads.every((payload) => payload.generationId === fixture.generationA));
       assert.ok(concurrentPayloads.every((payload) => payload.projectIdVersion === 1));
       assert.ok(concurrentPayloads.every((payload) => payload.projectId === fixture.projectId));
       assert.ok(concurrentPayloads.every((payload) => payload.projectSlug === fixture.projectSlug));
@@ -672,6 +741,7 @@ test(
       );
       assert.equal(actionStateResponse.status, 200);
       const actionState = await actionStateResponse.json();
+      assert.equal(actionState.generationId, fixture.generationA);
       assert.equal(actionState.states.length, 1);
       assert.equal(actionState.states[0].highestStage, "reused");
       assert.equal(actionState.states[0].projectIdVersion, 1);
@@ -709,9 +779,11 @@ test(
         projectIdVersion: 1,
         projectId: fixture.projectId,
         value: "有用",
+        generationId: fixture.generationA,
       });
       assert.equal(canonicalFeedback.status, 200);
       const canonicalFeedbackPayload = await canonicalFeedback.json();
+      assert.equal(canonicalFeedbackPayload.generationId, fixture.generationA);
       assert.equal(canonicalFeedbackPayload.changed, true);
       assert.equal(canonicalFeedbackPayload.projectId, fixture.projectId);
       assert.equal(canonicalFeedbackPayload.projectSlug, fixture.projectSlug);
@@ -722,6 +794,7 @@ test(
       );
       assert.equal(legacyFeedback.status, 200);
       const legacyFeedbackPayload = await legacyFeedback.json();
+      assert.equal(legacyFeedbackPayload.generationId, fixture.generationA);
       assert.equal(legacyFeedbackPayload.feedback.projectIdVersion, 1);
       assert.equal(legacyFeedbackPayload.feedback.projectId, fixture.projectId);
       assert.equal(legacyFeedbackPayload.feedback.projectSlug, fixture.projectSlug);
@@ -738,6 +811,7 @@ test(
       const personalizedResponse = await request(baseUrl, recommendationPath);
       assert.equal(personalizedResponse.status, 200);
       const personalized = await personalizedResponse.json();
+      assert.equal(personalized.generationId, fixture.generationA);
       assert.equal(personalized.personalized, true);
       assert.equal(personalized.feedbackCount, 1);
       assert.ok(personalized.recommendations.every((item) => item.projectIdVersion === 1));
@@ -812,6 +886,17 @@ test(
         fixture.catalogMarkerA,
         fixture.signalMarkerA,
       );
+      assertDecisionFlowHtml(homeBText, fixture.generationB);
+      for (const route of ["/search", canonicalPath]) {
+        const response = await request(baseUrl, route, "text/html");
+        assert.equal(response.status, 200);
+        assertDecisionFlowHtml(await response.text(), fixture.generationB);
+      }
+      const signalsB = await request(baseUrl, "/signals", "text/html");
+      assert.equal(signalsB.status, 200);
+      const signalsBText = await signalsB.text();
+      assert.match(signalsBText, new RegExp(`data-generation="${fixture.generationB}"`));
+      assert.match(signalsBText, /data-signal-association="signal-only"/);
       assert.equal(runtime.child.pid, originalPid);
       assert.equal(runtime.child.exitCode, null);
       const switchedGenerationAction = await postJson(baseUrl, "/api/actions", {
@@ -821,9 +906,11 @@ test(
         projectSlug: fixture.projectSlug,
         action: "saved",
         idempotencyKey: "vinext-generation-b-saved-0001",
+        generationId: fixture.generationB,
       });
       assert.equal(switchedGenerationAction.status, 200);
       const switchedGenerationActionPayload = await switchedGenerationAction.json();
+      assert.equal(switchedGenerationActionPayload.generationId, fixture.generationB);
       assert.equal(switchedGenerationActionPayload.projectId, fixture.projectId);
       assert.equal(
         switchedGenerationActionPayload.event.catalogGenerationId,
@@ -1032,6 +1119,22 @@ test(
       assert.match(staleHomeText, /数据更新已延迟/);
       assert.match(staleHomeText, /data-freshness="stale"/);
       assert.doesNotMatch(staleHomeText, /已完成今日刷新/);
+      assertDecisionFlowHtml(staleHomeText, fixture.generationA);
+      for (const route of ["/search", canonicalPath]) {
+        const response = await request(staleBaseUrl, route, "text/html");
+        assert.equal(response.status, 200);
+        const html = await response.text();
+        assert.match(html, /数据更新已延迟/);
+        assert.match(html, /data-freshness="stale"/);
+        assertDecisionFlowHtml(html, fixture.generationA);
+      }
+      const staleSignals = await request(staleBaseUrl, "/signals", "text/html");
+      assert.equal(staleSignals.status, 200);
+      const staleSignalsText = await staleSignals.text();
+      assert.match(staleSignalsText, /数据更新已延迟/);
+      assert.match(staleSignalsText, /data-freshness="stale"/);
+      assert.match(staleSignalsText, new RegExp(`data-generation="${fixture.generationA}"`));
+      assert.match(staleSignalsText, /data-signal-association="signal-only"/);
 
       console.log(
         [

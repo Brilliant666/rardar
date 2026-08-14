@@ -300,10 +300,11 @@ test("client helpers keep projects with the same legacy slug isolated by stable 
   );
   assert.deepEqual(
     [...statuses.keys()].sort(),
-    [firstIdentity.projectId, secondIdentity.projectId].sort(),
+    [secondIdentity.projectId],
   );
-  assert.equal(statuses.get(firstIdentity.projectId).length, 1);
+  assert.equal(statuses.has(firstIdentity.projectId), false);
   assert.equal(statuses.get(secondIdentity.projectId).length, 1);
+  assert.equal(statuses.get(secondIdentity.projectId)[0], "已关注");
 
   assert.equal(isFreshClientRead(false, 7, 7, 2, 2), true);
   assert.equal(isFreshClientRead(true, 7, 7, 2, 2), false);
