@@ -1,18 +1,18 @@
 # Rardar Project Status
 
-> Last updated: **2026-08-12**
+> Last updated: **2026-08-14**
 >
 > 本文记录“Rardar 现在做到哪”。长期使命和不变量看 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md)，未来路线看 [`ROADMAP.md`](ROADMAP.md)，具体工程证据看 [`iterations/`](iterations/)。
 
 ## 一句话状态
 
-Rardar 已经完成从“本地项目雷达原型”到“有审计的数据发布系统 + Stable Project ID + 用户行动闭环 + Linux Always-on Runtime”的主干工程；当前正在完成**无人值守 publication 最终验证**并把产品 UI 收敛成真正的工程决策工作流。
+Rardar 已经完成从“本地项目雷达原型”到“有审计的数据发布系统 + Stable Project ID + 用户行动闭环 + Linux Always-on Runtime”的主干工程；连续两次自然 Scheduler refresh 已验证无人值守运行，当前产品主线是 Launch Decision Flow 与 Signal → Project audited association。
 
 ---
 
 ## Repository 状态
 
-当前 `main`：
+本文档分支所基于的 `main`：
 
 ```text
 8436834f49eb5d90f4b52dfc58ca02c483183286
@@ -94,25 +94,15 @@ PR #19 已在 `main` 修复：
 - create-only / no-replace archive；
 - 冲突、symlink、reparse、损坏和竞态继续 fail closed。
 
-### 仍待生产确认
+### 2026-08-13 / 2026-08-14 连续自然运行验证
 
-截至本状态文档更新时间：
+`SERVER-NATURAL-RUN-02 = PASS`，`Always-on unattended operation = VERIFIED`。
 
-1. PR #19 的 main exact release 需要完成生产 rollout；
-2. rollout 不得手工触发 refresh；
-3. 需要等待下一次自然 08:00 运行验证完整：
+- 2026-08-13 08:00（Asia/Shanghai）无人干预运行发布 generation `20260813T000002931860Z-111fffa574b0`；historical snapshot base/archive 字节数和 SHA-256 精确一致，Schema、Audit、publication 与 CAS 全部通过。
+- 2026-08-14 08:00（Asia/Shanghai）第二次连续自然运行发布 generation `20260814T000003142671Z-e14314b022b4`，于 08:00:52 完成并返回 `SUCCESS`。
+- 两轮均为 `humanTriggered: false`；全过程保持 single Scheduler、`restartCount = 0` 与可信 telemetry。
 
-```text
-source
-→ candidate
-→ Schema
-→ Audit
-→ history archive
-→ authoritative publish
-→ lastSuccessfulRefreshAt
-```
-
-只有这条链路自然通过，才把 Always-on unattended publication 标记为最终 VERIFIED。
+因此 Runtime 主线不再是当前产品开发 blocker。Public Edge 和 SSH hardening 仍属于后续独立授权任务，不因 Always-on VERIFIED 自动完成。
 
 ---
 
@@ -137,7 +127,7 @@ source
 | Verify CI | ✅ | Ubuntu Node 22.13.1 + Python 3.10 |
 | Local Managed Runtime | ✅ | Manager + Website + Scheduler |
 | Linux Always-on deployment | ✅ | Server Primary 已建立 |
-| Natural unattended publish | 🚧 | publication hotfix 已 merge，待下一次自然验证 |
+| Natural unattended publish | ✅ VERIFIED | 8/13 与 8/14 连续自然发布成功；Schema/Audit、CAS 与 byte-exact history invariant 通过 |
 | Launch Decision Flow | 🚧 Draft | PR #18 已实现，未进入 main |
 | Public Edge | ⏳ | 未配置公网 reverse proxy / TLS / DNS |
 | Signal → Project association | ⏳ | 等 audited Stable ID association contract |
@@ -187,7 +177,7 @@ source
 - PROD-DEPLOY-01：Server Primary cutover
 - PR #19：Historical snapshot byte-preserving refresh
 
-结果：Rardar 已有真实 Linux Server Primary 和每日 Scheduler，不再依赖 Windows 笔记本持续在线。
+结果：Rardar 已有真实 Linux Server Primary 和每日 Scheduler，不再依赖 Windows 笔记本持续在线；8/13 与 8/14 连续自然运行进一步验证 Always-on unattended operation。
 
 ### Phase E — Productization（进行中）
 
@@ -244,19 +234,19 @@ Server Primary 已可长期运行，但：
 
 ---
 
-## 当前最重要的三个门禁
+## 当前最重要的工作流
 
-### Gate 1 — SERVER-NATURAL-RUN-02
+### 1 — Launch Decision Flow integration
 
-publication hotfix 上线后，等待真正的 08:00 自然 refresh 完成 authoritative publication。
+`SERVER-NATURAL-RUN-02` 已通过。当前应重新集成并审查 PR #18，使产品主页、搜索、详情和 Action/Watch/Feedback 形成统一决策体验。
 
-### Gate 2 — Launch Decision Flow integration
+### 2 — Signal → Project Audited Association
 
-Gate 1 通过后，重新集成并审查 PR #18，使产品主页、搜索、详情和 Action/Watch/Feedback 形成统一决策体验。
+在同一 verified generation 中建立 authoritative repository → Stable Project ID 关联；证据不足时继续 signal-only，不按 title、slug 或模糊 repository 猜测。
 
-### Gate 3 — Public Edge
+### 3 — Public Edge（独立上线主线）
 
-Runtime 和产品主路径都稳定后，再开放正式域名 / TLS / reverse proxy。
+产品主路径稳定后，再以 `PROD-DEPLOY-02` 独立处理正式域名、TLS、reverse proxy 与公开 API 安全边界。
 
 ---
 

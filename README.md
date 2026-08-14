@@ -50,7 +50,7 @@ Rardar 面向个人开发者和小型工程团队，不只回答“最近什么�
 
 ## 当前项目进度
 
-> 状态快照：**2026-08-12**。更细的完成项、进行中事项和生产状态见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
+> 状态快照：**2026-08-14**。更细的完成项、进行中事项和生产状态见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
 
 Rardar 已经从“本地数据面板原型”推进到具备完整数据发布边界、稳定项目身份、用户行动状态、自动调度和 Linux Always-on Runtime 的工程阶段。
 
@@ -64,7 +64,7 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 | Verify / CI | ✅ 已建立 | Node 22.13.1 + Python 3.10，统一 `npm run verify` |
 | Managed Runtime | ✅ 已建立 | Manager 唯一拥有 Website + Scheduler，默认每日 08:00 Asia/Shanghai |
 | Linux Always-on 部署 | ✅ 已完成首轮 cutover | Server Primary 已建立，Windows Primary 已停止 |
-| 无人值守自然刷新 | 🚧 最终验证中 | 8/12 首次自然触发成功，但 publication 暴露 byte-exact history producer bug；PR #19 已修复并合并 |
+| 无人值守自然刷新 | ✅ VERIFIED | Server Primary 已连续完成 8/13 与 8/14 两次自然 Scheduler refresh；publication、Schema/Audit 与历史快照完整性均通过 |
 | Launch Decision Flow | 🚧 Draft PR | PR #18 已完成 Why now → Evidence → Risk → Action 产品流，但尚未进入 main |
 | Public Edge | ⏳ 未开始 | DNS / TLS / reverse proxy 仍作为独立上线阶段 |
 | Signal → Project audited association | ⏳ 规划中 | 暂不使用 slug/title 猜测项目归属 |
@@ -80,7 +80,8 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 - **PR #16**：修复 Linux stable-read 对同长度原地改写的完整性缺口。
 - **PR #17**：补齐 systemd `AF_NETLINK` Runtime 契约并完成 Server Primary cutover。
 - **PR #19**：修复 daily rollover 历史快照重新序列化导致的 byte-exact publication 拒绝。
-- **PR #18（Draft）**：Launch Decision Flow 已完成，但等待 Runtime 自然运行门禁后再集成。
+- **SERVER-NATURAL-RUN-02**：8/13 与 8/14 连续两次无人干预自然发布成功，Always-on unattended operation 已验证。
+- **PR #18（Draft）**：Launch Decision Flow 已完成，Runtime 合并门禁已解除，待对齐最新 `main` 后集成。
 
 ---
 
@@ -373,14 +374,9 @@ Ubuntu latest
 
 Rardar 已完成第一版 Linux Always-on 部署工程，并完成 Server Primary cutover。生产 Runtime 采用 exact release + atomic `current` symlink，不在 active release 中直接 `git pull`。
 
-截至 2026-08-12：
+截至 2026-08-14，Production Server Primary 已连续完成 2026-08-13 与 2026-08-14 两次自然 Scheduler refresh。两轮均无人干预；generation publication、Schema/Audit 与历史快照完整性通过，单一 Scheduler 保持成立且 `restartCount = 0`。`SERVER-NATURAL-RUN-02 = PASS`，Always-on unattended operation 已验证。
 
-- 首次服务器自然 Scheduler 已成功在 08:00 无人干预触发；
-- source / analysis / Schema / Audit 均正常；
-- publication 因历史快照被重新序列化、无法满足 byte-exact archive invariant 而 fail closed；
-- **PR #19 已在 main 修复 producer，保留原始 snapshot bytes**；
-- 生产 exact release 更新和下一次自然发布验证仍需独立 Runtime 任务完成；
-- Public Edge 尚未开启，3000 / 3002 不应直接暴露公网。
+Public Edge 尚未开启，3000 / 3002 不应直接暴露公网。
 
 部署与回滚协议见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
@@ -407,12 +403,11 @@ Rardar 已完成第一版 Linux Always-on 部署工程，并完成 Server Primar
 
 近期重点：
 
-1. 完成 publication hotfix 的生产 rollout，并通过下一次自然无人值守刷新验证；
-2. 集成 Launch Decision Flow（PR #18）；
-3. 建立 Signal → Project 的 audited Stable ID 关联；
-4. 完成 Public Edge 的安全公网入口；
-5. 继续收口 Stable ID 历史 collision 生命周期；
-6. 再进入 Research Profile、Momentum Lifecycle、Alerts / Digest、MCP 等 P2 能力。
+1. 集成 Launch Decision Flow（PR #18）；
+2. 建立 Signal → Project 的 audited Stable ID 关联；
+3. 完成 Public Edge 的安全公网入口；
+4. 独立执行 `SEC-SSH-HARDEN-01`；
+5. 继续将 P1-6C2、Research Profile、Momentum Lifecycle、Alerts / Digest、MCP 等能力保持在后续独立工程轮。
 
 完整路线与门禁见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
@@ -441,6 +436,6 @@ Rardar 会参考 TrendRadar 等优秀开源雷达项目在**项目主页、快�
 
 Rardar 仍处于 **Active Development**。
 
-已经具备真实数据流水线、原子发布、Stable ID、D1 用户状态、Verify CI 和 Always-on Server Runtime；产品决策流、自然发布最终验证、公网入口和若干 P2 能力仍在持续推进。
+已经具备真实数据流水线、原子发布、Stable ID、D1 用户状态、Verify CI 和经过连续自然运行验证的 Always-on Server Runtime；当前产品主线是 Launch Decision Flow 与 Signal → Project audited association，公网入口和若干 P2 能力继续作为独立后续工作。
 
 如果你是在评估代码，请优先从 `docs/PROJECT_STATUS.md`、`docs/RARDAR_NORTH_STAR.md` 和最近的 `docs/iterations/` 开始。

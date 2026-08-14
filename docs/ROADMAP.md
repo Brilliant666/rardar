@@ -1,6 +1,6 @@
 # Rardar Roadmap
 
-> Last updated: **2026-08-12**
+> Last updated: **2026-08-14**
 >
 > 这是执行路线，不是承诺时间表。长期产品原则由 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md) 定义；当前完成度看 [`PROJECT_STATUS.md`](PROJECT_STATUS.md)。
 
@@ -25,43 +25,26 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 
 ---
 
-# Now — 当前主线
+# Recently completed
 
-## N1. 完成 SERVER-NATURAL-RUN-02
+## SERVER-NATURAL-RUN-02
 
-状态：**进行中**
+状态：**PASS / VERIFIED**
 
-目标：
+- 2026-08-13 自然发布 generation `20260813T000002931860Z-111fffa574b0`；
+- 2026-08-14 第二次连续自然发布 generation `20260814T000003142671Z-e14314b022b4`；
+- 两轮均无人干预，single Scheduler、`restartCount = 0`；
+- Schema、Audit、CAS、authoritative publication 与 historical snapshot byte-exact invariant 全部通过。
 
-- 将 PR #19 historical snapshot byte-preserving hotfix 部署为 production exact release；
-- 不手工 refresh、不追溯 publish 8/12 的三个 ready forensic candidates；
-- 等待下一次 08:00 natural run；
-- 验证：
-
-```text
-natural trigger
-→ source
-→ static analysis
-→ signals
-→ Schema
-→ Audit
-→ byte-exact history archive
-→ ready generation
-→ authoritative publication
-→ lastSuccessfulRefreshAt
-```
-
-完成定义：
-
-```text
-Always-on unattended publication = VERIFIED
-```
-
-在该门禁前，不把 Public Edge 或产品 PR 合并与 Runtime 验证混在一起。
+结论：Always-on unattended operation 已验证，Runtime 不再是当前产品开发 blocker。
 
 ---
 
-## N2. 集成 Launch Decision Flow
+# Now — 当前产品主线
+
+---
+
+## N1. 集成 Launch Decision Flow
 
 状态：**Draft PR #18**
 
@@ -88,15 +71,14 @@ Today / Daily Five
 
 下一步：
 
-1. 等 Runtime 自然 publication 门禁通过；
-2. 对齐最新 `main`；
-3. 完整 Verify；
-4. Ready / merge；
-5. 再决定是否立即部署 UI release。
+1. 对齐最新 `main`；
+2. 完整 Verify；
+3. Ready / merge；
+4. 是否部署 UI release 继续由独立生产任务决定。
 
 ---
 
-## N3. Signal → Project Audited Association v1
+## N2. Signal → Project Audited Association v1
 
 状态：**待开发**
 
@@ -123,16 +105,16 @@ Signal source repository
 
 ---
 
-# Next — 上线与身份收口
+# Next — 上线与安全
 
-## X1. PROD-DEPLOY-02 Public Edge
+## X3. PROD-DEPLOY-02 Public Edge
 
 状态：**未开始**
 
 前置：
 
 - Server Primary 稳定；
-- 自然 publication 验证通过；
+- Server Primary 的自然 publication 已验证；
 - 目标 UI release 完成审查。
 
 需要独立设计：
@@ -151,7 +133,7 @@ Public Edge 不是简单“加一个 Nginx 配置”，它会改变真实攻击�
 
 ---
 
-## X2. SEC-SSH-HARDEN-01
+## X4. SEC-SSH-HARDEN-01
 
 状态：**待执行**
 
@@ -167,7 +149,9 @@ Public Edge 不是简单“加一个 Nginx 配置”，它会改变真实攻击�
 
 ---
 
-## X3. P1-6C2 Legacy Collision History
+# Deferred — 身份历史与后续产品能力
+
+## D1. P1-6C2 Legacy Collision History
 
 状态：**Deferred，但仍未完成**
 
