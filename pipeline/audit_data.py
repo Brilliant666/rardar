@@ -23,6 +23,7 @@ from pipeline.project_identity import (
     ProjectIdentityError,
     canonicalize_repository,
     ensure_unique_project_identities,
+    identity_for_repository,
     legacy_slug_for_repository,
     validate_project_identity,
 )
@@ -270,6 +271,52 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
         ),
     )
     _add_if(issues, not set(project_repositories).issubset(set(repository_names)), "catalog_repository_missing_from_snapshot", "catalog contains a repository absent from the snapshot")
+    catalog_identity_by_repository: dict[str, tuple[int, str]] = {}
+    catalog_project_ids: list[str] = []
+    try:
+        derived_catalog_identities = ensure_unique_project_identities(
+            project_repositories
+        )
+    except ProjectIdentityError as error:
+        issues.append(
+            {
+                "severity": "error",
+                "code": error.code,
+                "detail": f"catalog project identity: {error}",
+            }
+        )
+    else:
+        for project in projects:
+            if not isinstance(project, dict):
+                continue
+            derived_identity = derived_catalog_identities[
+                canonicalize_repository(project.get("repo"))
+            ]
+            if identity_catalog:
+                try:
+                    identity = validate_project_identity(
+                        project.get("repo"),
+                        project.get("projectId"),
+                        project.get("projectIdVersion"),
+                    )
+                except ProjectIdentityError as error:
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "code": error.code,
+                            "detail": f"catalog project identity: {error}",
+                        }
+                    )
+                    continue
+            else:
+                # Retained Catalog v1/v2 rows carry no stable identity fields.
+                # Derive the same request-scoped v1 identity used by Node.
+                identity = derived_identity
+            catalog_project_ids.append(identity.project_id)
+            catalog_identity_by_repository[identity.canonical_repository] = (
+                identity.project_id_version,
+                identity.project_id,
+            )
     if identity_catalog:
         legacy_groups: dict[str, set[str]] = {}
         for repository_name in repository_names:
@@ -310,31 +357,9 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
                     "detail": str(error),
                 }
             )
-        project_ids: list[str] = []
-        project_identity_by_repository: dict[str, str] = {}
-        for project in projects:
-            if not isinstance(project, dict):
-                continue
-            try:
-                identity = validate_project_identity(
-                    project.get("repo"),
-                    project.get("projectId"),
-                    project.get("projectIdVersion"),
-                )
-            except ProjectIdentityError as error:
-                issues.append(
-                    {
-                        "severity": "error",
-                        "code": error.code,
-                        "detail": f"catalog project identity: {error}",
-                    }
-                )
-                continue
-            project_ids.append(identity.project_id)
-            project_identity_by_repository[identity.canonical_repository] = identity.project_id
         _add_if(
             issues,
-            len(project_ids) != len(set(project_ids)),
+            len(catalog_project_ids) != len(set(catalog_project_ids)),
             "duplicate_catalog_project_id",
             "Catalog v3 projectId values must be unique",
         )
@@ -369,13 +394,13 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
                         }
                     )
                     continue
-                catalog_project_id = project_identity_by_repository.get(
+                catalog_identity = catalog_identity_by_repository.get(
                     artifact_identity.canonical_repository
                 )
                 _add_if(
                     issues,
-                    catalog_project_id is not None
-                    and catalog_project_id != artifact_identity.project_id,
+                    catalog_identity is not None
+                    and catalog_identity[1] != artifact_identity.project_id,
                     "project_identity_cross_file_mismatch",
                     f"{label} and catalog disagree for {artifact_identity.canonical_repository}",
                 )
@@ -727,6 +752,38 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             if not _is_http_url(href):
                 invalid_evidence_urls += 1
     _add_if(issues, invalid_evidence_urls > 0, "unsafe_evidence_url", f"{invalid_evidence_urls} evidence URLs are not HTTP(S)")
+
+    for signal in signal_items:
+        if not isinstance(signal, dict) or "repo" not in signal:
+            continue
+        try:
+            signal_identity = identity_for_repository(signal.get("repo"))
+        except ProjectIdentityError as error:
+            issues.append(
+                {
+                    "severity": "error",
+                    "code": "invalid_signal_repository_identity",
+                    "detail": (
+                        f"signal {signal.get('id')!r} repository identity: "
+                        f"{error.code}: {error}"
+                    ),
+                }
+            )
+            continue
+        catalog_identity = catalog_identity_by_repository.get(
+            signal_identity.canonical_repository
+        )
+        _add_if(
+            issues,
+            catalog_identity is not None
+            and catalog_identity
+            != (signal_identity.project_id_version, signal_identity.project_id),
+            "signal_project_identity_mismatch",
+            (
+                f"signal {signal.get('id')!r} and Catalog disagree for "
+                f"{signal_identity.canonical_repository}"
+            ),
+        )
 
     signal_ids = [str(item.get("id") or "") for item in signal_items if isinstance(item, dict)]
     signal_urls = [str(item.get("url") or "") for item in signal_items if isinstance(item, dict)]

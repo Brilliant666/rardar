@@ -38,49 +38,24 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 
 结论：Always-on unattended operation 已验证，Runtime 不再是当前产品开发 blocker。
 
+## Launch Decision Flow v1
+
+状态：**MERGED / completed**
+
+- PR #18 已以 `4e9c0eadaf612fdda99d6e988a28720ff336953f` 合入 `main`；
+- Home / Search / Project Detail 已统一 Why now → Evidence → Risk → Action；
+- Action、Watch、Feedback 保持独立，客户端状态绑定 Stable ID 与页面 generation；
+- 产品发布与 Public Edge 仍由独立任务决定，本次合并不代表已经部署。
+
 ---
 
 # Now — 当前产品主线
 
 ---
 
-## N1. 集成 Launch Decision Flow
+## N1. Signal → Project Audited Association v1
 
-状态：**Draft PR #18**
-
-目标：把现有数据页面收敛成真正的决策路径：
-
-```text
-Today / Daily Five
-→ Why now
-→ Evidence
-→ Risk
-→ Project Detail
-→ Watch / Action / Feedback
-```
-
-已在 Draft 中完成：
-
-- Home / Search / Project Detail 统一 Decision Summary；
-- Action、Watch、Feedback 语义分离；
-- same-project 状态同步；
-- stale-generation 写前 409；
-- empty / error / stale UX；
-- 375px / 768px / desktop 响应式；
-- accessibility 基础门禁。
-
-下一步：
-
-1. 对齐最新 `main`；
-2. 完整 Verify；
-3. Ready / merge；
-4. 是否部署 UI release 继续由独立生产任务决定。
-
----
-
-## N2. Signal → Project Audited Association v1
-
-状态：**待开发**
+状态：**本开发分支已实现 / 待 Draft 审查**
 
 目标：只有在同一 generation 中存在 authoritative repository identity 时，Signal 才能关联项目。
 
@@ -102,6 +77,8 @@ Signal source repository
 - source 直接提供 projectId 并被无条件信任。
 
 无充分证据时继续 signal-only。
+
+合并前不得把该能力解释为 `main` 已完成；下一步是完整 Verify、Draft PR 与人工审查。
 
 ---
 

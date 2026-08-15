@@ -29,13 +29,16 @@ from pipeline.generations import (
     resolve_current_generation,
     rollback_to_generation,
 )
-from pipeline.project_identity import project_id_for_repository
+from pipeline.project_identity import canonicalize_repository, project_id_for_repository
 from pipeline.schema_validation import strict_json_loads
 
 
 GENERATION_A = "http-generation-a"
 GENERATION_B = "http-generation-b"
 GENERATION_WITH_REMOVAL = "http-generation-with-removal"
+SIGNAL_ASSOCIATION_GENERATION_A = "http-signal-association-a"
+SIGNAL_ASSOCIATION_GENERATION_B = "http-signal-association-b"
+SIGNAL_ASSOCIATION_GENERATION_C = "http-signal-association-c"
 CATALOG_MARKER_A = "HTTP_CATALOG_GENERATION_A"
 CATALOG_MARKER_B = "HTTP_CATALOG_GENERATION_B"
 SIGNAL_MARKER_A = "HTTP_SIGNAL_GENERATION_A"
@@ -207,6 +210,140 @@ def _publish_generation_with_removed_project(data_dir: Path) -> dict[str, Any]:
     return removed
 
 
+def _update_signal_rows(
+    signals: dict[str, Any],
+    signal_id: str,
+    *,
+    repository: str | None,
+) -> None:
+    matches = 0
+    for field in ("topSignals", "signals"):
+        rows = signals.get(field)
+        if not isinstance(rows, list):
+            raise RuntimeError(f"the HTTP fixture signals {field} list is invalid")
+        for row in rows:
+            if not isinstance(row, dict) or row.get("id") != signal_id:
+                continue
+            if repository is None:
+                row.pop("repo", None)
+            else:
+                row["repo"] = repository
+            # A source-provided identity is never authoritative.  Keep the
+            # fixture honest even if the copied row ever gains such a field.
+            row.pop("projectId", None)
+            row.pop("projectIdVersion", None)
+            row.pop("projectAssociation", None)
+            matches += 1
+    if matches < 1:
+        raise RuntimeError(f"signal {signal_id!r} is absent from the HTTP fixture")
+
+
+def _prepare_signal_association_candidate(root: Path) -> dict[str, str]:
+    catalog_path = root / "catalog" / "latest.json"
+    catalog = _read_object(catalog_path)
+    projects = catalog.get("projects")
+    if not isinstance(projects, list) or len(projects) < 6:
+        raise RuntimeError("the HTTP association fixture needs a removable non-Daily-Five project")
+    project = projects[-1]
+    if (
+        not isinstance(project, dict)
+        or not isinstance(project.get("repo"), str)
+        or not isinstance(project.get("slug"), str)
+    ):
+        raise RuntimeError("the HTTP association fixture project has no repository identity")
+
+    signals_path = root / "signals" / "latest.json"
+    signals = _read_object(signals_path)
+    signal_rows = signals.get("signals")
+    if (
+        not isinstance(signal_rows, list)
+        or len(signal_rows) < 2
+        or not all(isinstance(row, dict) and isinstance(row.get("id"), str) for row in signal_rows[:2])
+    ):
+        raise RuntimeError("the HTTP association fixture needs two valid signals")
+    associated_signal = signal_rows[0]
+    signal_only = signal_rows[1]
+    repository = project["repo"]
+    _update_signal_rows(signals, associated_signal["id"], repository=repository)
+    _update_signal_rows(signals, signal_only["id"], repository=None)
+    _atomic_write_json(signals_path, signals)
+    return {
+        "signalId": associated_signal["id"],
+        "signalUrl": str(associated_signal.get("url") or ""),
+        "signalOnlyId": signal_only["id"],
+        "repository": repository,
+        "projectSlug": project["slug"],
+        "projectId": project_id_for_repository(repository),
+    }
+
+
+def _publish_signal_association_generation_a(data_dir: Path) -> dict[str, str]:
+    candidate = create_candidate_generation(
+        data_dir,
+        "derive",
+        generation_id=SIGNAL_ASSOCIATION_GENERATION_A,
+        overlay_flat_staging=False,
+    )
+    fixture = _prepare_signal_association_candidate(candidate.path)
+    _rebuild_candidate_queue_paths(candidate.path, SIGNAL_ASSOCIATION_GENERATION_A)
+    finalize_candidate_generation(candidate)
+    published = publish_candidate_generation(candidate)
+    if published.current.generation_id != SIGNAL_ASSOCIATION_GENERATION_A:
+        raise RuntimeError("failed to publish signal association generation A")
+    return fixture
+
+
+def _publish_signal_association_generation_b(
+    data_dir: Path,
+    repository: str,
+) -> None:
+    candidate = create_candidate_generation(
+        data_dir,
+        "derive",
+        generation_id=SIGNAL_ASSOCIATION_GENERATION_B,
+        overlay_flat_staging=False,
+    )
+    catalog_path = candidate.path / "catalog" / "latest.json"
+    catalog = _read_object(catalog_path)
+    projects = catalog.get("projects")
+    if not isinstance(projects, list):
+        raise RuntimeError("the HTTP association generation B Catalog is invalid")
+    canonical_repository = canonicalize_repository(repository)
+    retained = [
+        project
+        for project in projects
+        if not isinstance(project, dict)
+        or canonicalize_repository(project.get("repo")) != canonical_repository
+    ]
+    if len(projects) - len(retained) != 1:
+        raise RuntimeError("the HTTP association generation B must remove exactly one project")
+    catalog["projects"] = retained
+    catalog["projectCount"] = len(retained)
+    _atomic_write_json(catalog_path, catalog)
+    _rebuild_candidate_queue_paths(candidate.path, SIGNAL_ASSOCIATION_GENERATION_B)
+    finalize_candidate_generation(candidate)
+    published = publish_candidate_generation(candidate)
+    if published.current.generation_id != SIGNAL_ASSOCIATION_GENERATION_B:
+        raise RuntimeError("failed to publish signal association generation B")
+
+
+def _publish_signal_association_generation_c(data_dir: Path) -> None:
+    rolled_back = rollback_to_generation(data_dir, SIGNAL_ASSOCIATION_GENERATION_A)
+    if rolled_back.current.generation_id != SIGNAL_ASSOCIATION_GENERATION_A:
+        raise RuntimeError("failed to restore association generation A before creating C")
+    candidate = create_candidate_generation(
+        data_dir,
+        "derive",
+        generation_id=SIGNAL_ASSOCIATION_GENERATION_C,
+        overlay_flat_staging=False,
+    )
+    _rebuild_candidate_queue_paths(candidate.path, SIGNAL_ASSOCIATION_GENERATION_C)
+    finalize_candidate_generation(candidate)
+    published = publish_candidate_generation(candidate)
+    if published.current.generation_id != SIGNAL_ASSOCIATION_GENERATION_C:
+        raise RuntimeError("failed to publish signal association generation C")
+
+
 def prepare(source_data: Path, target_data: Path) -> dict[str, str]:
     target_data.mkdir(parents=True, exist_ok=False)
     _seed_verified_generation(source_data.resolve(), target_data.resolve())
@@ -230,6 +367,15 @@ def prepare(source_data: Path, target_data: Path) -> dict[str, str]:
     rolled_back = rollback_to_generation(target_data, GENERATION_A)
     if rolled_back.current.generation_id != GENERATION_A:
         raise RuntimeError("failed to establish generation A as the initial pointer")
+    association_fixture = _publish_signal_association_generation_a(target_data)
+    _publish_signal_association_generation_b(
+        target_data,
+        association_fixture["repository"],
+    )
+    _publish_signal_association_generation_c(target_data)
+    rolled_back = rollback_to_generation(target_data, GENERATION_A)
+    if rolled_back.current.generation_id != GENERATION_A:
+        raise RuntimeError("failed to restore generation A after preparing association fixtures")
 
     # Make the complete legacy flat tree visibly renderable if a regression
     # ever bypasses the damaged pointer and reads it.
@@ -276,6 +422,15 @@ def prepare(source_data: Path, target_data: Path) -> dict[str, str]:
         "generationA": GENERATION_A,
         "generationB": GENERATION_B,
         "generationWithRemoval": GENERATION_WITH_REMOVAL,
+        "associationGenerationA": SIGNAL_ASSOCIATION_GENERATION_A,
+        "associationGenerationB": SIGNAL_ASSOCIATION_GENERATION_B,
+        "associationGenerationC": SIGNAL_ASSOCIATION_GENERATION_C,
+        "associationSignalId": association_fixture["signalId"],
+        "associationSignalUrl": association_fixture["signalUrl"],
+        "associationSignalOnlyId": association_fixture["signalOnlyId"],
+        "associationRepository": association_fixture["repository"],
+        "associationProjectSlug": association_fixture["projectSlug"],
+        "associationProjectId": association_fixture["projectId"],
         "legacyGeneration": legacy_generation,
         "catalogMarkerA": CATALOG_MARKER_A,
         "catalogMarkerB": CATALOG_MARKER_B,

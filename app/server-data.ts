@@ -15,10 +15,12 @@ import {
 } from "./runtime-readiness.mjs";
 import {
   applySignalEnrichments,
+  type AssociatedSignalSnapshot,
   type CodexQueueSnapshot,
   type SignalEnrichmentSnapshot,
   type SignalSnapshot,
 } from "./signals";
+import { associateSignalSnapshotWithCatalog } from "./signal-project-association.mjs";
 
 export type PublishedData = {
   generationId: string;
@@ -32,7 +34,7 @@ export type PublishedData = {
   dailyProjects: StableProject[];
   candidateProjects: StableProject[];
   snapshotNotice: string;
-  signalSnapshot: SignalSnapshot;
+  signalSnapshot: AssociatedSignalSnapshot;
   codexQueue: CodexQueueSnapshot;
 };
 
@@ -65,9 +67,13 @@ export async function loadPublishedData(): Promise<PublishedData> {
   );
   const projects = identityContext.stableProjects(normalizedCatalog.projects) as StableProject[];
   const catalog = { ...normalizedCatalog, projects };
-  const signalSnapshot = applySignalEnrichments(
+  const enrichedSignalSnapshot = applySignalEnrichments(
     bundle.signals as unknown as SignalSnapshot,
     bundle.signalEnrichment as unknown as SignalEnrichmentSnapshot,
+  );
+  const signalSnapshot = await associateSignalSnapshotWithCatalog(
+    enrichedSignalSnapshot,
+    identityContext,
   );
 
   return {

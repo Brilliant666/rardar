@@ -1,3 +1,5 @@
+import type { AuditedProjectAssociation } from "./signal-project-association.mjs";
+
 export type TechnicalSignal = {
   id: string;
   kind: "official" | "aggregated" | "ranking" | "curated";
@@ -38,6 +40,16 @@ export type SignalSnapshot = {
   sourceStatus: SourceStatus[];
   topSignals: TechnicalSignal[];
   signals: TechnicalSignal[];
+};
+
+/** Request-only Signal view; this association is never persisted in artifacts. */
+export type AssociatedTechnicalSignal = TechnicalSignal & {
+  projectAssociation: AuditedProjectAssociation | null;
+};
+
+export type AssociatedSignalSnapshot = Omit<SignalSnapshot, "topSignals" | "signals"> & {
+  topSignals: AssociatedTechnicalSignal[];
+  signals: AssociatedTechnicalSignal[];
 };
 
 export type CodexQueueSnapshot = {
@@ -89,12 +101,23 @@ export function applySignalEnrichments(
 ): SignalSnapshot {
   const enrichments = enrichmentSnapshot.items ?? {};
   const legacyAnalyzedAt = enrichmentSnapshot.generatedAt;
-  const signals = rawSignals.signals.map((signal) => ({
-    ...signal,
-    ...(isCurrentEnrichment(signal, enrichments[signal.url], legacyAnalyzedAt)
-      ? enrichments[signal.url]
-      : {}),
-  }));
+  const signals = rawSignals.signals.map((signal) => {
+    const enrichment = enrichments[signal.url];
+    const currentEnrichment = isCurrentEnrichment(signal, enrichment, legacyAnalyzedAt)
+      ? enrichment
+      : undefined;
+    return {
+      ...signal,
+      ...(currentEnrichment
+        ? {
+            titleZh: currentEnrichment.titleZh,
+            takeawayZh: currentEnrichment.takeawayZh,
+            whyItMattersZh: currentEnrichment.whyItMattersZh,
+            categoryZh: currentEnrichment.categoryZh,
+          }
+        : {}),
+    };
+  });
   const signalById = new Map(signals.map((signal) => [signal.id, signal]));
   return {
     ...rawSignals,

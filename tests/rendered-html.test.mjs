@@ -21,6 +21,7 @@ test("contains the complete Rardar home experience", async () => {
     runtimeReadiness,
     publishedBridge,
     signals,
+    signalAssociation,
     signalsPage,
     searchPage,
     searchWorkbench,
@@ -65,6 +66,7 @@ test("contains the complete Rardar home experience", async () => {
     readFile(new URL("../app/runtime-readiness.mjs", import.meta.url), "utf8"),
     readFile(new URL("../build/published-data-bridge.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/signals.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/signal-project-association.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/signals/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/search/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/SearchWorkbench.tsx", import.meta.url), "utf8"),
@@ -346,6 +348,20 @@ test("contains the complete Rardar home experience", async () => {
   assert.match(signals, /isCurrentEnrichment/);
   assert.match(signals, /sourcePublishedAt/);
   assert.doesNotMatch(signals, /schedulerJson/);
+  assert.match(serverData, /associateSignalSnapshotWithCatalog/);
+  assert.equal(
+    (serverData.match(/loadPublishedBundleFromBridge\(\)/g) ?? []).length,
+    1,
+    "one request must resolve exactly one complete published bundle",
+  );
+  assert.match(signalAssociation, /identityForRepository\(signal\.repo\)/);
+  assert.match(signalAssociation, /identityContext\.currentProjectById/);
+  assert.match(signalAssociation, /project\.projectIdVersion !== 1/);
+  assert.match(signalAssociation, /catalogRepository !== signalIdentity\.canonicalRepository/);
+  assert.doesNotMatch(
+    signalAssociation,
+    /signal\.(?:title|titleZh|summaryZh|takeawayZh|whyItMattersZh|categoryZh|projectId|projectIdVersion)/,
+  );
   assert.match(signalsPage, /sourceStatus/);
   assert.match(signalsPage, /RuntimeStatus/);
   assert.match(searchPage, /search-page/);
@@ -473,9 +489,14 @@ test("keeps the launch Decision Flow shared, generation-bound, and accessible", 
   assert.match(freshnessNotice, /role="status"/);
   assert.match(freshnessNotice, /data-freshness="stale"/);
   assert.match(freshnessNotice, /数据更新已延迟/);
-  assert.match(signalCard, /data-signal-association="signal-only"/);
+  assert.match(signalCard, /data-signal-id=\{signal\.id\}/);
+  assert.match(signalCard, /data-signal-association=\{association \? "project" : "signal-only"\}/);
+  assert.match(signalCard, /const association = signal\.projectAssociation/);
+  assert.match(signalCard, /href=\{canonicalProjectPath\(association\)\}/);
+  assert.match(signalCard, /进入项目决策页/);
+  assert.match(signalCard, /同一 generation 的 GitHub repository identity/);
   assert.match(signalCard, /不猜测项目归属/);
-  assert.doesNotMatch(signalCard, /canonicalProjectPath|projectSlug/);
+  assert.doesNotMatch(signalCard, /projectSlug/);
   assert.match(signalsPage, /当前没有可用动态/);
 
   for (const route of [homePage, searchPage, signalsPage, projectPage]) {
@@ -493,6 +514,7 @@ test("keeps the launch Decision Flow shared, generation-bound, and accessible", 
   assert.doesNotMatch([homePage, searchPage, projectPage].join("\n"), /alert\(/);
 
   assert.match(globalCss, /button:focus-visible/);
+  assert.match(globalCss, /\.signal-project-link\s*\{[\s\S]*min-height:\s*44px/);
   assert.match(globalCss, /@media \(max-width: 980px\)/);
   assert.match(globalCss, /@media \(max-width: 680px\)/);
 });

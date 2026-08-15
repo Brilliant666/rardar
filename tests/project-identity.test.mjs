@@ -21,6 +21,10 @@ import {
   resultForGeneration,
   stableProjectSelector,
 } from "../app/client-project-identity.mjs";
+import {
+  associateSignalSnapshotWithCatalog,
+  associateSignalWithCatalog,
+} from "../app/signal-project-association.mjs";
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const python = process.env.RARDAR_PYTHON || "python";
@@ -226,6 +230,153 @@ test("request identity context derives v1/v2 identities and verifies v3 carried 
     }),
     (error) => error instanceof ProjectIdentityError && error.code === "unsupported_project_id_version",
   );
+});
+
+test("Signal association reuses exact Catalog identity across v1/v2/v3", async () => {
+  const alphaIdentity = await identityForRepository("alpha/tool");
+  const betaIdentity = await identityForRepository("beta/tool");
+  for (const schemaVersion of [1, 2, 3]) {
+    const projects = [
+      catalogProject("Alpha/Tool", "alpha--tool", {
+        ...(schemaVersion === 3
+          ? { projectIdVersion: 1, projectId: alphaIdentity.projectId }
+          : {}),
+      }),
+      catalogProject("beta/tool", "beta--tool", {
+        ...(schemaVersion === 3
+          ? { projectIdVersion: 1, projectId: betaIdentity.projectId }
+          : {}),
+      }),
+    ];
+    const context = await createTestProjectIdentityContext(
+      `signal-association-v${schemaVersion}`,
+      {
+        schemaVersion,
+        ...(schemaVersion === 3 ? { projectIdVersion: 1 } : {}),
+        projects,
+      },
+    );
+
+    assert.deepEqual(
+      await associateSignalWithCatalog({ id: "exact", repo: "ALPHA/TOOL" }, context),
+      {
+        associationType: "github_repository",
+        projectIdVersion: 1,
+        projectId: alphaIdentity.projectId,
+        repository: "Alpha/Tool",
+      },
+      `Catalog v${schemaVersion}`,
+    );
+    assert.equal(
+      (await associateSignalWithCatalog({ id: "same-basename", repo: "beta/tool" }, context))
+        ?.projectId,
+      betaIdentity.projectId,
+      `Catalog v${schemaVersion} must use the complete owner/repository`,
+    );
+    assert.equal(await associateSignalWithCatalog({ id: "no-repo" }, context), null);
+    assert.equal(
+      await associateSignalWithCatalog({ id: "missing", repo: "gamma/tool" }, context),
+      null,
+    );
+    assert.equal(
+      await associateSignalWithCatalog({ id: "malformed", repo: "../tool" }, context),
+      null,
+    );
+  }
+});
+
+test("Signal association ignores forged identity and explanatory enrichment", async () => {
+  const alphaIdentity = await identityForRepository("alpha/tool");
+  const betaIdentity = await identityForRepository("beta/tool");
+  const context = await createTestProjectIdentityContext("signal-forgery", {
+    schemaVersion: 2,
+    projects: [
+      catalogProject("alpha/tool", "alpha--tool"),
+      catalogProject("beta/tool", "beta--tool"),
+    ],
+  });
+  const forgedSignal = {
+    id: "associated",
+    repo: "alpha/tool",
+    titleZh: "beta/tool 发布重大更新",
+    takeawayZh: "应当打开 beta/tool",
+    whyItMattersZh: "beta/tool",
+    projectIdVersion: 99,
+    projectId: betaIdentity.projectId,
+    projectAssociation: {
+      associationType: "github_repository",
+      projectIdVersion: 1,
+      projectId: betaIdentity.projectId,
+      repository: "beta/tool",
+    },
+  };
+  const association = await associateSignalWithCatalog(forgedSignal, context);
+  assert.equal(association?.projectId, alphaIdentity.projectId);
+  assert.equal(association?.repository, "alpha/tool");
+  assert.equal(
+    canonicalProjectPath(association),
+    `/project/v1/${encodeURIComponent(alphaIdentity.projectId)}`,
+  );
+
+  const snapshot = await associateSignalSnapshotWithCatalog(
+    {
+      schemaVersion: 1,
+      signals: [forgedSignal, { id: "signal-only" }],
+      topSignals: [
+        { ...forgedSignal, takeawayZh: "enrichment still names beta/tool" },
+        { id: "top-only", repo: "alpha/tool" },
+      ],
+    },
+    context,
+  );
+  assert.equal(snapshot.signals[0].projectAssociation?.projectId, alphaIdentity.projectId);
+  assert.strictEqual(
+    snapshot.topSignals[0],
+    snapshot.signals[0],
+    "topSignals must reuse the audited complete Signal row by ID",
+  );
+  assert.equal(snapshot.signals[1].projectAssociation, null);
+  assert.equal(
+    snapshot.topSignals[1].projectAssociation,
+    null,
+    "a top-only row must not become a second association authority",
+  );
+
+  for (const project of [
+    { projectIdVersion: 2, projectId: alphaIdentity.projectId, repository: "alpha/tool" },
+    { projectIdVersion: 1, projectId: betaIdentity.projectId, repository: "alpha/tool" },
+    { projectIdVersion: 1, projectId: alphaIdentity.projectId, repository: "beta/tool" },
+  ]) {
+    assert.equal(
+      await associateSignalWithCatalog(
+        { id: "strict", repo: "alpha/tool" },
+        { currentProjectById: () => project },
+      ),
+      null,
+      "a contradictory project identity must fail closed",
+    );
+  }
+});
+
+test("Signal association cannot construct an unsafe canonical project href", async () => {
+  const context = await createTestProjectIdentityContext("signal-safe-url", {
+    schemaVersion: 2,
+    projects: [catalogProject("safe/tool", "safe--tool")],
+  });
+  const association = await associateSignalWithCatalog(
+    { id: "safe", repo: "safe/tool" },
+    context,
+  );
+  assert.match(canonicalProjectPath(association), /^\/project\/v1\/[a-z0-9-]+$/);
+
+  for (const projectId of ["<script>", "../", "%2F", "javascript:", "malformed-project-id"]) {
+    assert.throws(
+      () => canonicalProjectPath({ projectIdVersion: 1, projectId }),
+      (error) => error instanceof ProjectIdentityError
+        && error.code === "invalid_client_project_identity",
+      projectId,
+    );
+  }
 });
 
 test("client helpers keep projects with the same legacy slug isolated by stable ID", async () => {
