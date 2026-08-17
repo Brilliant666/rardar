@@ -1,6 +1,6 @@
 # Rardar Roadmap
 
-> Last updated: **2026-08-14**
+> Last updated: **2026-08-17**
 >
 > 这是执行路线，不是承诺时间表。长期产品原则由 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md) 定义；当前完成度看 [`PROJECT_STATUS.md`](PROJECT_STATUS.md)。
 
@@ -47,38 +47,33 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 - Action、Watch、Feedback 保持独立，客户端状态绑定 Stable ID 与页面 generation；
 - 产品发布与 Public Edge 仍由独立任务决定，本次合并不代表已经部署。
 
+## Signal → Project Audited Association v1
+
+状态：**completed capability**
+
+- PR #21 仅以 Signal 自身的 `repo` 作为关联权威；
+- repository 在同一 verified generation 的 Catalog 中精确重算并验证 Stable Project ID 后，才产生 canonical `/project/v1/<projectId>` 入口；
+- 无 repo 或当前 Catalog 无精确项目都是合法 signal-only 状态；
+- title、slug、basename、中文 enrichment、模糊规则、LLM 与 source-provided projectId 都不能决定项目归属；
+- 产品发布仍由独立 Runtime 任务决定，本项完成不代表已经部署到生产。
+
 ---
 
-# Now — 当前产品主线
+# Now — 下一独立产品发布任务
 
 ---
 
-## N1. Signal → Project Audited Association v1
+## N1. PROD-PRODUCT-RELEASE-01
 
-状态：**本开发分支已实现 / 待 Draft 审查**
+状态：**待独立授权**
 
-目标：只有在同一 generation 中存在 authoritative repository identity 时，Signal 才能关联项目。
+目标：将包含 Launch Decision Flow 与 Signal → Project audited association 的最新 exact `main` 安全发布到现有 Server Primary。
 
-预期 contract：
+边界：
 
-```text
-Signal source repository
-→ strict repository normalization
-→ recompute Stable Project ID v1
-→ exact match in same-generation Catalog
-→ canonical /project/v1/<projectId>
-```
-
-禁止：
-
-- title matching；
-- slug guessing；
-- fuzzy repository matching；
-- source 直接提供 projectId 并被无条件信任。
-
-无充分证据时继续 signal-only。
-
-合并前不得把该能力解释为 `main` 已完成；下一步是完整 Verify、Draft PR 与人工审查。
+- 本任务必须单独进行 release、备份、Runtime 与 production generation 验证；
+- 不与 Public Edge、DNS/TLS、SSH hardening 或下一次自然 refresh 验证混合；
+- 仓库能力合并不自动授予生产访问或部署权限。
 
 ---
 

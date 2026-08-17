@@ -2,11 +2,11 @@
 
 ## Status and scope
 
-This iteration starts from `main` at
+This iteration started from `main` at
 `4e9c0eadaf612fdda99d6e988a28720ff336953f`, after Launch Decision Flow v1 was
-merged. The implementation lives on `feat/signal-project-association`; until
-its Draft PR is reviewed and merged, this capability is not complete on
-`main`.
+merged, and was delivered through PR #21. It records a repository capability;
+deployment to the Server Primary remains a separate, explicitly authorized
+Runtime task.
 
 The single goal is to connect a technical Signal to the existing canonical
 Project Decision Flow only when the association can be proven from the same
@@ -148,8 +148,8 @@ previous generation's association.
 - full Python, Node, Schema, Audit, build, security, data-isolation, and process
   cleanup gates.
 
-Actual pass counts and CI results belong in the Draft PR, not in this design
-record before they run.
+Actual pass counts and CI results belong in PR #21 and its GitHub Verify
+record, rather than being duplicated in this design record.
 
 ## Non-goals and rollback
 
