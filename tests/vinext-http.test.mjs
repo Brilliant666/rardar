@@ -369,6 +369,16 @@ function assertGenerationMarkers(html, expectedCatalog, expectedSignal, rejected
   assert.doesNotMatch(html, new RegExp(rejectedSignal));
 }
 
+function signalCardHtml(html, signalId) {
+  const marker = `data-signal-id="${signalId}"`;
+  const markerIndex = html.indexOf(marker);
+  assert.ok(markerIndex >= 0, `SSR must render the Signal card hook for ${signalId}`);
+  const start = html.lastIndexOf("<article", markerIndex);
+  const closing = html.indexOf("</article>", markerIndex);
+  assert.ok(start >= 0 && closing > markerIndex, `SSR Signal card ${signalId} is malformed`);
+  return html.slice(start, closing + "</article>".length);
+}
+
 async function waitForStaleGeneration(runtime, baseUrl, generationId, timeout = 30_000) {
   return waitUntil(
     `stale generation ${generationId}`,
@@ -559,6 +569,73 @@ test(
       assert.match(signalsText, /data-signal-association="signal-only"/);
       assert.match(signalsText, /不猜测项目归属/);
       assert.doesNotMatch(signalsText, /\/project\/v1\//);
+
+      const associationPath = canonicalProjectRoute(fixture.associationProjectId);
+      rollback(dataDirectory, fixture.associationGenerationA);
+      await waitForHealthyGeneration(runtime, baseUrl, fixture.associationGenerationA);
+      const associationAResponse = await request(baseUrl, "/signals", "text/html");
+      assert.equal(associationAResponse.status, 200);
+      const associationAHtml = await associationAResponse.text();
+      assert.match(
+        associationAHtml,
+        new RegExp(`data-generation="${fixture.associationGenerationA}"`),
+      );
+      const associatedCardA = signalCardHtml(associationAHtml, fixture.associationSignalId);
+      assert.match(associatedCardA, /data-signal-association="project"/);
+      assert.ok(associatedCardA.includes(associationPath));
+      assert.match(associatedCardA, /进入项目决策页/);
+      assert.ok(
+        associatedCardA.includes(fixture.associationSignalUrl.replaceAll("&", "&amp;")),
+        "associated Signal must retain its original source link",
+      );
+      const signalOnlyCardA = signalCardHtml(
+        associationAHtml,
+        fixture.associationSignalOnlyId,
+      );
+      assert.match(signalOnlyCardA, /data-signal-association="signal-only"/);
+      assert.doesNotMatch(signalOnlyCardA, new RegExp(associationPath));
+      const associatedProjectA = await request(baseUrl, associationPath, "text/html");
+      assert.equal(associatedProjectA.status, 200);
+      assert.match(
+        await associatedProjectA.text(),
+        new RegExp(`data-generation="${fixture.associationGenerationA}"`),
+      );
+      assert.equal(runtime.child.pid, originalPid);
+      assert.equal(runtime.child.exitCode, null);
+
+      rollback(dataDirectory, fixture.associationGenerationB);
+      await waitForHealthyGeneration(runtime, baseUrl, fixture.associationGenerationB);
+      const associationBResponse = await request(baseUrl, "/signals", "text/html");
+      assert.equal(associationBResponse.status, 200);
+      const associationBHtml = await associationBResponse.text();
+      assert.match(
+        associationBHtml,
+        new RegExp(`data-generation="${fixture.associationGenerationB}"`),
+      );
+      const associatedCardB = signalCardHtml(associationBHtml, fixture.associationSignalId);
+      assert.match(associatedCardB, /data-signal-association="signal-only"/);
+      assert.match(associatedCardB, /不猜测项目归属/);
+      assert.doesNotMatch(associatedCardB, new RegExp(associationPath));
+      assert.equal(runtime.child.pid, originalPid);
+      assert.equal(runtime.child.exitCode, null);
+
+      rollback(dataDirectory, fixture.associationGenerationC);
+      await waitForHealthyGeneration(runtime, baseUrl, fixture.associationGenerationC);
+      const associationCResponse = await request(baseUrl, "/signals", "text/html");
+      assert.equal(associationCResponse.status, 200);
+      const associationCHtml = await associationCResponse.text();
+      assert.match(
+        associationCHtml,
+        new RegExp(`data-generation="${fixture.associationGenerationC}"`),
+      );
+      const associatedCardC = signalCardHtml(associationCHtml, fixture.associationSignalId);
+      assert.match(associatedCardC, /data-signal-association="project"/);
+      assert.ok(associatedCardC.includes(associationPath));
+      assert.equal(runtime.child.pid, originalPid);
+      assert.equal(runtime.child.exitCode, null);
+
+      rollback(dataDirectory, fixture.generationA);
+      await waitForHealthyGeneration(runtime, baseUrl, fixture.generationA);
       const search = await request(baseUrl, "/search", "text/html");
       assert.equal(search.status, 200);
       const searchText = await search.text();
@@ -1145,6 +1222,7 @@ test(
           `current generation: ${initialHealth.payload.generationId}`,
           `generation after pointer switch: ${switchedHealth.payload.generationId}`,
           `generation after project removal: ${removalHealth.payload.generationId}`,
+          `signal association switch: ${fixture.associationGenerationA} -> ${fixture.associationGenerationB} -> ${fixture.associationGenerationC}`,
           `retained v1 generation: ${legacyHealth.payload.generationId}`,
           `damaged current status: health ${unhealthy.response.status}, home ${failedHome.status}`,
           `rollback status: health ${recoveredHealth.response.status}, home ${recoveredHome.status}`,

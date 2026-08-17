@@ -50,7 +50,7 @@ Rardar 面向个人开发者和小型工程团队，不只回答“最近什么�
 
 ## 当前项目进度
 
-> 状态快照：**2026-08-14**。更细的完成项、进行中事项和生产状态见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
+> 状态快照：**2026-08-17**。更细的完成项、进行中事项和生产状态见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
 
 Rardar 已经从“本地数据面板原型”推进到具备完整数据发布边界、稳定项目身份、用户行动状态、自动调度和 Linux Always-on Runtime 的工程阶段。
 
@@ -65,9 +65,9 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 | Managed Runtime | ✅ 已建立 | Manager 唯一拥有 Website + Scheduler，默认每日 08:00 Asia/Shanghai |
 | Linux Always-on 部署 | ✅ 已完成首轮 cutover | Server Primary 已建立，Windows Primary 已停止 |
 | 无人值守自然刷新 | ✅ VERIFIED | Server Primary 已连续完成 8/13 与 8/14 两次自然 Scheduler refresh；publication、Schema/Audit 与历史快照完整性均通过 |
-| Launch Decision Flow | 🚧 Draft PR | PR #18 已完成 Why now → Evidence → Risk → Action 产品流，但尚未进入 main |
+| Launch Decision Flow | ✅ 已合并 | PR #18 已把 Why now → Evidence → Risk → Action 产品流合入 `main`（`4e9c0ea`） |
 | Public Edge | ⏳ 未开始 | DNS / TLS / reverse proxy 仍作为独立上线阶段 |
-| Signal → Project audited association | ⏳ 规划中 | 暂不使用 slug/title 猜测项目归属 |
+| Signal → Project audited association | ✅ 已实现 | 仅以同一 generation 的 `signal.repo` 精确验证 Stable ID；证据不足时继续 signal-only |
 | P1-6C2 legacy collision history | ⏸ Deferred | 不影响当前 Stable ID 主链，但历史 collision 生命周期尚未收口 |
 | TrendRadar/P2 能力 | 🧭 Backlog | Research Profile、Momentum Lifecycle、Alerts/Digest、MCP 等尚未进入当前主线 |
 
@@ -81,7 +81,8 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 - **PR #17**：补齐 systemd `AF_NETLINK` Runtime 契约并完成 Server Primary cutover。
 - **PR #19**：修复 daily rollover 历史快照重新序列化导致的 byte-exact publication 拒绝。
 - **SERVER-NATURAL-RUN-02**：8/13 与 8/14 连续两次无人干预自然发布成功，Always-on unattended operation 已验证。
-- **PR #18（Draft）**：Launch Decision Flow 已完成，Runtime 合并门禁已解除，待对齐最新 `main` 后集成。
+- **PR #18**：Launch Decision Flow 已以 `4e9c0ea` 合入 `main`，统一 Why now → Evidence → Risk → Action / Watch / Feedback 决策路径。
+- **PR #21**：Signal → Project audited association 已完成；关联只来自同一 verified generation 中可精确验证的 `signal.repo`。
 
 ---
 
@@ -184,7 +185,7 @@ systemd
 
 ## 产品工作流
 
-当前 main 已经具备项目发现、评分、详情、行动和反馈基础；正在 Draft PR #18 中进一步收敛为以下用户路径：
+当前 `main` 已经把项目发现、评分、详情、行动和反馈收敛为以下用户路径：
 
 ```text
 Home / Daily Five
@@ -196,7 +197,7 @@ Home / Daily Five
 → 后续个性化推荐
 ```
 
-Signal 当前保持 signal-only：只有在未来建立经过审计的 Stable ID 关联后，才会直接跳转到对应项目。Rardar 不会通过仓库名片段、slug 或标题做模糊猜测。
+Signal 只有在 `signal.repo` 能被同一 verified generation 的 Catalog 精确重算并验证 Stable ID 时，才提供 canonical 项目入口；否则继续 signal-only。Rardar 不会通过仓库名片段、slug、标题或中文 enrichment 做模糊猜测。
 
 ---
 
@@ -403,11 +404,10 @@ Public Edge 尚未开启，3000 / 3002 不应直接暴露公网。
 
 近期重点：
 
-1. 集成 Launch Decision Flow（PR #18）；
-2. 建立 Signal → Project 的 audited Stable ID 关联；
-3. 完成 Public Edge 的安全公网入口；
-4. 独立执行 `SEC-SSH-HARDEN-01`；
-5. 继续将 P1-6C2、Research Profile、Momentum Lifecycle、Alerts / Digest、MCP 等能力保持在后续独立工程轮。
+1. 以独立 `PROD-PRODUCT-RELEASE-01` 评审并发布包含最新产品能力的 exact `main`；
+2. 完成 Public Edge 的安全公网入口；
+3. 独立执行 `SEC-SSH-HARDEN-01`；
+4. 继续将 P1-6C2、Research Profile、Momentum Lifecycle、Alerts / Digest、MCP 等能力保持在后续独立工程轮。
 
 完整路线与门禁见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
@@ -436,6 +436,6 @@ Rardar 会参考 TrendRadar 等优秀开源雷达项目在**项目主页、快�
 
 Rardar 仍处于 **Active Development**。
 
-已经具备真实数据流水线、原子发布、Stable ID、D1 用户状态、Verify CI 和经过连续自然运行验证的 Always-on Server Runtime；当前产品主线是 Launch Decision Flow 与 Signal → Project audited association，公网入口和若干 P2 能力继续作为独立后续工作。
+已经具备真实数据流水线、原子发布、Stable ID、D1 用户状态、Verify CI、Launch Decision Flow、Signal → Project audited association，以及经过连续自然运行验证的 Always-on Server Runtime；产品 release、公网入口和若干 P2 能力继续作为独立后续工作。
 
 如果你是在评估代码，请优先从 `docs/PROJECT_STATUS.md`、`docs/RARDAR_NORTH_STAR.md` 和最近的 `docs/iterations/` 开始。

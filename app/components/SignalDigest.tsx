@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { CodexQueueSnapshot, SignalSnapshot } from "../signals";
+import type { AssociatedSignalSnapshot, CodexQueueSnapshot } from "../signals";
 import { SignalCard } from "./SignalCard";
 
 export function SignalDigest({
@@ -8,7 +8,7 @@ export function SignalDigest({
   stale = false,
 }: {
   codexQueue: CodexQueueSnapshot;
-  signalSnapshot: SignalSnapshot;
+  signalSnapshot: AssociatedSignalSnapshot;
   stale?: boolean;
 }) {
   return (

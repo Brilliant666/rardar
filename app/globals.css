@@ -3991,6 +3991,36 @@ input:focus-visible {
   text-underline-offset: 3px;
 }
 
+.signal-decision-grid .signal-project-association {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.signal-project-association > strong {
+  margin-right: 0;
+}
+
+.signal-project-link {
+  min-height: 44px;
+  padding: 9px 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: white !important;
+  background: var(--blue);
+  border-radius: 8px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-decoration: none !important;
+}
+
+.signal-project-link:hover {
+  background: #183eb8;
+}
+
 .project-decision-flow {
   width: min(1440px, calc(100% - 48px));
   margin: 30px auto 0;

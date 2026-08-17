@@ -1,38 +1,32 @@
 # Rardar Project Status
 
-> Last updated: **2026-08-14**
+> Last updated: **2026-08-17**
 >
 > 本文记录“Rardar 现在做到哪”。长期使命和不变量看 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md)，未来路线看 [`ROADMAP.md`](ROADMAP.md)，具体工程证据看 [`iterations/`](iterations/)。
 
 ## 一句话状态
 
-Rardar 已经完成从“本地项目雷达原型”到“有审计的数据发布系统 + Stable Project ID + 用户行动闭环 + Linux Always-on Runtime”的主干工程；连续两次自然 Scheduler refresh 已验证无人值守运行，当前产品主线是 Launch Decision Flow 与 Signal → Project audited association。
+Rardar 已经完成从“本地项目雷达原型”到“有审计的数据发布系统 + Stable Project ID + 用户行动闭环 + Linux Always-on Runtime”的主干工程；连续两次自然 Scheduler refresh 已验证无人值守运行，Launch Decision Flow 与 Signal → Project audited association 均已完成，产品发布继续由独立 Runtime 任务控制。
 
 ---
 
 ## Repository 状态
 
-本文档分支所基于的 `main`：
+当前产品能力基线包含：
 
-```text
-8436834f49eb5d90f4b52dfc58ca02c483183286
-Preserve historical snapshot bytes during refresh (#19)
-```
+- PR #18：Launch Decision Flow；
+- PR #21：Signal → Project Audited Association v1。
 
-PR #19 已合并，修复 2026-08-12 首次 Server Primary 自然刷新暴露的 historical snapshot byte-exact publication producer bug。
+这两项描述的是仓库产品能力，不代表最新代码已经部署到 Production Server Primary；产品 release 仍需独立 `PROD-PRODUCT-RELEASE-01` 授权与验证。
 
 GitHub Actions 的最终状态以仓库 `Verify` workflow 为准；`main` 与所有目标为 `main` 的 PR 都必须经过统一 `npm run verify`。
 
-当前主要开放产品 PR：
+Signal → Project 的长期合同：
 
-- **PR #18 — Make Rardar's decision flow launch-ready**
-  - Branch: `feat/launch-decision-flow`
-  - 状态：Draft
-  - 已完成 6 个 P0 + 6 个高价值 P1 launch 问题修复；
-  - 引入 Why now → Evidence → Risk → Action 的统一决策呈现；
-  - Action / Watch / Feedback 分离；
-  - generation-bound client state 与 stale-generation 409 写前门禁；
-  - 由于 `main` 已在 PR #18 创建后继续前进，正式集成前需要重新对齐最新 main 并完整 Verify。
+- 唯一关联权威是 Signal 自身的 `repo`；
+- 只允许在同一 verified generation 中重算并核对 Stable Project ID；
+- 无 repo、Catalog 无精确项目或 identity 无法证明时继续 signal-only；
+- 不按标题、slug、basename、中文 enrichment、模糊规则或 LLM 猜测归属。
 
 ---
 
@@ -111,7 +105,7 @@ PR #19 已在 `main` 修复：
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
 | GitHub facts collection | ✅ | 真实 API 快照、历史归档、增长区间 |
-| 技术 Signal | ✅ | 48h Signal 与信源健康；项目关联仍保持谨慎 |
+| 技术 Signal | ✅ | 48h Signal、信源健康与同代 audited project association |
 | Immutable generation | ✅ | candidate → Schema → Audit → atomic pointer |
 | Historical rollback | ✅ | retained generation 显式验证与 rollback |
 | Cross-file Audit | ✅ | 发布前跨产物一致性检查 |
@@ -128,9 +122,9 @@ PR #19 已在 `main` 修复：
 | Local Managed Runtime | ✅ | Manager + Website + Scheduler |
 | Linux Always-on deployment | ✅ | Server Primary 已建立 |
 | Natural unattended publish | ✅ VERIFIED | 8/13 与 8/14 连续自然发布成功；Schema/Audit、CAS 与 byte-exact history invariant 通过 |
-| Launch Decision Flow | 🚧 Draft | PR #18 已实现，未进入 main |
+| Launch Decision Flow | ✅ MERGED | PR #18 已以 `4e9c0ea` 合入 `main` |
 | Public Edge | ⏳ | 未配置公网 reverse proxy / TLS / DNS |
-| Signal → Project association | ⏳ | 等 audited Stable ID association contract |
+| Signal → Project association | ✅ 已实现 | 同一 generation 中精确验证 `signal.repo`；无充分证据保持 signal-only |
 | Research Profile | 🧭 Backlog | P2 |
 | Momentum Lifecycle | 🧭 Backlog | P2 |
 | Alerts / Digest | 🧭 Backlog | P2 |
@@ -179,9 +173,9 @@ PR #19 已在 `main` 修复：
 
 结果：Rardar 已有真实 Linux Server Primary 和每日 Scheduler，不再依赖 Windows 笔记本持续在线；8/13 与 8/14 连续自然运行进一步验证 Always-on unattended operation。
 
-### Phase E — Productization（进行中）
+### Phase E — Productization（已建立决策主链）
 
-PR #18 已在 Draft 中完成：
+PR #18 已合并：
 
 ```text
 Home
@@ -192,7 +186,11 @@ Home
 → Watch / Action / Feedback
 ```
 
-这轮目标是把已有的数据能力组织成用户能直接理解和采取行动的产品，而不是继续堆指标面板。
+结果：已有数据能力已经组织成用户能直接理解和采取行动的产品路径，而不是继续堆指标面板。
+
+### Phase F — Signal → Project（已完成）
+
+PR #21 只在 Signal 自身携带严格合法的 GitHub repository，且同一 published generation 的 Catalog 能精确验证 Stable ID 时，建立 canonical 项目入口。关联缺失是合法状态，不会触发标题、slug、中文 enrichment 或 LLM 猜测。
 
 ---
 
@@ -202,9 +200,9 @@ Home
 
 Stable ID 当前主链可以正常运行，但跨 generation 的 legacy slug collision 生命周期仍未最终解决。现有 collision gate 不应为了方便而放宽。
 
-### 2. Signal 暂不猜测 Project
+### 2. Signal 关联必须可审计
 
-当前 Signal 没有 authoritative Stable Project association 时保持 signal-only。下一步应建立：
+已实现的机械关联固定为：
 
 ```text
 Signal repository fact
@@ -214,7 +212,7 @@ Signal repository fact
 → canonical project link
 ```
 
-不能使用 title / slug / fuzzy repo name 猜测。
+不能使用 title / slug / fuzzy repo name 猜测；合法但未命中 Catalog 的 repository 继续保持 signal-only，而不是 Audit error。
 
 ### 3. Public Edge 尚未开放
 
@@ -236,15 +234,11 @@ Server Primary 已可长期运行，但：
 
 ## 当前最重要的工作流
 
-### 1 — Launch Decision Flow integration
+### 1 — PROD-PRODUCT-RELEASE-01（独立 Runtime 任务）
 
-`SERVER-NATURAL-RUN-02` 已通过。当前应重新集成并审查 PR #18，使产品主页、搜索、详情和 Action/Watch/Feedback 形成统一决策体验。
+在单独授权、备份和运行验证下，将包含 Launch Decision Flow 与 Signal → Project audited association 的 exact `main` 发布到既有 Server Primary；本次仓库合并不自动部署。
 
-### 2 — Signal → Project Audited Association
-
-在同一 verified generation 中建立 authoritative repository → Stable Project ID 关联；证据不足时继续 signal-only，不按 title、slug 或模糊 repository 猜测。
-
-### 3 — Public Edge（独立上线主线）
+### 2 — Public Edge（独立上线主线）
 
 产品主路径稳定后，再以 `PROD-DEPLOY-02` 独立处理正式域名、TLS、reverse proxy 与公开 API 安全边界。
 

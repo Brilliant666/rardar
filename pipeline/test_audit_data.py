@@ -340,7 +340,230 @@ def upgrade_audit_fixture_to_v3(root: Path) -> dict[str, object]:
     return {"analysis": analysis, "enrichment": enrichment, "catalog": catalog}
 
 
+def write_v3_signal_identity_fixture(
+    root: Path,
+    repositories: list[str],
+    signal_repository: str | None,
+) -> None:
+    captured = "2026-07-10T12:00:00+00:00"
+    query = "stars:>=1"
+    repository_rows = [
+        snapshot_repository(repository, captured, 100 + index, query)
+        for index, repository in enumerate(repositories)
+    ]
+    snapshot = {
+        "schema_version": 1,
+        "captured_at": captured,
+        "queries": [query],
+        "query_status": [
+            {
+                "query": query,
+                "state": "healthy",
+                "item_count": len(repository_rows),
+                "error": None,
+            }
+        ],
+        "successful_query_count": 1,
+        "failed_query_count": 0,
+        "count": len(repository_rows),
+        "repositories": repository_rows,
+    }
+    signal = signal_item("signal-1", "https://example.com/news", captured)
+    if signal_repository is not None:
+        signal["repo"] = signal_repository
+    signals = {
+        "schemaVersion": 1,
+        "capturedAt": captured,
+        "windowHours": 48,
+        "signalCount": 1,
+        "healthySourceCount": 1,
+        "failedSourceCount": 0,
+        "sourceStatus": [source_status("official", "https://example.com/feed")],
+        "topSignals": [deepcopy(signal)],
+        "signals": [signal],
+    }
+    catalog = build_catalog(snapshot, limit=len(repository_rows), schema_version=3)
+    catalog["previousCapturedAt"] = None
+    queue = build_codex_queue(
+        catalog,
+        signals,
+        root / "enrichment",
+        root / "signals/enrichment.json",
+        datetime.fromisoformat(captured),
+        project_limit=0,
+        signal_limit=0,
+    )
+    catalog["codexPendingCount"] = queue["pendingCount"]
+    write_json(root / "snapshots/latest.json", snapshot)
+    write_json(root / "catalog/latest.json", catalog)
+    write_json(root / "signals/latest.json", signals)
+    write_json(root / "queues/codex.json", queue)
+
+
 class AuditDataTests(unittest.TestCase):
+    def test_signal_project_identity_audit_accepts_exact_absent_and_missing_repo(
+        self,
+    ) -> None:
+        cases = (
+            ("exact", "DEMO/FAST-TOOL"),
+            ("no-repo", None),
+            ("missing", "demo/missing"),
+        )
+        for label, signal_repository in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                write_v3_signal_identity_fixture(
+                    root,
+                    ["demo/fast-tool", "demo/steady-tool"],
+                    signal_repository,
+                )
+
+                result = audit_data(root)
+
+                self.assertEqual(result["status"], "healthy", result["issues"])
+                self.assertNotIn(
+                    "signal_project_identity_mismatch",
+                    {item["code"] for item in result["issues"]},
+                )
+
+    def test_signal_project_identity_audit_uses_full_canonical_repository(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_v3_signal_identity_fixture(
+                root,
+                ["Alpha/tool", "beta/tool"],
+                "ALPHA/TOOL",
+            )
+
+            exact = audit_data(root)
+
+            signals = json.loads(
+                (root / "signals/latest.json").read_text(encoding="utf-8")
+            )
+            signals["signals"][0]["repo"] = "gamma/tool"
+            signals["topSignals"][0]["repo"] = "gamma/tool"
+            write_json(root / "signals/latest.json", signals)
+            same_basename_but_missing = audit_data(root)
+
+        self.assertEqual(exact["status"], "healthy", exact["issues"])
+        self.assertEqual(
+            same_basename_but_missing["status"],
+            "healthy",
+            same_basename_but_missing["issues"],
+        )
+
+    def test_signal_project_identity_audit_derives_catalog_v2_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_v2_audit_fixture(root)
+            signals = json.loads(
+                (root / "signals/latest.json").read_text(encoding="utf-8")
+            )
+            signals["signals"][0]["repo"] = "DEMO/FAST-TOOL"
+            signals["topSignals"][0]["repo"] = "DEMO/FAST-TOOL"
+            write_json(root / "signals/latest.json", signals)
+
+            result = audit_data(root)
+
+        self.assertEqual(result["status"], "healthy", result["issues"])
+
+    def test_signal_project_identity_audit_rejects_strictly_invalid_repo(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # The persisted v1 Signal Schema historically accepts this owner,
+            # but Stable Project Identity v1 correctly rejects it.
+            write_v3_signal_identity_fixture(
+                root,
+                ["demo/fast-tool"],
+                "owner_name/repo",
+            )
+
+            result = audit_data(root)
+
+        matching = [
+            item
+            for item in result["issues"]
+            if item["code"] == "invalid_signal_repository_identity"
+        ]
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(len(matching), 1)
+        self.assertIn("invalid_repository_format", matching[0]["detail"])
+
+    def test_signal_project_identity_audit_keeps_catalog_identity_fail_closed(
+        self,
+    ) -> None:
+        mutations = (
+            ("forged-id", "project_id_mismatch"),
+            ("wrong-version", "unsupported_project_id_version"),
+            ("duplicate-repository", "duplicate_normalized_repository"),
+        )
+        for mutation, expected_detail in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                write_v3_signal_identity_fixture(
+                    root,
+                    ["demo/fast-tool", "demo/steady-tool"],
+                    "demo/fast-tool",
+                )
+                catalog_path = root / "catalog/latest.json"
+                catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+                if mutation == "forged-id":
+                    catalog["projects"][0]["projectId"] = project_id_for_repository(
+                        "other/repository"
+                    )
+                elif mutation == "wrong-version":
+                    catalog["projects"][0]["projectIdVersion"] = 2
+                else:
+                    catalog["projects"][1]["repo"] = str(
+                        catalog["projects"][0]["repo"]
+                    ).upper()
+                    catalog["projects"][1]["projectId"] = catalog["projects"][0][
+                        "projectId"
+                    ]
+                write_json(catalog_path, catalog)
+
+                result = audit_data(root)
+
+                schema_details = "\n".join(
+                    item["detail"]
+                    for item in result["issues"]
+                    if item["code"] == "schema_validation_failed"
+                )
+                self.assertEqual(result["status"], "failed")
+                self.assertIn(expected_detail, schema_details)
+
+    def test_signal_schema_rejects_source_supplied_project_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_v3_signal_identity_fixture(
+                root,
+                ["demo/fast-tool"],
+                "demo/fast-tool",
+            )
+            signals_path = root / "signals/latest.json"
+            signals = json.loads(signals_path.read_text(encoding="utf-8"))
+            signals["signals"][0].update(
+                {
+                    "projectIdVersion": 1,
+                    "projectId": project_id_for_repository("demo/fast-tool"),
+                }
+            )
+            write_json(signals_path, signals)
+
+            result = audit_data(root)
+
+        schema_details = "\n".join(
+            item["detail"]
+            for item in result["issues"]
+            if item["code"] == "schema_validation_failed"
+        )
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("projectId", schema_details)
+
     def test_catalog_v3_rejects_legacy_collision_outside_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -531,6 +754,7 @@ class AuditDataTests(unittest.TestCase):
                 "https://example.com/news",
                 "2026-07-10T11:00:00+00:00",
             )
+            signal["repo"] = "DEMO/TOOL"
             source = source_status("official-news", "https://example.com/feed.xml")
             snapshot = {
                 "schema_version": 1,
