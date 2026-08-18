@@ -50,7 +50,7 @@ Rardar 面向个人开发者和小型工程团队，不只回答“最近什么�
 
 ## 当前项目进度
 
-> 状态快照：**2026-08-17**。更细的完成项、进行中事项和生产状态见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
+> 状态快照：**2026-08-18**。更细的完成项、进行中事项和生产状态见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
 
 Rardar 已经从“本地数据面板原型”推进到具备完整数据发布边界、稳定项目身份、用户行动状态、自动调度和 Linux Always-on Runtime 的工程阶段。
 
@@ -62,6 +62,7 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 | Stable Project ID | ✅ 主链完成 | Catalog、D1、API、canonical route、客户端交互均使用 `projectIdVersion: 1` |
 | Action / Feedback / Recommendation | ✅ 已建立 | append-only Event + State、幂等写入、个性化有限重排 |
 | Verify / CI | ✅ 已建立 | Node 22.13.1 + Python 3.10，统一 `npm run verify` |
+| CI exact release artifact | 🚧 开发中 | 把 dependency install、build 与 offline wheel preparation 移出 Production；合并并生成真实 main artifact 前不视为完成 |
 | Managed Runtime | ✅ 已建立 | Manager 唯一拥有 Website + Scheduler，默认每日 08:00 Asia/Shanghai |
 | Linux Always-on 部署 | ✅ 已完成首轮 cutover | Server Primary 已建立，Windows Primary 已停止 |
 | 无人值守自然刷新 | ✅ VERIFIED | Server Primary 已连续完成 8/13 与 8/14 两次自然 Scheduler refresh；publication、Schema/Audit 与历史快照完整性均通过 |
@@ -83,6 +84,8 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 - **SERVER-NATURAL-RUN-02**：8/13 与 8/14 连续两次无人干预自然发布成功，Always-on unattended operation 已验证。
 - **PR #18**：Launch Decision Flow 已以 `4e9c0ea` 合入 `main`，统一 Why now → Evidence → Risk → Action / Watch / Feedback 决策路径。
 - **PR #21**：Signal → Project audited association 已完成；关联只来自同一 verified generation 中可精确验证的 `signal.repo`。
+- **PROD-PRODUCT-RELEASE-01 事故**：Server Primary 上的长期 `npm ci` 遇到 registry 失败并与 live workerd 争用 3.8 GiB、无 swap 的主机内存，触发 OOM；服务与 catch-up 已恢复，但旧的 co-located release preparation 不再受支持。
+- **RELEASE-ARTIFACT-01**：正在建立绑定成功 main Verify exact SHA 的 CI-built Linux artifact；本项不部署 Production。
 
 ---
 
@@ -367,6 +370,8 @@ Python 3.10
 Ubuntu latest
 ```
 
+独立 `Release Artifact` workflow 不替代 Verify。它只在同仓库 `main` push 的 Verify SUCCESS 后运行，并固定使用 Ubuntu 24.04 x86_64、Node 22.13.1 与 Python 3.12 wheel target，生成包含完整 `node_modules`、`dist`、`wheelhouse`、manifest 与 SHA-256 的 exact release artifact。
+
 当前主线开发采用小步、可审计 PR。Runtime、数据迁移、用户状态、产品 UI 和 Public Edge 尽量拆成独立变更，避免一个 PR 同时改变多个信任边界。
 
 ---
@@ -375,7 +380,9 @@ Ubuntu latest
 
 Rardar 已完成第一版 Linux Always-on 部署工程，并完成 Server Primary cutover。生产 Runtime 采用 exact release + atomic `current` symlink，不在 active release 中直接 `git pull`。
 
-截至 2026-08-14，Production Server Primary 已连续完成 2026-08-13 与 2026-08-14 两次自然 Scheduler refresh。两轮均无人干预；generation publication、Schema/Audit 与历史快照完整性通过，单一 Scheduler 保持成立且 `restartCount = 0`。`SERVER-NATURAL-RUN-02 = PASS`，Always-on unattended operation 已验证。
+任务提供的 2026-08-18 状态显示，Production 已从安装期 OOM 事件恢复健康，但仍运行旧 release `8436834f49eb5d90f4b52dfc58ca02c483183286` 和 generation `20260818T053951947542Z-ba77932f0c87`；最新产品 main `9b6399fde527eb9775898b41a3f9371952ce066f` 尚未部署。
+
+新协议把 `npm ci`、Verify、build 和 Python wheel preparation 全部移到 GitHub CI。Production 后续只允许 exact artifact download、checksum、extract、offline venv、preflight、atomic switch 与 restart；不得访问 npm registry 或执行 npm install/build。本仓库任务不会访问或改变 Production。
 
 Public Edge 尚未开启，3000 / 3002 不应直接暴露公网。
 
@@ -404,9 +411,9 @@ Public Edge 尚未开启，3000 / 3002 不应直接暴露公网。
 
 近期重点：
 
-1. 以独立 `PROD-PRODUCT-RELEASE-01` 评审并发布包含最新产品能力的 exact `main`；
-2. 完成 Public Edge 的安全公网入口；
-3. 独立执行 `SEC-SSH-HARDEN-01`；
+1. 完成 `RELEASE-ARTIFACT-01`，让 main Verify exact SHA 生成通过 offline acceptance 的 CI artifact；
+2. 合并后以独立 `PROD-PRODUCT-RELEASE-02` 离线激活 exact artifact，并验证下一次自然 08:00 refresh；
+3. 分别处理 `OPS-RESOURCE-HARDEN-01`、Public Edge 与 `SEC-SSH-HARDEN-01`；
 4. 继续将 P1-6C2、Research Profile、Momentum Lifecycle、Alerts / Digest、MCP 等能力保持在后续独立工程轮。
 
 完整路线与门禁见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
@@ -436,6 +443,6 @@ Rardar 会参考 TrendRadar 等优秀开源雷达项目在**项目主页、快�
 
 Rardar 仍处于 **Active Development**。
 
-已经具备真实数据流水线、原子发布、Stable ID、D1 用户状态、Verify CI、Launch Decision Flow、Signal → Project audited association，以及经过连续自然运行验证的 Always-on Server Runtime；产品 release、公网入口和若干 P2 能力继续作为独立后续工作。
+已经具备真实数据流水线、原子发布、Stable ID、D1 用户状态、Verify CI、Launch Decision Flow、Signal → Project audited association，以及经过连续自然运行验证的 Always-on Server Runtime。最新产品 main ready for release，但 Production 仍在旧 release；CI artifact 架构、离线产品发布、公网入口和若干 P2 能力继续作为独立工作。
 
 如果你是在评估代码，请优先从 `docs/PROJECT_STATUS.md`、`docs/RARDAR_NORTH_STAR.md` 和最近的 `docs/iterations/` 开始。

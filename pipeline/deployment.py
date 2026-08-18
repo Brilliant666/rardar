@@ -30,6 +30,11 @@ from typing import Any, Mapping, Sequence
 
 from pipeline.generations import GenerationProtocolError, resolve_current_generation
 from pipeline.data_lock import data_dir_lock_path, manager_dir_lock_path
+from pipeline.release_artifact import (
+    COMMIT_PATTERN as RELEASE_COMMIT_PATTERN,
+    ReleaseArtifactError,
+    verify_release_root,
+)
 from pipeline.runtime_settings import (
     PERSISTENT_PATH_VARIABLES,
     RuntimeSettingsError,
@@ -63,7 +68,11 @@ OPTIONAL_MUTABLE_PATH_VARIABLES = (
 REQUIRED_RELEASE_FILES = (
     "package.json",
     "package-lock.json",
+    "requirements.lock",
+    "release-manifest.json",
     "pipeline/runtime.py",
+    "pipeline/deployment.py",
+    "pipeline/release_artifact.py",
     "node_modules/vinext/dist/cli.js",
     "node_modules/vite/bin/vite.js",
     "vite.config.ts",
@@ -508,7 +517,24 @@ def _check_release(home: Path) -> dict[str, Any]:
             "release-local environment files are forbidden: "
             + ", ".join(untrusted_environment_files),
         )
-    return {"requiredPathCount": len(REQUIRED_RELEASE_PATHS)}
+    if not RELEASE_COMMIT_PATTERN.fullmatch(home.name):
+        _fail(
+            "release_directory_identity_invalid",
+            "resolved exact release directory name must be its full commit SHA",
+        )
+    try:
+        artifact = verify_release_root(
+            home,
+            expected_sha=home.name,
+            check_host=True,
+            allow_runtime_venv=True,
+        )
+    except ReleaseArtifactError as error:
+        _fail("release_artifact_invalid", f"{error.code}: {error.detail}")
+    return {
+        "requiredPathCount": len(REQUIRED_RELEASE_PATHS),
+        "artifact": artifact,
+    }
 
 
 def _minimum_free_bytes(source: Mapping[str, str]) -> int:

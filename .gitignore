@@ -18,6 +18,7 @@ __pycache__/
 # Python virtual environments
 /.venv/
 /.venv-ci/
+/.venv-release-builder/
 /venv/
 
 # next.js
@@ -49,5 +50,6 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/wheelhouse/
 /data/scheduler/status.json
 /data/generations/.candidates/

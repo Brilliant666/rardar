@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import os
 import shutil
@@ -35,13 +36,40 @@ from pipeline.stable_read import StableReadError
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SYSTEMD_UNIT = REPOSITORY_ROOT / "deploy" / "systemd" / "rardar.service"
 SYSTEMD_ENV = REPOSITORY_ROOT / "deploy" / "systemd" / "rardar.env.example"
+TEST_RELEASE_SHA = "1" * 40
+
+
+def _release_manifest_payload(home: Path) -> dict[str, object]:
+    return {
+        "schemaVersion": 1,
+        "repository": "Brilliant666/rardar",
+        "commitSha": TEST_RELEASE_SHA,
+        "platform": "linux",
+        "architecture": "x86_64",
+        "builderOs": "ubuntu-24.04",
+        "nodeVersion": "v22.13.1",
+        "npmVersion": "10.9.2",
+        "pythonWheelVersion": "3.12",
+        "packageLockSha256": hashlib.sha256(
+            (home / "package-lock.json").read_bytes()
+        ).hexdigest(),
+        "requirementsLockSha256": hashlib.sha256(
+            (home / "requirements.lock").read_bytes()
+        ).hexdigest(),
+        "verifyWorkflowRunId": "12345",
+        "verifyWorkflowHeadSha": TEST_RELEASE_SHA,
+        "builtAt": "2026-08-18T00:00:00Z",
+    }
 
 
 def _write_release_fixture(home: Path) -> None:
     for relative in (
         "package.json",
         "package-lock.json",
+        "requirements.lock",
         "pipeline/runtime.py",
+        "pipeline/deployment.py",
+        "pipeline/release_artifact.py",
         "node_modules/vinext/dist/cli.js",
         "node_modules/vite/bin/vite.js",
         "vite.config.ts",
@@ -54,8 +82,19 @@ def _write_release_fixture(home: Path) -> None:
         path = home / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("fixture\n", encoding="utf-8")
+    (home / "requirements.lock").write_text(
+        "fixture-dependency==1.0.0\n",
+        encoding="utf-8",
+    )
     (home / "dist").mkdir(parents=True)
     (home / "deploy" / "systemd").mkdir(parents=True)
+    wheelhouse = home / "wheelhouse"
+    wheelhouse.mkdir()
+    (wheelhouse / "fixture_dependency-1.0.0-py3-none-any.whl").write_bytes(b"fixture")
+    (home / "release-manifest.json").write_text(
+        json.dumps(_release_manifest_payload(home), indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _copy_current_generation(target: Path) -> str:
@@ -120,7 +159,7 @@ class DeploymentFixture(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         root = Path(self.temporary.name)
         self.paths = {
-            "home": root / "home",
+            "home": root / TEST_RELEASE_SHA,
             "data": root / "data",
             "runtime": root / "runtime",
             "state": root / "vinext-state",
@@ -296,8 +335,34 @@ class OfflineDeploymentTests(DeploymentFixture):
         self.assertEqual(report["d1"]["sqliteFileCount"], 2)
         self.assertEqual(report["d1"]["rardarDatabaseCount"], 1)
         self.assertEqual(report["locks"]["status"], "available")
+        self.assertEqual(report["release"]["artifact"]["commitSha"], TEST_RELEASE_SHA)
+        self.assertEqual(report["release"]["artifact"]["status"], "healthy")
         self.assertEqual(_tree_bytes(self.paths["runtime"]), {})
         self.assertEqual(_tree_bytes(self.paths["locks"]), {})
+
+    def test_release_manifest_and_lock_identity_are_required(self) -> None:
+        manifest = self.paths["home"] / "release-manifest.json"
+        manifest.unlink()
+        with self.assertRaises(DeploymentCheckError) as raised:
+            _check_release(self.paths["home"])
+        self.assertEqual(raised.exception.code, "release_incomplete")
+
+        manifest.write_text(
+            json.dumps(_release_manifest_payload(self.paths["home"]), indent=2) + "\n",
+            encoding="utf-8",
+        )
+        (self.paths["home"] / "package-lock.json").write_text("tampered\n", encoding="utf-8")
+        with self.assertRaises(DeploymentCheckError) as raised:
+            _check_release(self.paths["home"])
+        self.assertEqual(raised.exception.code, "release_artifact_invalid")
+        self.assertIn("FAIL_RELEASE_ARTIFACT_LOCK_MISMATCH", raised.exception.detail)
+
+    def test_deployment_preflight_allows_the_offline_installed_release_venv(self) -> None:
+        venv = self.paths["home"] / ".venv"
+        venv.mkdir()
+        (venv / "pyvenv.cfg").write_text("fixture\n", encoding="utf-8")
+        report = _check_release(self.paths["home"])
+        self.assertEqual(report["artifact"]["commitSha"], TEST_RELEASE_SHA)
 
     def test_offline_requires_manager_scheduler_and_writer_locks_to_be_idle(self) -> None:
         with patch(

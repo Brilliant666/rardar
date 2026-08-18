@@ -302,14 +302,24 @@ from pathlib import Path
 from pipeline import deployment
 
 # The production CLI is intentionally pinned to the systemd v1 filesystem.
-# This subprocess keeps every other CLI gate real while mapping that one
-# canonical profile to this test's already-isolated temporary directories.
+# This process-level test runs from a mutable source checkout, which is
+# deliberately not a CI release artifact. Release manifest/content checks have
+# their own Python integration suite; keep every Runtime/data/D1/HTTP gate real
+# here while replacing only that impossible source-checkout gate.
 names = tuple(deployment.CANONICAL_SYSTEMD_PATHS)
 deployment.CANONICAL_SYSTEMD_PATHS.clear()
 deployment.CANONICAL_SYSTEMD_PATHS.update({
     name: Path(os.environ[name]).expanduser().absolute()
     for name in names
 })
+def isolated_source_release(home):
+    if home.resolve(strict=True) != deployment.APPLICATION_ROOT.resolve(strict=True):
+        raise RuntimeError("isolated release root differs from the running source tree")
+    return {
+        "requiredPathCount": len(deployment.REQUIRED_RELEASE_PATHS),
+        "artifact": {"status": "isolated_source_tree_not_an_artifact"},
+    }
+deployment._check_release = isolated_source_release
 raise SystemExit(deployment.main(["check", "--online"]))
 `;
   const completed = spawnSync(

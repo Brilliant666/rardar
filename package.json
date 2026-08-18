@@ -28,6 +28,7 @@
     "local:status": "python -m pipeline.runtime status",
     "deploy:preflight": "python -m pipeline.deployment check --offline",
     "deploy:check": "python -m pipeline.deployment check --online",
+    "release:verify": "python -m pipeline.release_artifact verify",
     "build": "vinext build",
     "start": "vinext start",
     "test": "npm run build && npm run test:node",

@@ -1,12 +1,12 @@
 # Rardar Project Status
 
-> Last updated: **2026-08-17**
+> Last updated: **2026-08-18**
 >
 > 本文记录“Rardar 现在做到哪”。长期使命和不变量看 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md)，未来路线看 [`ROADMAP.md`](ROADMAP.md)，具体工程证据看 [`iterations/`](iterations/)。
 
 ## 一句话状态
 
-Rardar 已经完成从“本地项目雷达原型”到“有审计的数据发布系统 + Stable Project ID + 用户行动闭环 + Linux Always-on Runtime”的主干工程；连续两次自然 Scheduler refresh 已验证无人值守运行，Launch Decision Flow 与 Signal → Project audited association 均已完成，产品发布继续由独立 Runtime 任务控制。
+Rardar 的最新产品 `main` 已包含 Launch Decision Flow 与 Signal → Project audited association，但 Production 仍运行旧 release。2026-08-18 的 co-located `npm ci` / OOM 事件暴露了发布准备架构缺陷；当前主线是先建立 CI-built exact release artifact，再以独立任务离线激活产品版本。
 
 ---
 
@@ -16,10 +16,14 @@ Rardar 已经完成从“本地项目雷达原型”到“有审计的数据发�
 
 - PR #18：Launch Decision Flow；
 - PR #21：Signal → Project Audited Association v1。
+- `main`：`9b6399fde527eb9775898b41a3f9371952ce066f`，产品能力 ready for release；
+- `feat/ci-release-artifact`：`RELEASE-ARTIFACT-01` 开发中，尚未部署。
 
-这两项描述的是仓库产品能力，不代表最新代码已经部署到 Production Server Primary；产品 release 仍需独立 `PROD-PRODUCT-RELEASE-01` 授权与验证。
+这些描述的是仓库产品能力，不代表最新代码已经部署到 Production Server Primary。只有 CI artifact 方案合并并生成 exact artifact 后，才允许在独立 `PROD-PRODUCT-RELEASE-02` 中部署。
 
 GitHub Actions 的最终状态以仓库 `Verify` workflow 为准；`main` 与所有目标为 `main` 的 PR 都必须经过统一 `npm run verify`。
+
+`Release Artifact` 不替代 `Verify`：它只接受同仓库 `main` push 的成功 Verify exact SHA，并在固定 Ubuntu 24.04 x86_64 builder 上生成 artifact。
 
 Signal → Project 的长期合同：
 
@@ -98,6 +102,22 @@ PR #19 已在 `main` 修复：
 
 因此 Runtime 主线不再是当前产品开发 blocker。Public Edge 和 SSH hardening 仍属于后续独立授权任务，不因 Always-on VERIFIED 自动完成。
 
+### 2026-08-17 / 18 production installation incident
+
+本轮不访问 Production；以下为任务提供的事故与恢复状态：
+
+```text
+active release: 8436834f49eb5d90f4b52dfc58ca02c483183286
+current generation: 20260818T053951947542Z-ba77932f0c87
+next run: 2026-08-19 08:00 Asia/Shanghai
+availability: HEALTHY
+installation safety: DEGRADED_BY_OOM_INCIDENT
+```
+
+旧部署流程在 3.8 GiB RAM、无 swap 的 Server Primary 上运行 `npm ci`。registry `ECONNRESET`、约 13 小时 50 分钟的失败安装与 live workerd 内存压力最终导致 kernel OOM kill；服务重启、08:00 自然任务错过，Scheduler catch-up 后恢复健康 generation。
+
+生产可用性已经恢复，但最新产品代码尚未发布。`RELEASE-ARTIFACT-01` 将 dependency install、Verify、build 与 Python wheel preparation 全部移到 CI；Production 后续只能执行 checksum、extract、offline venv、preflight、atomic switch 与 restart。swap / resource limit 评估保持为独立 `OPS-RESOURCE-HARDEN-01`。
+
 ---
 
 ## 能力完成度
@@ -119,6 +139,7 @@ PR #19 已在 `main` 修复：
 | Codex queue / enrichment | ✅ | staging → derive → validated generation |
 | Runtime freshness | ✅ | fresh / stale / invalid 语义明确 |
 | Verify CI | ✅ | Ubuntu Node 22.13.1 + Python 3.10 |
+| CI exact release artifact | 🚧 开发中 | 固定 Ubuntu 24.04 x86_64、Node 22.13.1、Python 3.12 wheelhouse；合并并成功生成 artifact 前不视为完成 |
 | Local Managed Runtime | ✅ | Manager + Website + Scheduler |
 | Linux Always-on deployment | ✅ | Server Primary 已建立 |
 | Natural unattended publish | ✅ VERIFIED | 8/13 与 8/14 连续自然发布成功；Schema/Audit、CAS 与 byte-exact history invariant 通过 |
@@ -192,6 +213,10 @@ Home
 
 PR #21 只在 Signal 自身携带严格合法的 GitHub repository，且同一 published generation 的 Catalog 能精确验证 Stable ID 时，建立 canonical 项目入口。关联缺失是合法状态，不会触发标题、slug、中文 enrichment 或 LLM 猜测。
 
+### Phase G — Release preparation isolation（进行中）
+
+`RELEASE-ARTIFACT-01` 将 exact main Verify SHA、full Node runtime、build output、offline Python wheelhouse、manifest 与 archive checksum 收敛为一个 CI artifact。当前分支实现不等于生产部署；只有实际 main workflow artifact 成功后才完成本阶段。
+
 ---
 
 ## 已知边界 / 技术债
@@ -226,7 +251,11 @@ Server Primary 已可长期运行，但：
 
 `rardar-deploy` 当前保留 bootstrap 阶段的 `NOPASSWD: ALL` 作为回滚通路。Server Primary 和 Public Edge 稳定后需要执行独立 `SEC-SSH-HARDEN-01`。
 
-### 5. Vinext production compatibility
+### 5. Release preparation 必须与 Production 隔离
+
+最新产品 main 尚未部署。Production 上运行在线 `npm ci` / `npm install` / build 已不再是受支持路径；新的发布协议必须使用成功 Verify exact SHA 的 CI artifact。实际 server memory hardening 另行处理，不能用 swap 掩盖 co-located build 风险。
+
+### 6. Vinext production compatibility
 
 当前 build 是硬门禁，但正式 Manager 使用已验证的 Vite/Vinext compatibility entry，而不是把未验证的 `vinext start` 当成 production target。这一选择需要在 Vinext upstream 能力稳定后重新评估。
 
@@ -234,11 +263,15 @@ Server Primary 已可长期运行，但：
 
 ## 当前最重要的工作流
 
-### 1 — PROD-PRODUCT-RELEASE-01（独立 Runtime 任务）
+### 1 — RELEASE-ARTIFACT-01（当前仓库 / CI 任务）
 
-在单独授权、备份和运行验证下，将包含 Launch Decision Flow 与 Signal → Project audited association 的 exact `main` 发布到既有 Server Primary；本次仓库合并不自动部署。
+在隔离 GitHub runner 中为成功 Verify 的 exact main SHA 构建、校验并上传 Linux x86_64 release artifact；不访问 Production。
 
-### 2 — Public Edge（独立上线主线）
+### 2 — PROD-PRODUCT-RELEASE-02（artifact 合并后的独立 Runtime 任务）
+
+只下载并校验 exact CI artifact，离线安装 Python venv，经 preflight 和停机备份后原子激活；Production 不访问 npm registry、不执行 npm install/build，并在下一次自然 08:00 运行后完成回归。
+
+### 3 — Public Edge（独立上线主线）
 
 产品主路径稳定后，再以 `PROD-DEPLOY-02` 独立处理正式域名、TLS、reverse proxy 与公开 API 安全边界。
 
