@@ -25,10 +25,6 @@ jobs:
     env:
       EXACT_SHA: ${{ github.event.workflow_run.head_sha }}
       VERIFY_RUN_ID: ${{ github.event.workflow_run.id }}
-      RELEASE_STAGE: ${{ runner.temp }}/rardar-release-stage
-      RELEASE_OUTPUT: ${{ runner.temp }}/rardar-release-output
-      RELEASE_ACCEPT: ${{ runner.temp }}/rardar-release-accept
-      RELEASE_VENV: ${{ runner.temp }}/rardar-release-venv
 
     steps:
       - name: Check out exact verified commit
@@ -97,12 +93,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          release_stage="$RUNNER_TEMP/rardar-release-stage"
+          release_output="$RUNNER_TEMP/rardar-release-output"
           built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           npm_version="$(npm --version)"
           python -m pipeline.release_package build \
             --source-root "$GITHUB_WORKSPACE" \
-            --stage-root "$RELEASE_STAGE" \
-            --output-directory "$RELEASE_OUTPUT" \
+            --stage-root "$release_stage" \
+            --output-directory "$release_output" \
             --commit-sha "$EXACT_SHA" \
             --verify-workflow-run-id "$VERIFY_RUN_ID" \
             --verify-workflow-head-sha "$EXACT_SHA" \
@@ -114,40 +112,43 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive="$RELEASE_OUTPUT/rardar-release-$EXACT_SHA-linux-x86_64.tar.gz"
+          release_output="$RUNNER_TEMP/rardar-release-output"
+          release_accept="$RUNNER_TEMP/rardar-release-accept"
+          release_venv="$RUNNER_TEMP/rardar-release-venv"
+          archive="$release_output/rardar-release-$EXACT_SHA-linux-x86_64.tar.gz"
           checksum="$archive.sha256"
           (
-            cd "$RELEASE_OUTPUT"
+            cd "$release_output"
             sha256sum --check "$(basename "$checksum")"
           )
           python -m pipeline.release_package accept \
             --archive "$archive" \
             --checksum "$checksum" \
-            --extract-root "$RELEASE_ACCEPT" \
+            --extract-root "$release_accept" \
             --expected-sha "$EXACT_SHA" \
             | tee "$RUNNER_TEMP/release-accept.json"
           (
-            cd "$RELEASE_ACCEPT"
+            cd "$release_accept"
             python -m pipeline.release_artifact verify \
               --release-root . \
               --expected-sha "$EXACT_SHA" \
               --check-host
           )
-          python -m venv "$RELEASE_VENV"
-          "$RELEASE_VENV/bin/python" -m pip install \
+          python -m venv "$release_venv"
+          "$release_venv/bin/python" -m pip install \
             --disable-pip-version-check \
             --no-index \
-            --find-links "$RELEASE_ACCEPT/wheelhouse" \
-            --requirement "$RELEASE_ACCEPT/requirements.lock"
-          "$RELEASE_VENV/bin/python" -m pip check
-          node "$RELEASE_ACCEPT/node_modules/vite/bin/vite.js" --version
-          node "$RELEASE_ACCEPT/node_modules/vinext/dist/cli.js" --version
+            --find-links "$release_accept/wheelhouse" \
+            --requirement "$release_accept/requirements.lock"
+          "$release_venv/bin/python" -m pip check
+          node "$release_accept/node_modules/vite/bin/vite.js" --version
+          node "$release_accept/node_modules/vinext/dist/cli.js" --version
 
       - name: Record release identity
         shell: bash
         run: |
           set -euo pipefail
-          archive="$RELEASE_OUTPUT/rardar-release-$EXACT_SHA-linux-x86_64.tar.gz"
+          archive="$RUNNER_TEMP/rardar-release-output/rardar-release-$EXACT_SHA-linux-x86_64.tar.gz"
           {
             echo "### Exact Rardar release"
             echo "- Commit: \`$EXACT_SHA\`"

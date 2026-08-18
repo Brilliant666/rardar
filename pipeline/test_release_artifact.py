@@ -508,6 +508,15 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
         self.assertIn("actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1", workflow)
         self.assertIn("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", workflow)
 
+    def test_release_workflow_uses_runner_temp_only_inside_steps(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        job_environment = workflow.split("    env:\n", 1)[1].split("\n\n    steps:", 1)[0]
+        self.assertNotIn("runner.temp", job_environment)
+        self.assertIn("$RUNNER_TEMP/rardar-release-stage", workflow)
+        self.assertIn("$RUNNER_TEMP/rardar-release-output", workflow)
+        self.assertIn("$RUNNER_TEMP/rardar-release-accept", workflow)
+        self.assertIn("$RUNNER_TEMP/rardar-release-venv", workflow)
+
     def test_release_workflow_builds_and_accepts_without_server_side_npm(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("npm ci", workflow)
