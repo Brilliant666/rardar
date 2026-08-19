@@ -62,7 +62,7 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 | Stable Project ID | ✅ 主链完成 | Catalog、D1、API、canonical route、客户端交互均使用 `projectIdVersion: 1` |
 | Action / Feedback / Recommendation | ✅ 已建立 | append-only Event + State、幂等写入、个性化有限重排 |
 | Verify / CI | ✅ 已建立 | Node 22.13.1 + Python 3.10，统一 `npm run verify` |
-| CI exact release artifact | 🚧 开发中 | 把 dependency install、build 与 offline wheel preparation 移出 Production；合并并生成真实 main artifact 前不视为完成 |
+| CI exact release artifact | 🟡 Bootstrap 验收 | 实现与 PR Verify 已完成；等待合并后首个 main artifact 真实验收，Production 仍未部署 |
 | Managed Runtime | ✅ 已建立 | Manager 唯一拥有 Website + Scheduler，默认每日 08:00 Asia/Shanghai |
 | Linux Always-on 部署 | ✅ 已完成首轮 cutover | Server Primary 已建立，Windows Primary 已停止 |
 | 无人值守自然刷新 | ✅ VERIFIED | Server Primary 已连续完成 8/13 与 8/14 两次自然 Scheduler refresh；publication、Schema/Audit 与历史快照完整性均通过 |
@@ -85,7 +85,7 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 - **PR #18**：Launch Decision Flow 已以 `4e9c0ea` 合入 `main`，统一 Why now → Evidence → Risk → Action / Watch / Feedback 决策路径。
 - **PR #21**：Signal → Project audited association 已完成；关联只来自同一 verified generation 中可精确验证的 `signal.repo`。
 - **PROD-PRODUCT-RELEASE-01 事故**：Server Primary 上的长期 `npm ci` 遇到 registry 失败并与 live workerd 争用 3.8 GiB、无 swap 的主机内存，触发 OOM；服务与 catch-up 已恢复，但旧的 co-located release preparation 不再受支持。
-- **RELEASE-ARTIFACT-01**：正在建立绑定成功 main Verify exact SHA 的 CI-built Linux artifact；本项不部署 Production。
+- **RELEASE-ARTIFACT-01**：实现与 PR Verify 已完成，等待合并后首个 main Verify exact SHA artifact 真实验收；本项不部署 Production。
 
 ---
 

@@ -17,7 +17,7 @@ Rardar 的最新产品 `main` 已包含 Launch Decision Flow 与 Signal → Proj
 - PR #18：Launch Decision Flow；
 - PR #21：Signal → Project Audited Association v1。
 - `main`：`9b6399fde527eb9775898b41a3f9371952ce066f`，产品能力 ready for release；
-- `feat/ci-release-artifact`：`RELEASE-ARTIFACT-01` 开发中，尚未部署。
+- `feat/ci-release-artifact`：`RELEASE-ARTIFACT-01` 实现与 PR Verify 已完成，等待首个 main artifact 验收，尚未部署。
 
 这些描述的是仓库产品能力，不代表最新代码已经部署到 Production Server Primary。只有 CI artifact 方案合并并生成 exact artifact 后，才允许在独立 `PROD-PRODUCT-RELEASE-02` 中部署。
 
@@ -139,7 +139,7 @@ installation safety: DEGRADED_BY_OOM_INCIDENT
 | Codex queue / enrichment | ✅ | staging → derive → validated generation |
 | Runtime freshness | ✅ | fresh / stale / invalid 语义明确 |
 | Verify CI | ✅ | Ubuntu Node 22.13.1 + Python 3.10 |
-| CI exact release artifact | 🚧 开发中 | 固定 Ubuntu 24.04 x86_64、Node 22.13.1、Python 3.12 wheelhouse；合并并成功生成 artifact 前不视为完成 |
+| CI exact release artifact | 🟡 Bootstrap 验收 | 固定 Ubuntu 24.04 x86_64、Node 22.13.1、Python 3.12 wheelhouse；实现已完成，等待首个 main artifact 真实验收 |
 | Local Managed Runtime | ✅ | Manager + Website + Scheduler |
 | Linux Always-on deployment | ✅ | Server Primary 已建立 |
 | Natural unattended publish | ✅ VERIFIED | 8/13 与 8/14 连续自然发布成功；Schema/Audit、CAS 与 byte-exact history invariant 通过 |
@@ -213,9 +213,9 @@ Home
 
 PR #21 只在 Signal 自身携带严格合法的 GitHub repository，且同一 published generation 的 Catalog 能精确验证 Stable ID 时，建立 canonical 项目入口。关联缺失是合法状态，不会触发标题、slug、中文 enrichment 或 LLM 猜测。
 
-### Phase G — Release preparation isolation（进行中）
+### Phase G — Release preparation isolation（Bootstrap 验收）
 
-`RELEASE-ARTIFACT-01` 将 exact main Verify SHA、full Node runtime、build output、offline Python wheelhouse、manifest 与 archive checksum 收敛为一个 CI artifact。当前分支实现不等于生产部署；只有实际 main workflow artifact 成功后才完成本阶段。
+`RELEASE-ARTIFACT-01` 将 exact main Verify SHA、full Node runtime、build output、offline Python wheelhouse、manifest 与 archive checksum 收敛为一个 CI artifact。实现与 PR Verify 已完成；只有合并后首个实际 main workflow artifact 验收成功才完成本阶段，且仍不等于生产部署。
 
 ---
 

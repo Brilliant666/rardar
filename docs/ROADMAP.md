@@ -66,7 +66,7 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 
 ## N1. RELEASE-ARTIFACT-01
 
-状态：**开发中 / 尚未进入 main**
+状态：**实现完成 / 等待首个 main artifact Bootstrap 验收**
 
 目标：在固定 Ubuntu 24.04 x86_64 GitHub runner 中，为成功通过 main `Verify` 的 exact SHA 构建完整 Node runtime、`dist`、Python 3.12 wheelhouse、manifest、archive checksum，并完成 fresh extraction / offline acceptance。
 
