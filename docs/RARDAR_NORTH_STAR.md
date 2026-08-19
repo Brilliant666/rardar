@@ -215,6 +215,7 @@ AI 判断不得覆盖、改写或伪造事实层。
 - systemd 只拥有一个 foreground Manager；Website 与 Scheduler 仍由 Manager 管理，不能形成双 Scheduler owner；
 - 服务使用专用非 root 用户，Website 和 Runtime status 只监听 loopback；公网入口、DNS、TLS 和防火墙属于独立变更；
 - exact code release 与 data、D1、runtime、locks、cache、logs 和 backup 分离；运行中的 release 不允许直接 `git pull`；
+- Node dependency resolution、完整 Verify、build 与 Python wheel preparation 必须在隔离 CI 中完成并绑定成功 Verify 的 exact SHA；Production 只允许校验、解包、离线 venv、preflight 与原子激活，不访问 npm registry、不运行 npm install/build；
 - secrets 只存在于版本控制外的受限 EnvironmentFile，不得进入 Git、日志、状态 JSON 或诊断报告；
 - 启动前只读验证 current generation、manifest/hash、Schema/Audit、SQLite integrity、路径权限和磁盘空间；失败时不得自动修复、refresh、清理 failed candidates 或回退 flat 数据；
 - 部署前停机备份，代码、generation 与 data+D1 使用不同且显式的回滚路径；恢复历史事实时不得补造事件、时间或项目身份；

@@ -1,6 +1,6 @@
 # Rardar Always-on Deployment v1
 
-本文定义 Rardar 在单台 Linux 主机上的第一版可部署工程和操作者协议。它是运行手册，不是已经完成生产部署的证明。
+本文定义 Rardar 在单台 Linux 主机上的可部署工程和操作者协议。代码与依赖只能由 GitHub CI 为一个已经成功通过 `Verify` 的 exact commit 构建；Server Primary 只接受该 CI artifact，并负责离线激活。本文是运行手册，不是某个版本已经完成生产部署的证明。
 
 ## 1. 支持范围
 
@@ -15,11 +15,15 @@ single host
 local persistent filesystem
 ```
 
+CI-built Exact Release Artifact v1 的 ABI 支持面更窄：builder 与目标均为 Ubuntu 24.04 x86_64，Node 固定 `22.13.1`，Python wheel target 固定 `3.12`。扩大 OS、architecture 或 Python target 必须另行验证，不能把 manifest 字段改成模糊范围。
+
 Always-on v1 提供：
 
 - systemd 管理的唯一 foreground Manager；
 - Manager 管理的 Website 与唯一 Scheduler；
 - exact code release 与 mutable state 分离；
+- 由成功的 main `Verify` exact SHA 触发的 Linux release artifact、manifest 与 SHA-256；
+- 完整 `node_modules`、已验证的 `dist` 和离线 Python `wheelhouse`；
 - 版本控制的 systemd/environment 示例；
 - 只读、fail-closed 的 offline 与 online deployment check；
 - 停机备份、升级、三类回滚和故障排查协议；
@@ -35,7 +39,7 @@ Always-on v1 不执行：
 - failed candidate cleanup；
 - P1-6C2、TrendRadar/P2、新评分或新信源。
 
-以上真实基础设施动作属于后续单独授权的 `PROD-DEPLOY-01`。
+以上真实基础设施动作属于后续单独授权的生产任务。仓库或 CI 能力合并不自动授予服务器访问、激活或重启权限。
 
 ## 2. 架构与单一 ownership
 
@@ -162,19 +166,63 @@ offline checker 会拒绝 release 根及 `deploy/systemd/` 中的 `.dev.vars*` �
 
 ## 6. 准备 exact release
 
-不要在 `/opt/rardar/current` 内执行 `git pull`。每个版本必须绑定审查通过的完整 commit SHA。
+不要在 `/opt/rardar/current` 内执行 `git pull`。不要在 Server Primary 上运行 `npm ci`、`npm install`、production build 或需要 registry 的 dependency audit。每个版本必须绑定审查通过的完整 commit SHA。
 
-推荐流程：
+### 6.1 Builder phase — GitHub CI only
 
-1. 在非 active 的 staging 目录取得目标 exact commit，或传入与该 commit 绑定的 release archive。
-2. 核对 `git rev-parse HEAD` 精确等于目标 SHA，且 `git status --porcelain` 为空。
-3. 运行 `npm ci`。
-4. 在该 worktree 创建独立 `.venv`，运行 `.venv/bin/python -m pip install -r requirements.lock` 与 `pip check`。
-5. 设置该 worktree 自有的绝对 `RARDAR_PYTHON`，运行 `npm run verify`。
-6. 运行 `npm run build`；即使 compatibility entry 使用 direct Vite runner，build 也不能跳过。
-7. 记录 commit SHA、Node/Python/npm 版本、Verify 结果和 artifact checksum。
+`.github/workflows/release-artifact.yml` 只监听 `Verify` 的 completed `workflow_run`，并且只接受同仓库 `main` push、结论 SUCCESS 的 exact `head_sha`。固定的 Ubuntu 24.04 x86_64 builder 对该 SHA 执行：
 
-在最终 `/opt/rardar/releases/<commit>` 目录准备并验证 release，再以临时 leaf symlink 加原子 rename 切换 `/opt/rardar/current`。checker 必须证明配置的 `RARDAR_HOME` 解析到正在运行它的 exact release；`current` 的祖先和 release 内必需文件仍不得是 symlink。
+```text
+checkout exact verified SHA
+→ npm ci
+→ npm run verify
+→ npm run build
+→ Python 3.12 wheelhouse
+→ exact git archive staging
+→ artifact verify
+→ deterministic tar.gz + SHA-256
+→ fresh extraction
+→ offline Python venv install + pip check
+→ upload immutable GitHub Actions artifact
+```
+
+artifact 名称与 archive 名称均包含完整 40 位 commit SHA：
+
+```text
+rardar-release-<40-char-sha>-linux-x86_64
+rardar-release-<40-char-sha>-linux-x86_64.tar.gz
+rardar-release-<40-char-sha>-linux-x86_64.tar.gz.sha256
+```
+
+artifact 根的 `release-manifest.json` 绑定 repository、exact commit、成功 Verify 的 run ID/head SHA、builder OS、architecture、Node/npm/Python wheel target，以及 artifact 内两份 lock 文件的 SHA-256。`pipeline.release_artifact` 使用 Python 标准库只读验证 manifest、锁、必需路径、wheel coverage、secret-like 文件名和 symlink 边界。
+
+artifact 包含完整 `node_modules`，因为 Managed Runtime 仍直接依赖 Vite/Vinext compatibility entry；它同时包含已经通过 build 的 `dist` 与 Python `wheelhouse`。artifact 不包含 `data/`、`.git/`、builder venv、Wrangler/Miniflare/Vite cache、环境文件或 credentials。
+
+### 6.2 Activation phase — Production only
+
+单独授权的生产任务只能执行：
+
+```text
+按 exact SHA 选择成功的 GitHub artifact
+→ 下载 archive、checksum 与 manifest copy
+→ 在解包前核对完整 archive SHA-256
+→ 安全解包到 /opt/rardar/releases/<exact-sha>
+→ 对原始解包树运行 artifact verifier
+→ 在 release 内新建 .venv
+→ pip --no-index --find-links wheelhouse -r requirements.lock
+→ pip check
+→ 只读 deployment preflight
+→ 停机备份
+→ 原子切换 current leaf symlink
+→ restart
+→ online check
+```
+
+生产创建的 `.venv` 不是 artifact 内容。原始 artifact verifier 会拒绝打包进去的 `.venv`；deployment checker 只在离线安装后允许一个真实的顶层 `.venv`，并继续核对配置解释器 identity。最终 `/opt/rardar/releases/<commit>` 目录完成离线安装和验证后，才可通过临时 leaf symlink 加原子 rename 切换 `/opt/rardar/current`。
+
+### 6.3 2026-08-18 installation incident
+
+旧协议曾在 3.8 GiB RAM、无 swap 的 Server Primary 上执行长期 `npm ci`。registry `ECONNRESET` 与约 13 小时 50 分钟的失败安装和 production workerd 高内存同时发生，内核 OOM kill 导致服务重启并错过 08:00 自然调度；Scheduler 后续 catch-up 恢复了健康 generation。Production availability 已恢复，但该事件证明“服务与在线 dependency installation 共置”不再是受支持的发布方式。资源硬化另属 `OPS-RESOURCE-HARDEN-01`，不能替代本节的 release preparation 隔离。
 
 ## 7. systemd 安装边界
 
@@ -237,7 +285,9 @@ npm run deploy:preflight
 offline check 是只读门禁，至少验证：
 
 - Python、`RARDAR_PYTHON` identity、Node 路径和最低版本；
-- release 必需文件、`node_modules/vinext` 和 build 输出；
+- release manifest 的 exact directory/commit/Verify identity、OS/architecture/Node/Python contract 与两份 lock SHA-256；
+- release 必需文件、`node_modules/vite`、`node_modules/vinext`、build 输出与完整 wheelhouse coverage；
+- release tree 不包含 `data/`、secret-like 文件、cache 或不安全 symlink；仅允许 Production 离线安装后产生的真实顶层 `.venv`；
 - 全部固定 canonical 路径的绝对性、主状态根互不重叠、工具子目录边界、权限和磁盘空间，以及仅 `RARDAR_HOME` 最终 leaf symlink 的受限例外；
 - current pointer、generation ID/path、ready manifest、manifest digest、全部 artifact hash、JSON Schema 和跨文件 Audit；
 - audit `errorCount == 0`，允许 healthy 或只有 warning 的 degraded；
@@ -312,7 +362,7 @@ PID/command/listener owner 不一致
 真实升级只允许在后续授权中按以下顺序执行：
 
 ```text
-准备并验证 exact release
+下载、校验、解包并离线安装 exact CI release artifact
 → 记录 pre facts
 → 停止 systemd Manager
 → 制作并验证同一停机点 backup
@@ -413,7 +463,7 @@ journalctl -u rardar
 | 错误 | 检查 | 禁止的“修复” |
 | --- | --- | --- |
 | `deployment_path_*` | EnvironmentFile、绝对路径、symlink、目录归属和 overlap | 自动创建替代目录或跟随 symlink |
-| `release_incomplete` / toolchain | exact SHA、`.venv`、`npm ci`、build、Node/Python 路径 | 在 active release 内 `git pull` |
+| `release_incomplete` / `release_artifact_invalid` / toolchain | exact SHA、manifest、archive/lock checksum、wheelhouse、离线 `.venv`、Node/Python 路径 | 在服务器重跑 `npm ci`、`npm install`、build 或在 active release 内 `git pull` |
 | `disk_space_insufficient` | 各 mutable filesystem 的真实 free bytes | 删除 generation 或 failed candidates |
 | `published_generation_*` | current、manifest/hash、Schema/Audit | 回退 flat data 或手改 pointer |
 | `d1_database_missing` / `sqlite_integrity_failed` | 完整 Vinext state 路径和停机备份 | 初始化空 D1 覆盖原事实 |
@@ -434,6 +484,8 @@ git diff --check
 git diff -- data
 git status --short --untracked-files=all
 ```
+
+Release Artifact workflow 还必须在固定 Ubuntu 24.04 x86_64 runner 上对成功的 main Verify exact SHA 完成 archive、checksum、fresh extraction、只读 artifact verify、Python `--no-index` install、`pip check` 与 Vite/Vinext runnable acceptance。workflow 不替代现有 PR/main `Verify`，也不连接 Production。
 
 Linux 还需静态验证 systemd unit，并以进程级测试证明：
 

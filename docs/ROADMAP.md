@@ -1,6 +1,6 @@
 # Rardar Roadmap
 
-> Last updated: **2026-08-17**
+> Last updated: **2026-08-18**
 >
 > 这是执行路线，不是承诺时间表。长期产品原则由 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md) 定义；当前完成度看 [`PROJECT_STATUS.md`](PROJECT_STATUS.md)。
 
@@ -17,6 +17,7 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 → 真实用户行动
 → Always-on 运行
 → 产品决策流
+→ 可重复、离线可激活的 exact release
 → 安全公网入口
 → 更强个性化 / Agent 能力
 ```
@@ -59,25 +60,48 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 
 ---
 
-# Now — 下一独立产品发布任务
+# Now — 发布准备隔离
 
 ---
 
-## N1. PROD-PRODUCT-RELEASE-01
+## N1. RELEASE-ARTIFACT-01
 
-状态：**待独立授权**
+状态：**实现完成 / 等待首个 main artifact Bootstrap 验收**
 
-目标：将包含 Launch Decision Flow 与 Signal → Project audited association 的最新 exact `main` 安全发布到现有 Server Primary。
+目标：在固定 Ubuntu 24.04 x86_64 GitHub runner 中，为成功通过 main `Verify` 的 exact SHA 构建完整 Node runtime、`dist`、Python 3.12 wheelhouse、manifest、archive checksum，并完成 fresh extraction / offline acceptance。
 
 边界：
 
-- 本任务必须单独进行 release、备份、Runtime 与 production generation 验证；
-- 不与 Public Edge、DNS/TLS、SSH hardening 或下一次自然 refresh 验证混合；
-- 仓库能力合并不自动授予生产访问或部署权限。
+- Production 不再执行 `npm ci`、`npm install` 或 build；
+- artifact 必须绑定成功 Verify 的完整 SHA，排除 `data/`、secrets 与不安全 symlink；
+- 本任务不访问 Production、不部署、不调整 swap，也不改变 Runtime / Scheduler / data。
 
 ---
 
 # Next — 上线与安全
+
+## X1. PROD-PRODUCT-RELEASE-02
+
+状态：**等待 RELEASE-ARTIFACT-01 合并及 main artifact SUCCESS**
+
+目标：将包含 Launch Decision Flow 与 Signal → Project audited association 的 exact CI artifact 安全激活到现有 Server Primary。
+
+边界：
+
+- exact artifact download → checksum → extract → offline Python venv → preflight → backup → atomic switch → restart；
+- 不访问 npm registry，不在服务器 install/build Node dependencies；
+- 记录并验证下一次自然 08:00 refresh；
+- 不与 Public Edge、DNS/TLS、SSH hardening 或 resource hardening 混合。
+
+---
+
+## X2. OPS-RESOURCE-HARDEN-01
+
+状态：**独立评估**
+
+基于生产正常 RSS 与 memory pressure 单独评估 swap、`MemoryHigh`、`MemoryMax` 与 OOM policy。该任务不能替代 CI artifact，也不能与发布协议变更合并。
+
+---
 
 ## X3. PROD-DEPLOY-02 Public Edge
 
