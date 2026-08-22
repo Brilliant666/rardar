@@ -8,8 +8,9 @@
 部署预检、测试和文档；不访问 Production，不修改 Nginx、DNS、TLS、Basic
 Auth、systemd unit、Scheduler、generation、D1 或产品数据。
 
-Public Edge 在本 PR 中继续保持 inactive。本文件记录 Draft 实现，不声称已经
-部署、Ready 或合并。
+Public Edge 在本迭代中继续保持 inactive。本文件记录实现和验证证据；PR 的
+Ready、merge 与 artifact 状态以 GitHub 和最新 `main` 为准，任何仓库状态都不
+代表已经部署或启用 Public Edge。
 
 ## 事故与根因
 

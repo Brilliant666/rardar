@@ -69,13 +69,13 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 
 ---
 
-# Now — Public Host 合同 Hotfix
+# Now — Public Host 合同交付门禁
 
 ---
 
 ## N1. PUBLIC-HOST-ALLOWLIST-01
 
-状态：**开发中 / Public Edge inactive**
+状态：**实现与完整验证完成 / Public Edge inactive**
 
 目标：在 Website 继续只监听 `127.0.0.1` 的前提下，通过 Vite 官方环境机制只接受明确列出的 exact public FQDN，并继续拒绝未知、兄弟和嵌套子域 Host。
 
@@ -84,7 +84,7 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 - Runtime preflight 和 deployment checker 共用 fail-closed validator；
 - Website 环境正向 allowlist 只新增 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`；
 - 禁止 wildcard、leading-dot suffix、`allowedHosts=true`、Host rewrite 和 public bind；
-- 本任务只创建 Draft PR，不访问 Production、不启用 Nginx vhost。
+- merge、main Verify、exact artifact 验收和 Production 部署继续作为顺序门禁；任何仓库合并都不自动授权访问 Production 或启用 Nginx vhost。
 
 ---
 
@@ -92,9 +92,9 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 
 ## X1. Hotfix exact release deployment
 
-状态：**等待 PUBLIC-HOST-ALLOWLIST-01 merge、main Verify 与 exact artifact SUCCESS**
+状态：**等待独立授权的 exact artifact Production 部署；Public Edge 保持 inactive**
 
-目标：安全激活 Host 合同 exact release，并为 Managed Website 配置唯一正式 hostname。
+目标：在 merge、main Verify 与绑定 merge SHA 的 exact artifact 验收通过后，安全激活 Host 合同 exact release，并为 Managed Website 配置唯一正式 hostname。
 
 边界：
 

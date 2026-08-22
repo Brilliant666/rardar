@@ -6,7 +6,7 @@
 
 ## 一句话状态
 
-Rardar 的 exact CI release artifact 已完成 Bootstrap 验收，Production 当前运行 `c02f750` release。`PROD-DEPLOY-02` 的候选 Public Edge 因 Vite 未收到受审查 hostname 而返回 403，现已安全回滚为 inactive；当前唯一仓库任务是版本化 exact Host allowlist Hotfix。
+Rardar 的 exact CI release artifact 已完成 Bootstrap 验收，Production 当前运行 `c02f750` release。`PROD-DEPLOY-02` 的候选 Public Edge 因 Vite 未收到受审查 hostname 而返回 403，现已安全回滚为 inactive；Vite exact public-host 合同已经实现并通过完整验证，后续仍须独立完成 merge-SHA artifact 验收、Production EnvironmentFile 配置和 Public Edge retry。
 
 ---
 
@@ -18,7 +18,7 @@ Rardar 的 exact CI release artifact 已完成 Bootstrap 验收，Production 当
 - PR #21：Signal → Project Audited Association v1；
 - PR #22：CI-built Exact Release Artifact v1；
 - `main`：`c02f75012e024bb17d470c6fddb5006495792338`；
-- `fix/vite-public-host-allowlist`：仅修复 Vite exact public Host Runtime 合同，保持 Draft、未部署。
+- PR #23：实现 Vite exact public Host Runtime 合同；合并、artifact 验收与 Production 部署分别受独立门禁约束。
 
 这些描述仍区分仓库、Production Runtime 与 Public Edge：`c02f750` 已作为 Production release，但公网 Nginx vhost 当前 inactive；Hotfix 合并不自动授权再次部署或启用 Public Edge。
 
@@ -266,13 +266,13 @@ Production 已使用 `c02f750` exact release。Production 上运行在线 `npm c
 
 ## 当前最重要的工作流
 
-### 1 — PUBLIC-HOST-ALLOWLIST-01（当前仓库 Hotfix）
+### 1 — Vite exact public-host contract
 
-为 Vite 官方 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 建立 exact FQDN validator、Runtime Website 正向环境传递、deployment checker 和真实 Host-header 测试；只创建 Draft PR，不访问 Production。
+Vite 官方 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 的 exact FQDN validator、Runtime Website 正向环境传递、deployment checker 和真实 Host-header 测试已经实现。它不代表 Production 已部署，也不授权启用 Public Edge。
 
 ### 2 — Hotfix exact release deployment（合并后的独立 Runtime 任务）
 
-等待 Hotfix main Verify 与 Release Artifact 成功后，才允许部署 exact artifact、写入 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar.cosflow.icu`、受控重启，并完成 offline/online 与直接 Host-header 200/403 验收。
+只有 Hotfix 合并、main Verify 与绑定 merge SHA 的 Release Artifact 验收全部成功后，才允许部署 exact artifact、写入 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar.cosflow.icu`、受控重启，并完成 offline/online 与直接 Host-header 200/403 验收。
 
 ### 3 — Public Edge（独立上线主线）
 
