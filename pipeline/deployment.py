@@ -38,8 +38,10 @@ from pipeline.release_artifact import (
 from pipeline.runtime_settings import (
     PERSISTENT_PATH_VARIABLES,
     RuntimeSettingsError,
+    VITE_ADDITIONAL_ALLOWED_HOSTS_ENV,
     load_runtime_layout,
     load_runtime_settings,
+    validate_vite_additional_allowed_hosts,
 )
 from pipeline.stable_read import StableReadError, stable_read
 
@@ -700,6 +702,11 @@ def _check_runtime_contract(
             _fail("runtime_configuration_missing", f"{name} is required for deployment")
 
     try:
+        website_allowed_hosts = validate_vite_additional_allowed_hosts(
+            source[VITE_ADDITIONAL_ALLOWED_HOSTS_ENV]
+            if VITE_ADDITIONAL_ALLOWED_HOSTS_ENV in source
+            else None
+        )
         layout = load_runtime_layout(source, application_root=APPLICATION_ROOT)
         settings = load_runtime_settings(source)
     except RuntimeSettingsError as error:
@@ -790,6 +797,7 @@ def _check_runtime_contract(
         "scheduleAt": settings.schedule_at,
         "scheduleTimezone": settings.schedule_timezone,
         "staleAfterHours": settings.stale_after_hours,
+        "websiteAllowedHosts": list(website_allowed_hosts),
         "persistentPaths": {
             name: str(path) for name, path in persistent_paths.items()
         },

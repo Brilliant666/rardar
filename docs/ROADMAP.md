@@ -1,6 +1,6 @@
 # Rardar Roadmap
 
-> Last updated: **2026-08-18**
+> Last updated: **2026-08-22**
 >
 > 这是执行路线，不是承诺时间表。长期产品原则由 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md) 定义；当前完成度看 [`PROJECT_STATUS.md`](PROJECT_STATUS.md)。
 
@@ -58,40 +58,50 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 - title、slug、basename、中文 enrichment、模糊规则、LLM 与 source-provided projectId 都不能决定项目归属；
 - 产品发布仍由独立 Runtime 任务决定，本项完成不代表已经部署到生产。
 
+## CI-built Exact Release Artifact v1
+
+状态：**PASS / VERIFIED**
+
+- PR #22 已以 `c02f75012e024bb17d470c6fddb5006495792338` 合入 `main`；
+- main Verify 与首个真实 Release Artifact workflow 成功；
+- exact archive checksum、fresh extraction、offline Python install 与 runnable acceptance 已通过；
+- Production 发布准备不再运行 co-located `npm ci` / build。
+
 ---
 
-# Now — 发布准备隔离
+# Now — Public Host 合同交付门禁
 
 ---
 
-## N1. RELEASE-ARTIFACT-01
+## N1. PUBLIC-HOST-ALLOWLIST-01
 
-状态：**实现完成 / 等待首个 main artifact Bootstrap 验收**
+状态：**实现与完整验证完成 / Public Edge inactive**
 
-目标：在固定 Ubuntu 24.04 x86_64 GitHub runner 中，为成功通过 main `Verify` 的 exact SHA 构建完整 Node runtime、`dist`、Python 3.12 wheelhouse、manifest、archive checksum，并完成 fresh extraction / offline acceptance。
+目标：在 Website 继续只监听 `127.0.0.1` 的前提下，通过 Vite 官方环境机制只接受明确列出的 exact public FQDN，并继续拒绝未知、兄弟和嵌套子域 Host。
 
 边界：
 
-- Production 不再执行 `npm ci`、`npm install` 或 build；
-- artifact 必须绑定成功 Verify 的完整 SHA，排除 `data/`、secrets 与不安全 symlink；
-- 本任务不访问 Production、不部署、不调整 swap，也不改变 Runtime / Scheduler / data。
+- Runtime preflight 和 deployment checker 共用 fail-closed validator；
+- Website 环境正向 allowlist 只新增 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`；
+- 禁止 wildcard、leading-dot suffix、`allowedHosts=true`、Host rewrite 和 public bind；
+- merge、main Verify、exact artifact 验收和 Production 部署继续作为顺序门禁；任何仓库合并都不自动授权访问 Production 或启用 Nginx vhost。
 
 ---
 
 # Next — 上线与安全
 
-## X1. PROD-PRODUCT-RELEASE-02
+## X1. Hotfix exact release deployment
 
-状态：**等待 RELEASE-ARTIFACT-01 合并及 main artifact SUCCESS**
+状态：**等待独立授权的 exact artifact Production 部署；Public Edge 保持 inactive**
 
-目标：将包含 Launch Decision Flow 与 Signal → Project audited association 的 exact CI artifact 安全激活到现有 Server Primary。
+目标：在 merge、main Verify 与绑定 merge SHA 的 exact artifact 验收通过后，安全激活 Host 合同 exact release，并为 Managed Website 配置唯一正式 hostname。
 
 边界：
 
 - exact artifact download → checksum → extract → offline Python venv → preflight → backup → atomic switch → restart；
-- 不访问 npm registry，不在服务器 install/build Node dependencies；
-- 记录并验证下一次自然 08:00 refresh；
-- 不与 Public Edge、DNS/TLS、SSH hardening 或 resource hardening 混合。
+- 在 `/etc/rardar/rardar.env` 精确设置 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar.cosflow.icu`；
+- 直接验证受信 Host=200、未知/同域其他 Host=403、listener=loopback；
+- 不访问 npm registry，不在服务器 install/build，也不在此步骤启用 Public Edge。
 
 ---
 
@@ -105,7 +115,7 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 
 ## X3. PROD-DEPLOY-02 Public Edge
 
-状态：**未开始**
+状态：**BLOCKED_VITE_HOST_ALLOWLIST / INACTIVE**
 
 前置：
 
@@ -115,10 +125,8 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 
 需要独立设计：
 
-- production domain；
-- reverse proxy；
-- TLS；
-- Cloudflare / DNS；
+- 已保留的 `rardar.cosflow.icu` DNS、TLS certificate 与 Basic Auth；
+- 当前 inactive 的 Nginx reverse proxy vhost；
 - security headers；
 - rate limiting；
 - API / health 暴露范围；
@@ -126,6 +134,8 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 - 3000 / 3002 始终不直接公网暴露。
 
 Public Edge 不是简单“加一个 Nginx 配置”，它会改变真实攻击面，因此必须独立 PR / 独立部署门禁。
+它只能在 X1 的 exact Host 200/403 验收通过后恢复；Nginx 必须使用
+`proxy_set_header Host $host`，不能伪造 `Host: 127.0.0.1` 绕过 Website gate。
 
 ---
 

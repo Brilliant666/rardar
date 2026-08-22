@@ -40,6 +40,7 @@ from pipeline.runtime_settings import (
     RuntimeSettings,
     RuntimeSettingsError,
     RuntimeTimezoneDatabaseError,
+    VITE_ADDITIONAL_ALLOWED_HOSTS_ENV,
     default_runtime_dir as configured_runtime_dir,
     default_runtime_settings,
     load_runtime_layout,
@@ -93,6 +94,7 @@ _status_allowed_origins = {
 }
 _UNBOUND_SCHEDULER_PROCESS = object()
 WEBSITE_ENVIRONMENT_ALLOWLIST = {
+    VITE_ADDITIONAL_ALLOWED_HOSTS_ENV,
     "APPDATA",
     "CHOKIDAR_USEPOLLING",
     "CI",

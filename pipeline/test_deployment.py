@@ -337,6 +337,7 @@ class OfflineDeploymentTests(DeploymentFixture):
         self.assertEqual(report["locks"]["status"], "available")
         self.assertEqual(report["release"]["artifact"]["commitSha"], TEST_RELEASE_SHA)
         self.assertEqual(report["release"]["artifact"]["status"], "healthy")
+        self.assertEqual(report["runtimeContract"]["websiteAllowedHosts"], [])
         self.assertEqual(_tree_bytes(self.paths["runtime"]), {})
         self.assertEqual(_tree_bytes(self.paths["locks"]), {})
 
@@ -430,6 +431,36 @@ class OfflineDeploymentTests(DeploymentFixture):
                     raised.exception.code,
                     {"runtime_configuration_invalid", "deployment_path_not_absolute"},
                 )
+
+    def test_deployment_checks_validate_optional_exact_vite_hosts(self) -> None:
+        self.ensure_generation()
+        environment = {
+            **self.environment,
+            "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": (
+                "rardar.cosflow.icu,preview.cosflow.icu"
+            ),
+        }
+        with patch(
+            "pipeline.deployment._check_toolchain",
+            return_value=self.toolchain_payload(),
+        ):
+            report = check_offline(environment)
+        self.assertEqual(
+            report["runtimeContract"]["websiteAllowedHosts"],
+            ["rardar.cosflow.icu", "preview.cosflow.icu"],
+        )
+
+        for checker in (check_offline, check_online):
+            with self.subTest(checker=checker.__name__), self.assertRaises(
+                DeploymentCheckError
+            ) as raised:
+                checker(
+                    {
+                        **self.environment,
+                        "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": "*.cosflow.icu",
+                    }
+                )
+            self.assertEqual(raised.exception.code, "runtime_configuration_invalid")
 
     def test_all_deployment_paths_must_be_absolute_and_non_overlapping(self) -> None:
         relative = dict(self.environment)

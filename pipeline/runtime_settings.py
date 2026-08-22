@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 from dataclasses import dataclass
@@ -19,6 +20,14 @@ MANAGER_ALREADY_RUNNING_EXIT_CODE = 4
 DEFAULT_VINEXT_PORT = 3000
 DEFAULT_RUNTIME_STATUS_PORT = 3002
 RUNTIME_HOST = "127.0.0.1"
+VITE_ADDITIONAL_ALLOWED_HOSTS_ENV = "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"
+MAX_VITE_ADDITIONAL_ALLOWED_HOSTS = 8
+MAX_DNS_HOSTNAME_LENGTH = 253
+MAX_VITE_ALLOWED_HOSTS_CONFIGURATION_LENGTH = (
+    MAX_VITE_ADDITIONAL_ALLOWED_HOSTS * MAX_DNS_HOSTNAME_LENGTH
+    + MAX_VITE_ADDITIONAL_ALLOWED_HOSTS
+    - 1
+)
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PERSISTENT_PATH_VARIABLES = (
     "RARDAR_VINEXT_STATE_DIR",
@@ -29,6 +38,7 @@ PERSISTENT_PATH_VARIABLES = (
 )
 _CLOCK_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 _POSITIVE_INTEGER = re.compile(r"^[1-9]\d*$")
+_DNS_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 class RuntimeSettingsError(ValueError):
@@ -214,6 +224,74 @@ def validate_stale_after_hours(value: object) -> int:
     return parsed
 
 
+def validate_vite_additional_allowed_hosts(value: object | None) -> tuple[str, ...]:
+    """Validate Vite's optional exact-host environment contract.
+
+    Vite deliberately accepts leading-dot suffix patterns and normalizes its
+    environment input by trimming and dropping empty entries.  The managed
+    Rardar runtime is stricter: every configured value must already be a
+    canonical, exact ASCII FQDN before Vite is allowed to see it.
+    """
+
+    if value is None:
+        return ()
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > MAX_VITE_ALLOWED_HOSTS_CONFIGURATION_LENGTH
+    ):
+        raise RuntimeSettingsError(
+            f"{VITE_ADDITIONAL_ALLOWED_HOSTS_ENV} must contain 1 to "
+            f"{MAX_VITE_ADDITIONAL_ALLOWED_HOSTS} exact ASCII FQDNs"
+        )
+
+    hosts = value.split(",")
+    if not 1 <= len(hosts) <= MAX_VITE_ADDITIONAL_ALLOWED_HOSTS:
+        raise RuntimeSettingsError(
+            f"{VITE_ADDITIONAL_ALLOWED_HOSTS_ENV} must contain 1 to "
+            f"{MAX_VITE_ADDITIONAL_ALLOWED_HOSTS} exact ASCII FQDNs"
+        )
+
+    validated: list[str] = []
+    seen: set[str] = set()
+    for host in hosts:
+        if (
+            not host
+            or not host.isascii()
+            or host != host.lower()
+            or any(character.isspace() for character in host)
+            or len(host) > MAX_DNS_HOSTNAME_LENGTH
+            or host.startswith(".")
+            or host.endswith(".")
+            or "." not in host
+            or host == "localhost"
+            or host.endswith(".localhost")
+        ):
+            raise RuntimeSettingsError(
+                f"{VITE_ADDITIONAL_ALLOWED_HOSTS_ENV} accepts canonical exact ASCII FQDNs only"
+            )
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        else:
+            raise RuntimeSettingsError(
+                f"{VITE_ADDITIONAL_ALLOWED_HOSTS_ENV} does not accept IP literals"
+            )
+        labels = host.split(".")
+        if any(_DNS_LABEL_PATTERN.fullmatch(label) is None for label in labels):
+            raise RuntimeSettingsError(
+                f"{VITE_ADDITIONAL_ALLOWED_HOSTS_ENV} accepts canonical exact ASCII FQDNs only"
+            )
+        if host in seen:
+            raise RuntimeSettingsError(
+                f"{VITE_ADDITIONAL_ALLOWED_HOSTS_ENV} does not accept duplicate hostnames"
+            )
+        seen.add(host)
+        validated.append(host)
+    return tuple(validated)
+
+
 def load_runtime_settings(
     environment: Mapping[str, str] | None = None,
     *,
@@ -221,6 +299,11 @@ def load_runtime_settings(
     schedule_timezone: str | None = None,
 ) -> RuntimeSettings:
     source = os.environ if environment is None else environment
+    validate_vite_additional_allowed_hosts(
+        source[VITE_ADDITIONAL_ALLOWED_HOSTS_ENV]
+        if VITE_ADDITIONAL_ALLOWED_HOSTS_ENV in source
+        else None
+    )
     effective_at = schedule_at if schedule_at is not None else source.get(
         "RARDAR_SCHEDULE_AT", DEFAULT_SCHEDULE_AT
     )

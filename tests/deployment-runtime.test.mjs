@@ -518,10 +518,11 @@ async function postJson(url, path, body, timeout = 60_000) {
 }
 
 test("Always-on deployment keeps one foreground manager behind loopback", async () => {
-  const [unit, runtime, example, layout, packageJson, verify] = await Promise.all([
+  const [unit, runtime, example, systemdExample, layout, packageJson, verify] = await Promise.all([
     source("deploy/systemd/rardar.service"),
     source("pipeline/runtime.py"),
     source(".env.production.example"),
+    source("deploy/systemd/rardar.env.example"),
     source("app/layout.tsx"),
     source("package.json").then(JSON.parse),
     source("scripts/verify.mjs"),
@@ -563,6 +564,12 @@ test("Always-on deployment keeps one foreground manager behind loopback", async 
   }
   assert.doesNotMatch(example, /ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+/);
   assert.doesNotMatch(example, /GITHUB_TOKEN|replace-with-a-read-only-github-token/);
+  assert.match(
+    systemdExample,
+    /^# __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar\.cosflow\.icu$/m,
+  );
+  assert.doesNotMatch(systemdExample, /^__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=/m);
+  assert.match(runtime, /VITE_ADDITIONAL_ALLOWED_HOSTS_ENV/);
 });
 
 test("systemd sandbox grants exactly the address families required by the runtime", async () => {
@@ -641,6 +648,7 @@ test("runtime telemetry is proxied through the website without exposing the stat
   assert.match(vite, /RARDAR_RUNTIME_STATUS_ORIGIN/);
   assert.match(vite, /RARDAR_VITE_CACHE_DIR/);
   assert.match(vite, /RARDAR_VINEXT_PORT and RARDAR_RUNTIME_STATUS_PORT must differ/);
+  assert.doesNotMatch(vite, /allowedHosts\s*:\s*true/);
 });
 
 test("deployment v1 does not add a second scheduler or a public listener", async () => {
@@ -660,6 +668,9 @@ test("deployment v1 does not add a second scheduler or a public listener", async
   assert.match(guide, /--configLoader runner/);
   assert.match(guide, /--port <RARDAR_VINEXT_PORT>/);
   assert.match(guide, /--strictPort/);
+  assert.match(guide, /proxy_set_header Host \$host/);
+  assert.doesNotMatch(guide, /^\s*proxy_set_header Host 127\.0\.0\.1;\s*$/m);
+  assert.match(guide, /__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar\.cosflow\.icu/);
   assert.doesNotMatch(guide, /^vinext dev --hostname/m);
   assert.match(guide, /本轮不执行真实部署/);
 });

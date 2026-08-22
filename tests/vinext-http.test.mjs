@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -369,6 +369,53 @@ function assertGenerationMarkers(html, expectedCatalog, expectedSignal, rejected
   assert.doesNotMatch(html, new RegExp(rejectedSignal));
 }
 
+async function listeningAddresses(port) {
+  if (process.platform === "win32") {
+    const script = [
+      `$listeners = @(Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction Stop)`,
+      "ConvertTo-Json -Compress -InputObject @($listeners | ForEach-Object { $_.LocalAddress })",
+    ].join("; ");
+    const result = spawnSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { encoding: "utf8", timeout: 10_000, windowsHide: true },
+    );
+    if (result.error || result.status !== 0) {
+      throw new Error(
+        `failed to inspect Windows listener ${port}: ${result.error?.message || result.stderr}`,
+      );
+    }
+    const parsed = JSON.parse(result.stdout.trim() || "[]");
+    return [...new Set(Array.isArray(parsed) ? parsed : [parsed])].sort();
+  }
+  if (process.platform === "linux") {
+    const addresses = [];
+    const expectedPort = port.toString(16).toUpperCase().padStart(4, "0");
+    for (const [path, family] of [
+      ["/proc/net/tcp", "ipv4"],
+      ["/proc/net/tcp6", "ipv6"],
+    ]) {
+      const content = await readFile(path, "ascii");
+      for (const line of content.trim().split(/\r?\n/).slice(1)) {
+        const columns = line.trim().split(/\s+/);
+        if (columns.length < 4 || columns[3] !== "0A") continue;
+        const [rawAddress, rawPort] = columns[1].split(":");
+        if (rawPort !== expectedPort) continue;
+        if (family === "ipv4") {
+          const octets = rawAddress.match(/../g)?.reverse().map((value) => Number.parseInt(value, 16));
+          addresses.push(octets?.join(".") || `invalid:${rawAddress}`);
+        } else if (/^0+$/.test(rawAddress)) {
+          addresses.push("::");
+        } else {
+          addresses.push(`ipv6:${rawAddress}`);
+        }
+      }
+    }
+    return [...new Set(addresses)].sort();
+  }
+  throw new Error(`listener inspection is unsupported on ${process.platform}`);
+}
+
 function signalCardHtml(html, signalId) {
   const marker = `data-signal-id="${signalId}"`;
   const markerIndex = html.indexOf(marker);
@@ -422,7 +469,9 @@ test(
       );
 
       const vinextPort = await availableLoopbackPort();
-      runtime = startVinext(temporaryRoot, dataDirectory, vinextPort);
+      runtime = startVinext(temporaryRoot, dataDirectory, vinextPort, {
+        __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: "rardar.cosflow.icu",
+      });
       const originalPid = runtime.child.pid;
       const baseUrl = await waitForServer(runtime);
       const initialHealth = await waitForHealthyGeneration(
@@ -431,6 +480,36 @@ test(
         fixture.generationA,
         90_000,
       );
+
+      const reviewedPublicHost = await rawHttpRequest(baseUrl, "/api/health", {
+        Accept: "application/json",
+        Host: "rardar.cosflow.icu",
+      });
+      assert.equal(reviewedPublicHost.status, 200);
+      assert.equal(JSON.parse(reviewedPublicHost.body).generationId, fixture.generationA);
+      for (const blockedHost of [
+        "evil.example",
+        "another.cosflow.icu",
+        "foo.rardar.cosflow.icu",
+        "cosflow.icu",
+        "evilrardar.cosflow.icu",
+      ]) {
+        const blocked = await rawHttpRequest(baseUrl, "/api/health", {
+          Accept: "application/json",
+          Host: blockedHost,
+        });
+        assert.equal(blocked.status, 403, `${blockedHost} must not pass the exact-host gate`);
+        assert.match(blocked.body, /Blocked request[\s\S]*not allowed/i);
+      }
+      await assert.rejects(
+        rawHttpRequest(baseUrl, "/api/health", {
+          Host: "rardar.cosflow.icu\r\nX-Injected: true",
+        }),
+        (error) => error?.code === "ERR_INVALID_CHAR",
+      );
+      assert.deepEqual(await listeningAddresses(vinextPort), ["127.0.0.1"]);
+      assert.equal(runtime.child.pid, originalPid);
+      assert.equal(runtime.child.exitCode, null);
 
       const decoy = await startDecoyServer();
       try {
@@ -1217,6 +1296,9 @@ test(
         [
           `GET /: ${homeA.status}`,
           `GET /api/health: ${initialHealth.response.status}`,
+          `exact public Host: ${reviewedPublicHost.status}`,
+          "unknown and sibling Hosts: 403",
+          "website listener: 127.0.0.1 only",
           `GET /signals: ${signals.status}`,
           `GET /search: ${search.status}`,
           `current generation: ${initialHealth.payload.generationId}`,

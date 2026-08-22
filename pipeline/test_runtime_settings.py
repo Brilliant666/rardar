@@ -12,6 +12,7 @@ from pipeline.runtime_settings import (
     default_runtime_settings,
     load_runtime_layout,
     load_runtime_settings,
+    validate_vite_additional_allowed_hosts,
 )
 
 
@@ -80,6 +81,69 @@ class RuntimeSettingsTests(unittest.TestCase):
             with self.subTest(environment=environment):
                 with self.assertRaises(RuntimeSettingsError):
                     load_runtime_settings(environment)
+
+    def test_vite_additional_allowed_hosts_accepts_only_exact_canonical_fqdns(self) -> None:
+        valid = {
+            None: (),
+            "rardar.cosflow.icu": ("rardar.cosflow.icu",),
+            "rardar.cosflow.icu,preview.cosflow.icu": (
+                "rardar.cosflow.icu",
+                "preview.cosflow.icu",
+            ),
+            "build-2.preview123.example": ("build-2.preview123.example",),
+        }
+        for raw, expected in valid.items():
+            with self.subTest(valid=raw):
+                self.assertEqual(validate_vite_additional_allowed_hosts(raw), expected)
+
+        label_too_long = f"{'a' * 64}.example"
+        hostname_too_long = ".".join(("a" * 63,) * 4)
+        invalid = (
+            "",
+            "true",
+            "*",
+            ".cosflow.icu",
+            "*.cosflow.icu",
+            ".com",
+            "https://rardar.cosflow.icu",
+            "http://rardar.cosflow.icu",
+            "rardar.cosflow.icu:443",
+            "rardar.cosflow.icu/path",
+            "rardar.cosflow.icu?x=1",
+            "rardar.cosflow.icu#x",
+            "user@rardar.cosflow.icu",
+            "127.0.0.1",
+            "::1",
+            "localhost",
+            "preview.localhost",
+            "rardar",
+            "RARDAR.cosflow.icu",
+            " rardar.cosflow.icu",
+            "rardar.cosflow.icu ",
+            "rardar.cosflow.icu,,preview.cosflow.icu",
+            "rardar.cosflow.icu,",
+            "rardar.cosflow.icu,rardar.cosflow.icu",
+            "rädar.cosflow.icu",
+            "rardar.cosflow.icu\n",
+            label_too_long,
+            hostname_too_long,
+            "-rardar.cosflow.icu",
+            "rardar-.cosflow.icu",
+            ",".join(f"host-{index}.example.com" for index in range(9)),
+        )
+        for raw in invalid:
+            with self.subTest(invalid=raw), self.assertRaises(RuntimeSettingsError):
+                validate_vite_additional_allowed_hosts(raw)
+
+    def test_runtime_settings_validate_the_optional_vite_host_contract(self) -> None:
+        configured = load_runtime_settings(
+            {"__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": "rardar.cosflow.icu"}
+        )
+        self.assertEqual(configured.schedule_at, "08:00")
+        with self.assertRaises(RuntimeSettingsError):
+            load_runtime_settings(
+                {"__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": ".cosflow.icu"}
+            )
 
     def test_layout_defaults_keep_source_root_data_and_loopback_ports(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

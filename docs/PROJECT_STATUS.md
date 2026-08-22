@@ -1,12 +1,12 @@
 # Rardar Project Status
 
-> Last updated: **2026-08-18**
+> Last updated: **2026-08-22**
 >
 > 本文记录“Rardar 现在做到哪”。长期使命和不变量看 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md)，未来路线看 [`ROADMAP.md`](ROADMAP.md)，具体工程证据看 [`iterations/`](iterations/)。
 
 ## 一句话状态
 
-Rardar 的最新产品 `main` 已包含 Launch Decision Flow 与 Signal → Project audited association，但 Production 仍运行旧 release。2026-08-18 的 co-located `npm ci` / OOM 事件暴露了发布准备架构缺陷；当前主线是先建立 CI-built exact release artifact，再以独立任务离线激活产品版本。
+Rardar 的 exact CI release artifact 已完成 Bootstrap 验收，Production 当前运行 `c02f750` release。`PROD-DEPLOY-02` 的候选 Public Edge 因 Vite 未收到受审查 hostname 而返回 403，现已安全回滚为 inactive；Vite exact public-host 合同已经实现并通过完整验证，后续仍须独立完成 merge-SHA artifact 验收、Production EnvironmentFile 配置和 Public Edge retry。
 
 ---
 
@@ -15,15 +15,16 @@ Rardar 的最新产品 `main` 已包含 Launch Decision Flow 与 Signal → Proj
 当前产品能力基线包含：
 
 - PR #18：Launch Decision Flow；
-- PR #21：Signal → Project Audited Association v1。
-- `main`：`9b6399fde527eb9775898b41a3f9371952ce066f`，产品能力 ready for release；
-- `feat/ci-release-artifact`：`RELEASE-ARTIFACT-01` 实现与 PR Verify 已完成，等待首个 main artifact 验收，尚未部署。
+- PR #21：Signal → Project Audited Association v1；
+- PR #22：CI-built Exact Release Artifact v1；
+- `main`：`c02f75012e024bb17d470c6fddb5006495792338`；
+- PR #23：实现 Vite exact public Host Runtime 合同；合并、artifact 验收与 Production 部署分别受独立门禁约束。
 
-这些描述的是仓库产品能力，不代表最新代码已经部署到 Production Server Primary。只有 CI artifact 方案合并并生成 exact artifact 后，才允许在独立 `PROD-PRODUCT-RELEASE-02` 中部署。
+这些描述仍区分仓库、Production Runtime 与 Public Edge：`c02f750` 已作为 Production release，但公网 Nginx vhost 当前 inactive；Hotfix 合并不自动授权再次部署或启用 Public Edge。
 
 GitHub Actions 的最终状态以仓库 `Verify` workflow 为准；`main` 与所有目标为 `main` 的 PR 都必须经过统一 `npm run verify`。
 
-`Release Artifact` 不替代 `Verify`：它只接受同仓库 `main` push 的成功 Verify exact SHA，并在固定 Ubuntu 24.04 x86_64 builder 上生成 artifact。
+`Release Artifact` 不替代 `Verify`：它只接受同仓库 `main` push 的成功 Verify exact SHA，并在固定 Ubuntu 24.04 x86_64 builder 上生成 artifact。首个真实 `c02f750` artifact 已完成 workflow、checksum、fresh extraction 与 offline acceptance。
 
 Signal → Project 的长期合同：
 
@@ -139,12 +140,12 @@ installation safety: DEGRADED_BY_OOM_INCIDENT
 | Codex queue / enrichment | ✅ | staging → derive → validated generation |
 | Runtime freshness | ✅ | fresh / stale / invalid 语义明确 |
 | Verify CI | ✅ | Ubuntu Node 22.13.1 + Python 3.10 |
-| CI exact release artifact | 🟡 Bootstrap 验收 | 固定 Ubuntu 24.04 x86_64、Node 22.13.1、Python 3.12 wheelhouse；实现已完成，等待首个 main artifact 真实验收 |
+| CI exact release artifact | ✅ VERIFIED | `c02f750` 的 main Verify、Release Artifact、checksum、fresh extraction 与 offline acceptance 已通过 |
 | Local Managed Runtime | ✅ | Manager + Website + Scheduler |
 | Linux Always-on deployment | ✅ | Server Primary 已建立 |
 | Natural unattended publish | ✅ VERIFIED | 8/13 与 8/14 连续自然发布成功；Schema/Audit、CAS 与 byte-exact history invariant 通过 |
 | Launch Decision Flow | ✅ MERGED | PR #18 已以 `4e9c0ea` 合入 `main` |
-| Public Edge | ⏳ | 未配置公网 reverse proxy / TLS / DNS |
+| Public Edge | 🛑 BLOCKED / INACTIVE | DNS、TLS 与 Basic Auth 基础设施保留；Vite exact Host Hotfix 合并和部署前不得重新启用 Nginx vhost |
 | Signal → Project association | ✅ 已实现 | 同一 generation 中精确验证 `signal.repo`；无充分证据保持 signal-only |
 | Research Profile | 🧭 Backlog | P2 |
 | Momentum Lifecycle | 🧭 Backlog | P2 |
@@ -244,8 +245,10 @@ Signal repository fact
 Server Primary 已可长期运行，但：
 
 - 3000 / 3002 只允许 loopback；
-- DNS / TLS / reverse proxy 尚未进入 production；
-- Public Edge 必须单独审计访问控制、headers、rate limit 和 health 暴露范围。
+- `rardar.cosflow.icu` 的 DNS、Let's Encrypt certificate 与 Basic Auth 已保留，但 Nginx Rardar vhost 当前 inactive；
+- 正确保留 `Host: rardar.cosflow.icu` 转发时，现有 Website 因缺少版本化 allowlist 返回 Vite 403；
+- `PUBLIC-HOST-ALLOWLIST-01` 必须先完成 Draft review、merge、exact artifact 和受控部署，之后才能重试 Public Edge；
+- 代理不得把 Host 改写成 `127.0.0.1`，也不得用 wildcard 或 `allowedHosts=true` 绕过 Website gate。
 
 ### 4. Deployment SSH 暂时使用宽 sudo
 
@@ -253,7 +256,7 @@ Server Primary 已可长期运行，但：
 
 ### 5. Release preparation 必须与 Production 隔离
 
-最新产品 main 尚未部署。Production 上运行在线 `npm ci` / `npm install` / build 已不再是受支持路径；新的发布协议必须使用成功 Verify exact SHA 的 CI artifact。实际 server memory hardening 另行处理，不能用 swap 掩盖 co-located build 风险。
+Production 已使用 `c02f750` exact release。Production 上运行在线 `npm ci` / `npm install` / build 仍不是受支持路径；后续 Hotfix 也必须使用成功 Verify exact SHA 的 CI artifact。实际 server memory hardening 另行处理，不能用 swap 掩盖 co-located build 风险。
 
 ### 6. Vinext production compatibility
 
@@ -263,17 +266,17 @@ Server Primary 已可长期运行，但：
 
 ## 当前最重要的工作流
 
-### 1 — RELEASE-ARTIFACT-01（当前仓库 / CI 任务）
+### 1 — Vite exact public-host contract
 
-在隔离 GitHub runner 中为成功 Verify 的 exact main SHA 构建、校验并上传 Linux x86_64 release artifact；不访问 Production。
+Vite 官方 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 的 exact FQDN validator、Runtime Website 正向环境传递、deployment checker 和真实 Host-header 测试已经实现。它不代表 Production 已部署，也不授权启用 Public Edge。
 
-### 2 — PROD-PRODUCT-RELEASE-02（artifact 合并后的独立 Runtime 任务）
+### 2 — Hotfix exact release deployment（合并后的独立 Runtime 任务）
 
-只下载并校验 exact CI artifact，离线安装 Python venv，经 preflight 和停机备份后原子激活；Production 不访问 npm registry、不执行 npm install/build，并在下一次自然 08:00 运行后完成回归。
+只有 Hotfix 合并、main Verify 与绑定 merge SHA 的 Release Artifact 验收全部成功后，才允许部署 exact artifact、写入 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar.cosflow.icu`、受控重启，并完成 offline/online 与直接 Host-header 200/403 验收。
 
 ### 3 — Public Edge（独立上线主线）
 
-产品主路径稳定后，再以 `PROD-DEPLOY-02` 独立处理正式域名、TLS、reverse proxy 与公开 API 安全边界。
+只有第 2 步完整通过后，才重新执行 `PROD-DEPLOY-02` 并启用现有 Nginx vhost。DNS、证书、认证材料不需要在本 Hotfix 中重建。
 
 ---
 

@@ -639,6 +639,24 @@ class RuntimeTests(unittest.TestCase):
         spawn_process.assert_not_called()
         write_status.assert_not_called()
 
+    def test_local_start_rejects_invalid_vite_allowed_hosts_before_side_effects(self) -> None:
+        with (
+            patch.dict(
+                "os.environ",
+                {"__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": ".cosflow.icu"},
+            ),
+            patch("pipeline.runtime._read_json") as read_status,
+            patch("pipeline.runtime._stop_recorded_processes") as stop_processes,
+            patch("pipeline.runtime.subprocess.Popen") as spawn_process,
+            patch("pipeline.runtime.write_runtime_status") as write_status,
+        ):
+            exit_code = start_manager()
+        self.assertEqual(exit_code, 2)
+        read_status.assert_not_called()
+        stop_processes.assert_not_called()
+        spawn_process.assert_not_called()
+        write_status.assert_not_called()
+
     def test_local_start_reports_missing_timezone_data_before_any_side_effects(self) -> None:
         error = RuntimeTimezoneDatabaseError("timezone database unavailable")
         with (
@@ -898,6 +916,7 @@ class RuntimeTests(unittest.TestCase):
                 "WRANGLER_REGISTRY_PATH": str(root / "wrangler-registry"),
                 "MINIFLARE_REGISTRY_PATH": str(root / "miniflare-registry"),
                 "CLOUDFLARE_VITE_FORCE_LOCAL": "true",
+                "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": "rardar.cosflow.icu",
                 "HOME": str(root / "user-home"),
                 "TEMP": str(root / "temp"),
                 "XDG_CACHE_HOME": str(root / "xdg-cache"),
@@ -946,6 +965,10 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(scheduler.environment["RARDAR_DATA_DIR"], str(layout.data_dir))
         self.assertEqual(website.environment["RARDAR_VINEXT_PORT"], "43121")
         self.assertEqual(website.environment["RARDAR_RUNTIME_STATUS_PORT"], "43122")
+        self.assertEqual(
+            website.environment["__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"],
+            "rardar.cosflow.icu",
+        )
         self.assertEqual(
             website.environment["RARDAR_VINEXT_STATE_DIR"],
             persistent["RARDAR_VINEXT_STATE_DIR"],
@@ -1079,6 +1102,23 @@ class RuntimeTests(unittest.TestCase):
     def test_service_rejects_invalid_configuration_before_lock_or_file_writes(self) -> None:
         with (
             patch.dict(os.environ, {"RARDAR_DATA_DIR": "relative-data"}),
+            patch("pipeline.runtime.acquire_manager_lock") as acquire_lock,
+            patch("pipeline.runtime._write_json") as write_json,
+            patch("pipeline.runtime.subprocess.Popen") as spawn,
+        ):
+            exit_code = run_manager(service_mode=True)
+
+        self.assertNotEqual(exit_code, 0)
+        acquire_lock.assert_not_called()
+        write_json.assert_not_called()
+        spawn.assert_not_called()
+
+    def test_service_rejects_invalid_vite_hosts_before_lock_or_child_spawn(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {"__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS": "true"},
+            ),
             patch("pipeline.runtime.acquire_manager_lock") as acquire_lock,
             patch("pipeline.runtime._write_json") as write_json,
             patch("pipeline.runtime.subprocess.Popen") as spawn,

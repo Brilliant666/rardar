@@ -142,6 +142,9 @@ RARDAR_PYTHON=/opt/rardar/current/.venv/bin/python
 RARDAR_VINEXT_PORT=3000
 RARDAR_RUNTIME_STATUS_PORT=3002
 
+# Optional; required only for an explicitly reviewed public reverse proxy.
+# __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar.cosflow.icu
+
 RARDAR_SCHEDULE_AT=08:00
 RARDAR_SCHEDULE_TIMEZONE=Asia/Shanghai
 RARDAR_STALE_AFTER_HOURS=36
@@ -153,6 +156,8 @@ MINIFLARE_REGISTRY_PATH=/var/lib/rardar/runtime/miniflare-registry
 
 三个持久工具路径同样是固定 canonical 路径：Wrangler 日志位于 `/var/log/rardar/wrangler`，两个 registry 位于 `/var/lib/rardar/runtime/` 下各自独立的目录。它们必须预先创建，不得通过 symlink 指向其他位置，也不得落入 release、data、D1、locks、cache 或 backup。
 
+`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 是可选的 Website Host 合同，不属于所有部署的必填变量。未配置时保持现有 loopback / tunnel 行为；配置时，Managed Runtime 和 offline/online checker 都只接受最多 8 个逗号分隔、无空白、无重复的 canonical lowercase ASCII FQDN，并把经过验证的 hostname 列表报告为 `websiteAllowedHosts`。URL、端口、路径、IP、`localhost`、leading-dot suffix、通配符和 `true` 都会在任何 child 启动前 fail closed。合法原始值只通过 Website 的正向环境 allowlist 传给 Vite 官方 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 机制；不会启用 `allowedHosts: true`，也不会把完整 systemd environment 或 secret 暴露给 Website。
+
 真实 GitHub 或 remote-analysis credential 只能写入 `/etc/rardar/rardar.secret` 或等价受限 EnvironmentFile。不得：
 
 - 把真实值写入 `.env.production.example` 或 `rardar.env.example`；
@@ -160,7 +165,7 @@ MINIFLARE_REGISTRY_PATH=/var/lib/rardar/runtime/miniflare-registry
 - 在故障报告中复制完整 environment；
 - 给 read-only GitHub source credential 超出实际需要的权限。
 
-修改 EnvironmentFile 不会热更新 Manager。必须走完整 stop/start，并重新执行 offline/online checks。
+修改 EnvironmentFile 不会热更新 Manager。必须由通过 Verify 的 exact release 执行受控 stop/start，并重新执行 offline/online checks。Public Edge 激活前，受审查的正式值必须明确写为 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar.cosflow.icu`；修改该值之后不得只 reload Nginx 或复用旧 Website 进程。
 
 offline checker 会拒绝 release 根及 `deploy/systemd/` 中的 `.dev.vars*` 和除 `.env.production.example` 外的 `.env*`。真实配置只能来自受限 EnvironmentFile，不能让 Vite 从 release-local 文件隐式加载第二套环境。
 
@@ -270,7 +275,18 @@ ssh -L 3000:127.0.0.1:3000 <operator>@<server>
 
 然后本机访问 `http://127.0.0.1:3000/`。这条命令只是运行手册示例；本轮不连接任何服务器。
 
-反向代理只能作为后续配置 sample，例如让一个经过单独审查的 Caddy/Nginx upstream 指向 `127.0.0.1:3000`。必须由 `PROD-DEPLOY-01` 单独决定监听地址、认证、域名、TLS、headers、rate limit 和防火墙；不得把 3000 或 3002 直接开放到 `0.0.0.0`/`::`。
+反向代理只能作为经过单独审查的 Public Edge 配置，让 upstream 指向 `127.0.0.1:3000`。Nginx 必须保留外部请求的受审查 hostname，让 Website 自己执行 Host gate：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_set_header Host $host;
+}
+```
+
+禁止用 `proxy_set_header Host 127.0.0.1` 绕过 Website Host 校验。允许列表属于版本化 Runtime 合同，不由代理伪造内部 Host。域名、TLS、认证、headers、rate limit、API/health 暴露范围和防火墙仍必须由独立 Public Edge 任务审查；3000 或 3002 不得直接开放到 `0.0.0.0`/`::`，3002 也不得进入代理。
+
+正式 Public Edge 的激活顺序固定为：合并 Host 合同 Hotfix → main Verify 与 exact CI artifact 成功 → 部署该 exact release → 在 `/etc/rardar/rardar.env` 设置精确 FQDN → controlled Runtime restart → offline/online checks → 直接 Host-header 200/403 验收 → 最后才启用 Nginx vhost。任一步失败都保持 Public Edge inactive。
 
 ## 9. Offline deployment preflight
 
@@ -468,6 +484,7 @@ journalctl -u rardar
 | `published_generation_*` | current、manifest/hash、Schema/Audit | 回退 flat data 或手改 pointer |
 | `d1_database_missing` / `sqlite_integrity_failed` | 完整 Vinext state 路径和停机备份 | 初始化空 D1 覆盖原事实 |
 | `runtime_listener_*` | 端口、loopback、PID owner、第二实例 | 公开绑定或批量杀死无关 Node/Python |
+| `runtime_configuration_invalid`（Vite Host） | `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 是否为无空白、无重复的精确 ASCII FQDN | `allowedHosts=true`、通配符、leading-dot suffix 或代理改写成 `127.0.0.1` |
 | `runtime_generation_changed` | 是否自然 refresh 正在发布 | 手工 refresh、修改 `nextRunAt` 或回滚健康发布 |
 | `published_data_stale` | Scheduler telemetry、host availability、外部 source | 把 stale 伪装成 healthy |
 | `vinext start` 的 `cloudflare:` scheme 错误 | v1 compatibility 是否仍由 direct Vite runner 加载 Vinext/Cloudflare 插件 | 跳过 build 或直接公开 dev server |
