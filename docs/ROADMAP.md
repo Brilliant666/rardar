@@ -1,6 +1,6 @@
 # Rardar Roadmap
 
-> Last updated: **2026-08-23**
+> Last updated: **2026-08-24**
 >
 > 这是执行路线，不是承诺时间表。长期产品原则由 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md) 定义；当前完成度看 [`PROJECT_STATUS.md`](PROJECT_STATUS.md)。候选项的出现顺序不代表已经确定产品优先级。
 
@@ -21,6 +21,8 @@ Rardar 当前不缺“更多指标”，缺的是把已有可信数据能力变�
 ```
 
 任何新功能如果要求放宽 generation、Audit、Stable ID、Action history、Runtime 或网络安全边界，都必须拆成独立工程轮。
+
+Repository `main` 与 Production release 可以合法不同。只有完成 exact artifact、独立部署门禁和生产验收的 SHA 才能称为 Production release；文档合并或未部署的产品提交不会自动改变它。
 
 ---
 

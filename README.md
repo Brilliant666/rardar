@@ -50,7 +50,7 @@ Rardar 面向个人开发者和小型工程团队，不只回答“最近什么�
 
 ## 当前项目进度
 
-> 状态快照：**2026-08-23**。更细的完成项、进行中事项和生产状态见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
+> 生产里程碑快照：**2026-08-23**。更细的完成项、进行中事项和生产状态见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
 
 Rardar 已经从“本地数据面板原型”推进到具备完整数据发布边界、稳定项目身份、用户行动状态、自动调度和 Linux Always-on Runtime 的工程阶段。
 
@@ -385,7 +385,7 @@ Ubuntu latest
 
 ## 部署状态
 
-Rardar 已完成 Linux Always-on Server Primary cutover、exact CI artifact 离线发布与 Public Edge 激活。2026-08-23 的验收基线中，repository `main` 与 Production release 均为 `29a844504376b8432dfa01202f2817ac376cd490`；公网入口为 [`https://rardar.cosflow.icu`](https://rardar.cosflow.icu)。当前访问模式是 HTTPS + 整站 Basic Auth 的**私有认证生产 MVP**，不是匿名公开产品，认证凭据不存储在仓库。
+Rardar 已完成 Linux Always-on Server Primary cutover、exact CI artifact 离线发布与 Public Edge 激活。2026-08-23 的 milestone code baseline 与 Production release 均为 `29a844504376b8432dfa01202f2817ac376cd490`；公网入口为 [`https://rardar.cosflow.icu`](https://rardar.cosflow.icu)。纯文档 `main` 提交或尚未部署的开发提交不会改变 Production release。当前访问模式是 HTTPS + 整站 Basic Auth 的**私有认证生产 MVP**，不是匿名公开产品，认证凭据不存储在仓库。
 
 Production 仍采用 exact release + atomic `current` symlink：`npm ci`、Verify、build 和 Python wheel preparation 只在 GitHub CI 完成；服务器只执行 artifact checksum/manifest 验证、解包、offline wheelhouse 安装、preflight、原子切换与受控 restart，不在 active release 内 `git pull` 或在线构建。
 

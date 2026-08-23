@@ -26,7 +26,7 @@ Runtime status 127.0.0.1:3002
 └─ server-internal only; never proxied
 ```
 
-2026-08-23 的收口基线中，repository `main` 与 Production release 均为 `29a844504376b8432dfa01202f2817ac376cd490`。Server Primary 为 ACTIVE，Windows Primary 为 STOPPED。
+截至 2026-08-23，该生产里程碑的 code baseline 与当日已验收的 Production release 均为 `29a844504376b8432dfa01202f2817ac376cd490`。后续 repository `main` 前进不改写这一历史事实，也不代表自动部署。Server Primary 为 ACTIVE，Windows Primary 为 STOPPED。
 
 ## 3. 已完成能力
 

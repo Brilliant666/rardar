@@ -1,12 +1,12 @@
 # Rardar Project Status
 
-> Last updated: **2026-08-23**
+> Last updated: **2026-08-24**
 >
 > 本文记录“Rardar 现在做到哪”。长期使命和不变量看 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md)，未来路线看 [`ROADMAP.md`](ROADMAP.md)，具体工程证据看 [`iterations/`](iterations/)。generation、snapshot 和 `nextRunAt` 均是带日期的验收快照，不应被解释为永久 current 状态。
 
 ## 一句话状态
 
-Rardar 的 **Private authenticated production MVP 已 ACTIVE**：`main` 与 Production release 均为 `29a844504376b8432dfa01202f2817ac376cd490`，Server Primary 长期运行，并通过 [`https://rardar.cosflow.icu`](https://rardar.cosflow.icu) 提供 HTTPS + 整站 Basic Auth 访问。CI exact artifact、离线生产激活、自然刷新、资源加固、exact Host allowlist 和 Public Edge 已形成完整受审计闭环。
+Rardar 的 **Private authenticated production MVP 已 ACTIVE**：2026-08-23 生产里程碑的 code baseline 与当前 Production release 均为 `29a844504376b8432dfa01202f2817ac376cd490`，Server Primary 长期运行，并通过 [`https://rardar.cosflow.icu`](https://rardar.cosflow.icu) 提供 HTTPS + 整站 Basic Auth 访问。repository `main` 可以因纯文档或后续开发提交继续前进；只有通过独立 exact artifact deployment 门禁的 SHA 才是 Production release。CI exact artifact、离线生产激活、自然刷新、资源加固、exact Host allowlist 和 Public Edge 已形成完整受审计闭环。
 
 ---
 
@@ -14,8 +14,9 @@ Rardar 的 **Private authenticated production MVP 已 ACTIVE**：`main` 与 Prod
 
 当前代码与产品能力基线：
 
-- `main`：`29a844504376b8432dfa01202f2817ac376cd490`；
+- 2026-08-23 milestone code baseline：`29a844504376b8432dfa01202f2817ac376cd490`；
 - Production release：`29a844504376b8432dfa01202f2817ac376cd490`；
+- Repository `main`：以 GitHub 默认分支为准；纯文档或尚未部署的开发提交不会自动改变 Production release；
 - PR #18：Launch Decision Flow；
 - PR #21：Signal → Project Audited Association v1；
 - PR #22：CI-built Exact Release Artifact v1；
