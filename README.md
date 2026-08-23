@@ -50,7 +50,7 @@ Rardar 面向个人开发者和小型工程团队，不只回答“最近什么�
 
 ## 当前项目进度
 
-> 状态快照：**2026-08-18**。更细的完成项、进行中事项和生产状态见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
+> 状态快照：**2026-08-23**。更细的完成项、进行中事项和生产状态见 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
 
 Rardar 已经从“本地数据面板原型”推进到具备完整数据发布边界、稳定项目身份、用户行动状态、自动调度和 Linux Always-on Runtime 的工程阶段。
 
@@ -62,12 +62,14 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 | Stable Project ID | ✅ 主链完成 | Catalog、D1、API、canonical route、客户端交互均使用 `projectIdVersion: 1` |
 | Action / Feedback / Recommendation | ✅ 已建立 | append-only Event + State、幂等写入、个性化有限重排 |
 | Verify / CI | ✅ 已建立 | Node 22.13.1 + Python 3.10，统一 `npm run verify` |
-| CI exact release artifact | 🟡 Bootstrap 验收 | 实现与 PR Verify 已完成；等待合并后首个 main artifact 真实验收，Production 仍未部署 |
+| CI exact release artifact | ✅ VERIFIED | exact main Verify SHA、manifest/checksum、fresh extraction、offline Python install 与 runnable acceptance 已通过 |
+| CI artifact Production release | ✅ FULLY VERIFIED | release `29a844504376b8432dfa01202f2817ac376cd490` 已通过离线激活进入 Server Primary |
 | Managed Runtime | ✅ 已建立 | Manager 唯一拥有 Website + Scheduler，默认每日 08:00 Asia/Shanghai |
-| Linux Always-on 部署 | ✅ 已完成首轮 cutover | Server Primary 已建立，Windows Primary 已停止 |
-| 无人值守自然刷新 | ✅ VERIFIED | Server Primary 已连续完成 8/13 与 8/14 两次自然 Scheduler refresh；publication、Schema/Audit 与历史快照完整性均通过 |
+| Linux Always-on 部署 | ✅ VERIFIED | Server Primary ACTIVE；Windows Primary STOPPED |
+| 无人值守自然刷新 | ✅ VERIFIED | 截至 2026-08-23 已独立验证自然 Scheduler refresh、publication 与 Schema/Audit；运行快照不作为永久 current 声明 |
+| Resource hardening | ✅ PASS | swap、swappiness 与 systemd memory guardrails 已完成基础验收 |
 | Launch Decision Flow | ✅ 已合并 | PR #18 已把 Why now → Evidence → Risk → Action 产品流合入 `main`（`4e9c0ea`） |
-| Public Edge | ⏳ 未开始 | DNS / TLS / reverse proxy 仍作为独立上线阶段 |
+| Public Edge | ✅ ACTIVE | [`https://rardar.cosflow.icu`](https://rardar.cosflow.icu)；HTTPS + 整站 Basic Auth 的私有公网 MVP，不是匿名公开产品 |
 | Signal → Project audited association | ✅ 已实现 | 仅以同一 generation 的 `signal.repo` 精确验证 Stable ID；证据不足时继续 signal-only |
 | P1-6C2 legacy collision history | ⏸ Deferred | 不影响当前 Stable ID 主链，但历史 collision 生命周期尚未收口 |
 | TrendRadar/P2 能力 | 🧭 Backlog | Research Profile、Momentum Lifecycle、Alerts/Digest、MCP 等尚未进入当前主线 |
@@ -85,7 +87,12 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 - **PR #18**：Launch Decision Flow 已以 `4e9c0ea` 合入 `main`，统一 Why now → Evidence → Risk → Action / Watch / Feedback 决策路径。
 - **PR #21**：Signal → Project audited association 已完成；关联只来自同一 verified generation 中可精确验证的 `signal.repo`。
 - **PROD-PRODUCT-RELEASE-01 事故**：Server Primary 上的长期 `npm ci` 遇到 registry 失败并与 live workerd 争用 3.8 GiB、无 swap 的主机内存，触发 OOM；服务与 catch-up 已恢复，但旧的 co-located release preparation 不再受支持。
-- **RELEASE-ARTIFACT-01**：实现与 PR Verify 已完成，等待合并后首个 main Verify exact SHA artifact 真实验收；本项不部署 Production。
+- **PR #22 / RELEASE-ARTIFACT-01**：CI-built Exact Release Artifact v1 已通过真实 main artifact、离线安装与 runnable acceptance。
+- **PR #23 / PUBLIC-HOST-ALLOWLIST-01/02/03**：Vite exact FQDN Host 合同已合并、随 exact artifact 部署并完成正反向 Host 验收。
+- **PROD-PRODUCT-RELEASE-02**：`29a844504376b8432dfa01202f2817ac376cd490` 已通过 CI artifact 离线激活到 Server Primary。
+- **SERVER-NATURAL-RUN-03**：截至 2026-08-23，08:00（Asia/Shanghai）自然刷新独立发布 generation `20260823T000005118713Z-e5cfd5b8c5c9`，Schema/Audit 与 publication 通过。
+- **OPS-RESOURCE-HARDEN-01**：基础资源门禁已通过。
+- **PROD-DEPLOY-02**：HTTPS + 整站 Basic Auth 的 Public Edge 已验收并保持 ACTIVE。
 
 ---
 
@@ -378,13 +385,11 @@ Ubuntu latest
 
 ## 部署状态
 
-Rardar 已完成第一版 Linux Always-on 部署工程，并完成 Server Primary cutover。生产 Runtime 采用 exact release + atomic `current` symlink，不在 active release 中直接 `git pull`。
+Rardar 已完成 Linux Always-on Server Primary cutover、exact CI artifact 离线发布与 Public Edge 激活。2026-08-23 的验收基线中，repository `main` 与 Production release 均为 `29a844504376b8432dfa01202f2817ac376cd490`；公网入口为 [`https://rardar.cosflow.icu`](https://rardar.cosflow.icu)。当前访问模式是 HTTPS + 整站 Basic Auth 的**私有认证生产 MVP**，不是匿名公开产品，认证凭据不存储在仓库。
 
-任务提供的 2026-08-18 状态显示，Production 已从安装期 OOM 事件恢复健康，但仍运行旧 release `8436834f49eb5d90f4b52dfc58ca02c483183286` 和 generation `20260818T053951947542Z-ba77932f0c87`；最新产品 main `9b6399fde527eb9775898b41a3f9371952ce066f` 尚未部署。
+Production 仍采用 exact release + atomic `current` symlink：`npm ci`、Verify、build 和 Python wheel preparation 只在 GitHub CI 完成；服务器只执行 artifact checksum/manifest 验证、解包、offline wheelhouse 安装、preflight、原子切换与受控 restart，不在 active release 内 `git pull` 或在线构建。
 
-新协议把 `npm ci`、Verify、build 和 Python wheel preparation 全部移到 GitHub CI。Production 后续只允许 exact artifact download、checksum、extract、offline venv、preflight、atomic switch 与 restart；不得访问 npm registry 或执行 npm install/build。本仓库任务不会访问或改变 Production。
-
-Public Edge 尚未开启，3000 / 3002 不应直接暴露公网。
+网络边界没有因 Public Edge 放宽：Website 与 Runtime status 分别只监听 `127.0.0.1:3000` 和 `127.0.0.1:3002`；Nginx 在 80/443 完成 TLS 与 Basic Auth 后只反向代理到 3000，3002 不进入代理也不暴露公网。
 
 部署与回滚协议见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
@@ -409,12 +414,7 @@ Public Edge 尚未开启，3000 / 3002 不应直接暴露公网。
 
 当前方向不是继续堆“排行榜功能”，而是让 Rardar 从数据雷达走向可用的工程决策系统。
 
-近期重点：
-
-1. 完成 `RELEASE-ARTIFACT-01`，让 main Verify exact SHA 生成通过 offline acceptance 的 CI artifact；
-2. 合并后以独立 `PROD-PRODUCT-RELEASE-02` 离线激活 exact artifact，并验证下一次自然 08:00 refresh；
-3. 分别处理 `OPS-RESOURCE-HARDEN-01`、Public Edge 与 `SEC-SSH-HARDEN-01`；
-4. 继续将 P1-6C2、Research Profile、Momentum Lifecycle、Alerts / Digest、MCP 等能力保持在后续独立工程轮。
+当前唯一的 `Now` 是 `PRODUCT-NEXT-PHASE-DISCOVERY`：等待人工讨论真实使用痛点与下一阶段价值方向，尚未授权实现，也尚未创建产品 branch / PR。Research Profile、Momentum Lifecycle、Alerts / Digest、MCP 等仍只是候选方向；本次里程碑收口不替用户选择优先级。
 
 完整路线与门禁见 [`docs/ROADMAP.md`](docs/ROADMAP.md)。
 
@@ -441,8 +441,8 @@ Rardar 会参考 TrendRadar 等优秀开源雷达项目在**项目主页、快�
 
 ## 当前阶段
 
-Rardar 仍处于 **Active Development**。
+Rardar 仍处于 **Active Development**，但私有认证生产 MVP 已上线。
 
-已经具备真实数据流水线、原子发布、Stable ID、D1 用户状态、Verify CI、Launch Decision Flow、Signal → Project audited association，以及经过连续自然运行验证的 Always-on Server Runtime。最新产品 main ready for release，但 Production 仍在旧 release；CI artifact 架构、离线产品发布、公网入口和若干 P2 能力继续作为独立工作。
+它已经具备真实数据流水线、原子发布、Stable ID、D1 用户状态、Verify CI、Launch Decision Flow、Signal → Project audited association、CI-built exact release、经过独立自然运行验证的 Always-on Server Runtime，以及受 Basic Auth 保护的 HTTPS Public Edge。下一产品阶段尚未确定，必须先进行人工产品讨论。
 
 如果你是在评估代码，请优先从 `docs/PROJECT_STATUS.md`、`docs/RARDAR_NORTH_STAR.md` 和最近的 `docs/iterations/` 开始。

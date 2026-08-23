@@ -1,32 +1,29 @@
 # Rardar Project Status
 
-> Last updated: **2026-08-22**
+> Last updated: **2026-08-23**
 >
-> 本文记录“Rardar 现在做到哪”。长期使命和不变量看 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md)，未来路线看 [`ROADMAP.md`](ROADMAP.md)，具体工程证据看 [`iterations/`](iterations/)。
+> 本文记录“Rardar 现在做到哪”。长期使命和不变量看 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md)，未来路线看 [`ROADMAP.md`](ROADMAP.md)，具体工程证据看 [`iterations/`](iterations/)。generation、snapshot 和 `nextRunAt` 均是带日期的验收快照，不应被解释为永久 current 状态。
 
 ## 一句话状态
 
-Rardar 的 exact CI release artifact 已完成 Bootstrap 验收，Production 当前运行 `c02f750` release。`PROD-DEPLOY-02` 的候选 Public Edge 因 Vite 未收到受审查 hostname 而返回 403，现已安全回滚为 inactive；Vite exact public-host 合同已经实现并通过完整验证，后续仍须独立完成 merge-SHA artifact 验收、Production EnvironmentFile 配置和 Public Edge retry。
+Rardar 的 **Private authenticated production MVP 已 ACTIVE**：`main` 与 Production release 均为 `29a844504376b8432dfa01202f2817ac376cd490`，Server Primary 长期运行，并通过 [`https://rardar.cosflow.icu`](https://rardar.cosflow.icu) 提供 HTTPS + 整站 Basic Auth 访问。CI exact artifact、离线生产激活、自然刷新、资源加固、exact Host allowlist 和 Public Edge 已形成完整受审计闭环。
 
 ---
 
 ## Repository 状态
 
-当前产品能力基线包含：
+当前代码与产品能力基线：
 
+- `main`：`29a844504376b8432dfa01202f2817ac376cd490`；
+- Production release：`29a844504376b8432dfa01202f2817ac376cd490`；
 - PR #18：Launch Decision Flow；
 - PR #21：Signal → Project Audited Association v1；
 - PR #22：CI-built Exact Release Artifact v1；
-- `main`：`c02f75012e024bb17d470c6fddb5006495792338`；
-- PR #23：实现 Vite exact public Host Runtime 合同；合并、artifact 验收与 Production 部署分别受独立门禁约束。
+- PR #23：Vite Exact Public Host Contract。
 
-这些描述仍区分仓库、Production Runtime 与 Public Edge：`c02f750` 已作为 Production release，但公网 Nginx vhost 当前 inactive；Hotfix 合并不自动授权再次部署或启用 Public Edge。
+GitHub Actions 的最终门禁仍是统一的 `npm run verify`。`Release Artifact` 不替代 Verify：它只接受同仓库 `main` push 的成功 Verify exact SHA，在固定 builder 上生成绑定 commit、manifest 和 checksum 的 artifact，并完成 fresh extraction、offline Python install 与 runnable acceptance。
 
-GitHub Actions 的最终状态以仓库 `Verify` workflow 为准；`main` 与所有目标为 `main` 的 PR 都必须经过统一 `npm run verify`。
-
-`Release Artifact` 不替代 `Verify`：它只接受同仓库 `main` push 的成功 Verify exact SHA，并在固定 Ubuntu 24.04 x86_64 builder 上生成 artifact。首个真实 `c02f750` artifact 已完成 workflow、checksum、fresh extraction 与 offline acceptance。
-
-Signal → Project 的长期合同：
+Signal → Project 的长期合同保持不变：
 
 - 唯一关联权威是 Signal 自身的 `repo`；
 - 只允许在同一 verified generation 中重算并核对 Stable Project ID；
@@ -35,89 +32,87 @@ Signal → Project 的长期合同：
 
 ---
 
-## Production Runtime 状态
+## Production Runtime
 
-已确认的生产拓扑：
+### 当前拓扑
 
 ```text
-Ubuntu Server Primary
+Internet
+→ Nginx :80 / :443
+→ TLS + whole-site Basic Auth
+→ 127.0.0.1:3000 Rardar Website
+
+Ubuntu Server Primary = ACTIVE
 └─ systemd
    └─ Rardar Manager
-      ├─ Website
+      ├─ Website  127.0.0.1:3000
       └─ Scheduler
 
+Runtime status 127.0.0.1:3002 = server-internal only
 Windows Primary = STOPPED
 ```
 
-已完成：
+Production 的 release、data、Vinext/D1、runtime、cache、logs 与 backups 相互分离。Manager 是 Website 和 Scheduler 的唯一 owner；3000 与 3002 均只监听 loopback。
 
-- Ubuntu 24.04 x86_64 Server Primary cutover；
-- exact release + atomic `/opt/rardar/current`；
-- systemd 单 Manager ownership；
-- Website `127.0.0.1:3000`；
-- Runtime status `127.0.0.1:3002`；
-- deployment offline / online checker；
-- restart rehearsal；
-- AF_NETLINK Runtime compatibility；
-- SSH deployment alias 与独立 deployment user；
-- 生产数据、Vinext/D1 与 release 分离。
+### CI artifact 到 Production 的闭环
 
-### 2026-08-12 首次自然运行
-
-第一次 Server Primary 无人值守 08:00 refresh 已证明：
+以下链路已经完整验收：
 
 ```text
-Natural trigger       PASS
-Source collection     PASS
-Analysis              PASS
-Signals               PASS
-Schema                PASS
-Audit                 PASS
-Ready candidate       PASS (3 attempts)
-Authoritative publish FAIL
+main Verify
+→ exact Release Artifact
+→ manifest + archive checksum
+→ fresh extraction + offline wheelhouse install
+→ Production preflight + backup
+→ atomic current release switch
+→ controlled restart
+→ online checks
+→ natural Scheduler refresh
+→ authenticated Public Edge
 ```
 
-publication failure：
+Production 不运行 `npm ci`、`npm install` 或 build，也不在 active release 内 `git pull`。CI-built exact artifact 的离线激活已 **FULLY VERIFIED**。
+
+### 自然运行验收
+
+Always-on unattended operation 已验证。2026-08-13 与 2026-08-14 的连续自然发布完成后，`SERVER-NATURAL-RUN-03` 又在 **2026-08-23 08:00（Asia/Shanghai）**独立验收：
 
 ```text
-refresh_base_snapshot_not_archived
+generation:      20260823T000005118713Z-e5cfd5b8c5c9
+natural trigger: PASS
+Schema:          healthy
+Audit:           healthy
+publication:     PASS
+nextRunAt:       2026-08-24 08:00 Asia/Shanghai
 ```
 
-根因不是 Scheduler、systemd、采集或 Audit，而是 refresh producer 把 published base snapshot 从 CRLF JSON 重新序列化成 LF JSON，语义相同但 bytes 不同，因此被正确的 byte-exact history invariant 拒绝。
+这是截至 2026-08-23 的验收证据，不声称上述 generation 或 `nextRunAt` 在后续调度后仍是 current。
 
-PR #19 已在 `main` 修复：
+### 资源加固
 
-- cloned base snapshot 使用共享 `stable_read`；
-- 从同一份稳定原始 bytes 解析语义与创建 history；
-- 不再重新序列化历史快照；
-- create-only / no-replace archive；
-- 冲突、symlink、reparse、损坏和竞态继续 fail closed。
+`OPS-RESOURCE-HARDEN-01 = PASS`。当前基础防线：
 
-### 2026-08-13 / 2026-08-14 连续自然运行验证
+| Guardrail | Accepted value |
+| --- | --- |
+| Swap | 2 GiB |
+| `vm.swappiness` | `10` |
+| systemd `MemoryHigh` | `2304M` |
+| systemd `MemoryMax` | `infinity` |
 
-`SERVER-NATURAL-RUN-02 = PASS`，`Always-on unattended operation = VERIFIED`。
+资源门禁已解除，但它不改变“Production 不进行依赖安装或构建”的 release 隔离合同。
 
-- 2026-08-13 08:00（Asia/Shanghai）无人干预运行发布 generation `20260813T000002931860Z-111fffa574b0`；historical snapshot base/archive 字节数和 SHA-256 精确一致，Schema、Audit、publication 与 CAS 全部通过。
-- 2026-08-14 08:00（Asia/Shanghai）第二次连续自然运行发布 generation `20260814T000003142671Z-e14314b022b4`，于 08:00:52 完成并返回 `SUCCESS`。
-- 两轮均为 `humanTriggered: false`；全过程保持 single Scheduler、`restartCount = 0` 与可信 telemetry。
+### Public Edge
 
-因此 Runtime 主线不再是当前产品开发 blocker。Public Edge 和 SSH hardening 仍属于后续独立授权任务，不因 Always-on VERIFIED 自动完成。
+`PROD-DEPLOY-02 = PASS`，Public Edge 为 **ACTIVE**。当前入口是 [`https://rardar.cosflow.icu`](https://rardar.cosflow.icu)，访问模式为 HTTPS + 整站 Basic Auth 的私有认证生产 MVP，并非匿名公开产品。
 
-### 2026-08-17 / 18 production installation incident
+边界：
 
-本轮不访问 Production；以下为任务提供的事故与恢复状态：
-
-```text
-active release: 8436834f49eb5d90f4b52dfc58ca02c483183286
-current generation: 20260818T053951947542Z-ba77932f0c87
-next run: 2026-08-19 08:00 Asia/Shanghai
-availability: HEALTHY
-installation safety: DEGRADED_BY_OOM_INCIDENT
-```
-
-旧部署流程在 3.8 GiB RAM、无 swap 的 Server Primary 上运行 `npm ci`。registry `ECONNRESET`、约 13 小时 50 分钟的失败安装与 live workerd 内存压力最终导致 kernel OOM kill；服务重启、08:00 自然任务错过，Scheduler catch-up 后恢复健康 generation。
-
-生产可用性已经恢复，但最新产品代码尚未发布。`RELEASE-ARTIFACT-01` 将 dependency install、Verify、build 与 Python wheel preparation 全部移到 CI；Production 后续只能执行 checksum、extract、offline venv、preflight、atomic switch 与 restart。swap / resource limit 评估保持为独立 `OPS-RESOURCE-HARDEN-01`。
+- Nginx 只把认证后的流量代理到 `127.0.0.1:3000`；
+- Nginx 保留外部 `Host`，Website 使用已部署的 exact FQDN allowlist 再次校验；
+- `Authorization` 不转发给 upstream；
+- `127.0.0.1:3002` 不进入 Nginx，也不暴露公网；
+- Basic Auth 凭据、hash、TLS private key 与 Production secret 不存储在仓库；
+- Public Edge 激活未影响原有站点。
 
 ---
 
@@ -125,32 +120,22 @@ installation safety: DEGRADED_BY_OOM_INCIDENT
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| GitHub facts collection | ✅ | 真实 API 快照、历史归档、增长区间 |
-| 技术 Signal | ✅ | 48h Signal、信源健康与同代 audited project association |
-| Immutable generation | ✅ | candidate → Schema → Audit → atomic pointer |
-| Historical rollback | ✅ | retained generation 显式验证与 rollback |
-| Cross-file Audit | ✅ | 发布前跨产物一致性检查 |
-| Explainable scoring | ✅ | 多维评分，不用单一热度替代任务适配 |
-| Static repository analysis | ✅ | 有界 clone/archive，不执行陌生代码 |
-| Stable Project ID | ✅ 主链 | Catalog v3、D1、API、route、client 主链已迁移 |
-| Legacy collision lifecycle | ⏸ Deferred | P1-6C2 尚未收口历史 collision |
-| Action Event / State | ✅ | append-only event + canonical state |
-| Feedback | ✅ | 与真实工程 Action 分离 |
-| Personalized recommendation | ✅ v1 | 有限重排，不覆盖事实与风险 |
-| Codex queue / enrichment | ✅ | staging → derive → validated generation |
-| Runtime freshness | ✅ | fresh / stale / invalid 语义明确 |
-| Verify CI | ✅ | Ubuntu Node 22.13.1 + Python 3.10 |
-| CI exact release artifact | ✅ VERIFIED | `c02f750` 的 main Verify、Release Artifact、checksum、fresh extraction 与 offline acceptance 已通过 |
-| Local Managed Runtime | ✅ | Manager + Website + Scheduler |
-| Linux Always-on deployment | ✅ | Server Primary 已建立 |
-| Natural unattended publish | ✅ VERIFIED | 8/13 与 8/14 连续自然发布成功；Schema/Audit、CAS 与 byte-exact history invariant 通过 |
-| Launch Decision Flow | ✅ MERGED | PR #18 已以 `4e9c0ea` 合入 `main` |
-| Public Edge | 🛑 BLOCKED / INACTIVE | DNS、TLS 与 Basic Auth 基础设施保留；Vite exact Host Hotfix 合并和部署前不得重新启用 Nginx vhost |
-| Signal → Project association | ✅ 已实现 | 同一 generation 中精确验证 `signal.repo`；无充分证据保持 signal-only |
-| Research Profile | 🧭 Backlog | P2 |
-| Momentum Lifecycle | 🧭 Backlog | P2 |
-| Alerts / Digest | 🧭 Backlog | P2 |
-| MCP | 🧭 Backlog | P2 |
+| GitHub facts / Signal collection | ✅ | 真实 API 快照、历史归档、信源健康与同代 audited association |
+| Immutable generation / Audit | ✅ | candidate → Schema → Audit → atomic pointer；retained generation 可验证回滚 |
+| Explainable scoring / static analysis | ✅ | 多维可解释评分；有界只读分析且不执行陌生代码 |
+| Stable Project ID | ✅ 主链 | Catalog v3、D1、API、route、client 使用 Stable ID |
+| Action / Feedback / Recommendation | ✅ | append-only Event + State、幂等写入、有限个性化重排 |
+| Verify CI | ✅ | PR / main 统一 `npm run verify` |
+| Launch Decision Flow | ✅ | Home / Daily Five → Why now → Evidence → Risk → Detail → Action |
+| Signal → Project association | ✅ | 只接受同 generation 可精确证明的 repository identity |
+| Linux Always-on Server Primary | ✅ VERIFIED | Manager、Website、Scheduler 由 systemd 长期看护 |
+| Natural unattended publish | ✅ VERIFIED | 截至 2026-08-23 已独立验证自然触发、Schema/Audit 和发布 |
+| CI exact release artifact | ✅ VERIFIED | exact commit、manifest/checksum、fresh extraction 与 offline acceptance |
+| CI artifact Production release | ✅ FULLY VERIFIED | exact artifact 已离线激活到 Server Primary |
+| Resource hardening | ✅ PASS | swap、swappiness 与 systemd memory guardrails 已验收 |
+| Vite exact public Host | ✅ DEPLOYED | 精确 FQDN allowlist 与 Host 200/403 边界已验收 |
+| Public Edge | ✅ ACTIVE | HTTPS + 整站 Basic Auth；3000/3002 继续 loopback-only |
+| Legacy collision lifecycle | ⏸ Deferred | P1-6C2 尚未收口，不阻塞当前 Stable ID 主链 |
 
 ---
 
@@ -158,136 +143,59 @@ installation safety: DEGRADED_BY_OOM_INCIDENT
 
 ### Phase A — 数据可信边界
 
-- PR #2：Data contracts
-- PR #4：Generation / atomic publication
-- PR #6：Scoring semantics
-- PR #7：Repeatable Verify + GitHub CI
+PR #2、#4、#6 与 #7 建立了数据 Schema、audited generation、评分语义和统一 Verify。Rardar 不再直接改 flat JSON，而是在 Schema + Audit 通过后原子发布 immutable generation。
 
-结果：Rardar 不再是“修改 JSON 然后网页直接读”，而是有正式 generation、Schema、Audit 和 rollback 边界的数据产品。
+### Phase B — 用户行动与稳定身份
 
-### Phase B — 用户行动闭环
+PR #5、#8、#9 与 #13 建立 append-only Action Event、State 投影、Weekly Acted Projects 和 collision-safe Stable Project ID；canonical route 为 `/project/v1/<projectId>`。
 
-- PR #5：Action events
-- D1 Event / State / Feedback / Decision history
-- Weekly Acted Projects 北极星指标
-- 幂等 Action 写入与推荐反馈
+### Phase C — Always-on Runtime
 
-结果：Rardar 开始衡量用户是否真的尝试、克隆和复用项目，而不是只统计页面浏览。
+PR #14 至 #17、PR #19 与 Server Primary cutover 建立 systemd 单 Manager ownership、Runtime freshness、Linux stable-read 完整性和可持续自然刷新。
 
-### Phase C — Stable Project Identity
+### Phase D — 产品决策流
 
-- PR #8：Stable Project ID contract
-- PR #9：D1 Action / Feedback identity migration
-- PR #13：Client / route stable identity
-
-结果：项目主链不再依赖可碰撞 slug。canonical route 使用 `/project/v1/<projectId>`。
-
-仍未完成：P1-6C2 historical legacy collision lifecycle。
-
-### Phase D — Runtime / Deployment
-
-- PR #14：Runtime readiness、schedule、freshness
-- PR #15：Always-on Linux deployment
-- PR #16：Linux stable read integrity
-- PR #17：systemd AF_NETLINK compatibility
-- PROD-DEPLOY-01：Server Primary cutover
-- PR #19：Historical snapshot byte-preserving refresh
-
-结果：Rardar 已有真实 Linux Server Primary 和每日 Scheduler，不再依赖 Windows 笔记本持续在线；8/13 与 8/14 连续自然运行进一步验证 Always-on unattended operation。
-
-### Phase E — Productization（已建立决策主链）
-
-PR #18 已合并：
+PR #18 与 #21 将已有证据组织为：
 
 ```text
-Home
+Home / Daily Five
 → Why now
 → Evidence
 → Risk
-→ Detail
+→ Project Detail
 → Watch / Action / Feedback
+→ subsequent recommendations
 ```
 
-结果：已有数据能力已经组织成用户能直接理解和采取行动的产品路径，而不是继续堆指标面板。
+Signal 只有在同 generation 可精确验证 repository identity 时进入项目详情。
 
-### Phase F — Signal → Project（已完成）
+### Phase E — Exact release 与 Public Edge
 
-PR #21 只在 Signal 自身携带严格合法的 GitHub repository，且同一 published generation 的 Catalog 能精确验证 Stable ID 时，建立 canonical 项目入口。关联缺失是合法状态，不会触发标题、slug、中文 enrichment 或 LLM 猜测。
-
-### Phase G — Release preparation isolation（Bootstrap 验收）
-
-`RELEASE-ARTIFACT-01` 将 exact main Verify SHA、full Node runtime、build output、offline Python wheelhouse、manifest 与 archive checksum 收敛为一个 CI artifact。实现与 PR Verify 已完成；只有合并后首个实际 main workflow artifact 验收成功才完成本阶段，且仍不等于生产部署。
+PR #22、PR #23、`PROD-PRODUCT-RELEASE-02`、`SERVER-NATURAL-RUN-03`、`OPS-RESOURCE-HARDEN-01` 和 `PROD-DEPLOY-02` 已完成：CI 构建 exact artifact，Production 离线激活，资源门禁通过，Website exact Host 合同已部署，私有认证 Public Edge 已 ACTIVE。
 
 ---
 
-## 已知边界 / 技术债
+## 保留的维护项与边界
 
-### 1. P1-6C2 Legacy collision history
+以下事项仍未完成，但不应被描述为当前产品开发 blocker，也不代表已经选定下一产品方向：
 
-Stable ID 当前主链可以正常运行，但跨 generation 的 legacy slug collision 生命周期仍未最终解决。现有 collision gate 不应为了方便而放宽。
-
-### 2. Signal 关联必须可审计
-
-已实现的机械关联固定为：
-
-```text
-Signal repository fact
-→ canonical repository normalization
-→ recompute projectId v1
-→ verify project in same generation Catalog
-→ canonical project link
-```
-
-不能使用 title / slug / fuzzy repo name 猜测；合法但未命中 Catalog 的 repository 继续保持 signal-only，而不是 Audit error。
-
-### 3. Public Edge 尚未开放
-
-Server Primary 已可长期运行，但：
-
-- 3000 / 3002 只允许 loopback；
-- `rardar.cosflow.icu` 的 DNS、Let's Encrypt certificate 与 Basic Auth 已保留，但 Nginx Rardar vhost 当前 inactive；
-- 正确保留 `Host: rardar.cosflow.icu` 转发时，现有 Website 因缺少版本化 allowlist 返回 Vite 403；
-- `PUBLIC-HOST-ALLOWLIST-01` 必须先完成 Draft review、merge、exact artifact 和受控部署，之后才能重试 Public Edge；
-- 代理不得把 Host 改写成 `127.0.0.1`，也不得用 wildcard 或 `allowedHosts=true` 绕过 Website gate。
-
-### 4. Deployment SSH 暂时使用宽 sudo
-
-`rardar-deploy` 当前保留 bootstrap 阶段的 `NOPASSWD: ALL` 作为回滚通路。Server Primary 和 Public Edge 稳定后需要执行独立 `SEC-SSH-HARDEN-01`。
-
-### 5. Release preparation 必须与 Production 隔离
-
-Production 已使用 `c02f750` exact release。Production 上运行在线 `npm ci` / `npm install` / build 仍不是受支持路径；后续 Hotfix 也必须使用成功 Verify exact SHA 的 CI artifact。实际 server memory hardening 另行处理，不能用 swap 掩盖 co-located build 风险。
-
-### 6. Vinext production compatibility
-
-当前 build 是硬门禁，但正式 Manager 使用已验证的 Vite/Vinext compatibility entry，而不是把未验证的 `vinext start` 当成 production target。这一选择需要在 Vinext upstream 能力稳定后重新评估。
+- `SEC-SSH-HARDEN-01`：收紧 bootstrap deployment sudo surface，并在保留可验证 rollback 的前提下评估 key rotation；
+- `clash-sub.service`：作为与 Rardar 独立的主机维护项处理；
+- `P1-6C2 Legacy Collision History`：保持现有 ambiguity gate，不改写 append-only 历史；
+- bootstrap credential 的明文副本：由操作者确认已安全保存后删除；
+- reboot persistence：尚未通过真实重启单独验收；
+- Vinext production compatibility：继续使用已验证的 Vite/Vinext compatibility entry，等待 upstream 能力稳定后再评估。
 
 ---
 
-## 当前最重要的工作流
+## 当前产品决策状态
 
-### 1 — Vite exact public-host contract
+当前唯一的产品工作是 `PRODUCT-NEXT-PHASE-DISCOVERY`：等待与用户讨论真实使用痛点、发现/判断/行动/留存的优先关系、目标用户范围和最可感知价值。尚未授权实现，尚未创建新的产品 branch 或 PR。
 
-Vite 官方 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 的 exact FQDN validator、Runtime Website 正向环境传递、deployment checker 和真实 Host-header 测试已经实现。它不代表 Production 已部署，也不授权启用 Public Edge。
-
-### 2 — Hotfix exact release deployment（合并后的独立 Runtime 任务）
-
-只有 Hotfix 合并、main Verify 与绑定 merge SHA 的 Release Artifact 验收全部成功后，才允许部署 exact artifact、写入 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar.cosflow.icu`、受控重启，并完成 offline/online 与直接 Host-header 200/403 验收。
-
-### 3 — Public Edge（独立上线主线）
-
-只有第 2 步完整通过后，才重新执行 `PROD-DEPLOY-02` 并启用现有 Nginx vhost。DNS、证书、认证材料不需要在本 Hotfix 中重建。
+Research Profile、Momentum Lifecycle、Alerts / Digest、MCP、Advanced Personalization 与 Watch Lifecycle 仍是候选方向；本状态文档不替用户选择顺序。
 
 ---
 
 ## 如何维护本文
 
-重要 PR 或生产门禁完成后，只更新以下内容：
-
-1. Repository main / active PR；
-2. Production Runtime；
-3. 能力完成度；
-4. 三个当前门禁；
-5. 已知边界。
-
-具体实现细节继续进入 `docs/iterations/`，不要重新把完整工程历史堆进 README。
+重要 PR 或生产门禁完成后，只更新 Repository 基线、Production Runtime、能力完成度、当前决策状态和已知边界。动态 generation 与 schedule 必须带验收日期；具体实现和历史事实继续进入 `docs/iterations/`，不得通过重写历史记录来制造当前状态。

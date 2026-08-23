@@ -165,7 +165,7 @@ MINIFLARE_REGISTRY_PATH=/var/lib/rardar/runtime/miniflare-registry
 - 在故障报告中复制完整 environment；
 - 给 read-only GitHub source credential 超出实际需要的权限。
 
-修改 EnvironmentFile 不会热更新 Manager。必须由通过 Verify 的 exact release 执行受控 stop/start，并重新执行 offline/online checks。Public Edge 激活前，受审查的正式值必须明确写为 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar.cosflow.icu`；修改该值之后不得只 reload Nginx 或复用旧 Website 进程。
+修改 EnvironmentFile 不会热更新 Manager。必须由通过 Verify 的 exact release 执行受控 stop/start，并重新执行 offline/online checks。首次 Public Edge 激活或后续变更正式 Host 合同时，受审查的值必须明确写为 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar.cosflow.icu`；修改该值之后不得只 reload Nginx 或复用旧 Website 进程。
 
 offline checker 会拒绝 release 根及 `deploy/systemd/` 中的 `.dev.vars*` 和除 `.env.production.example` 外的 `.env*`。真实配置只能来自受限 EnvironmentFile，不能让 Vite 从 release-local 文件隐式加载第二套环境。
 
@@ -286,7 +286,7 @@ location / {
 
 禁止用 `proxy_set_header Host 127.0.0.1` 绕过 Website Host 校验。允许列表属于版本化 Runtime 合同，不由代理伪造内部 Host。域名、TLS、认证、headers、rate limit、API/health 暴露范围和防火墙仍必须由独立 Public Edge 任务审查；3000 或 3002 不得直接开放到 `0.0.0.0`/`::`，3002 也不得进入代理。
 
-正式 Public Edge 的激活顺序固定为：合并 Host 合同 Hotfix → main Verify 与 exact CI artifact 成功 → 部署该 exact release → 在 `/etc/rardar/rardar.env` 设置精确 FQDN → controlled Runtime restart → offline/online checks → 直接 Host-header 200/403 验收 → 最后才启用 Nginx vhost。任一步失败都保持 Public Edge inactive。
+当前 Public Edge 已按以下顺序完成首次激活；未来新增 hostname、变更 Host 合同或重建入口时仍必须复用同一门禁：合并 Host 合同变更 → main Verify 与 exact CI artifact 成功 → 部署该 exact release → 在 `/etc/rardar/rardar.env` 设置精确 FQDN → controlled Runtime restart → offline/online checks → 直接 Host-header 200/403 验收 → 最后才启用或切换 Nginx vhost。任一步失败都不得绕过 Website Host gate 或改变既有健康入口。
 
 ## 9. Offline deployment preflight
 
@@ -518,4 +518,4 @@ restart → old children 0 / new Manager 1 / Website 1 / Scheduler 1
 stop    → all owned processes 0
 ```
 
-本轮完成后只创建 Draft PR。不得转 Ready 或合并。本轮不执行真实部署。
+仓库文档或代码迭代本身不授权真实部署。任何 Production 激活、重启、回滚或 Public Edge 变更仍需单独、明确的操作授权。本轮不执行真实部署。
