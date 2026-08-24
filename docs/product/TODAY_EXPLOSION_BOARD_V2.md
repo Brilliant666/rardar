@@ -1,8 +1,14 @@
 # 今日爆发榜 v2
 
-> 状态：Draft / 尚未授权实现
+> 状态：产品合同已接受 / 尚未授权实现
 > 主问题：过去 24 小时，GitHub 上哪些项目获得了最多新增关注？
 > 排名合同：只按 Rardar 自有连续快照计算的 24h 新增 Star 降序。
+
+正式覆盖文案为：
+
+> 基于 Rardar 多源候选召回与自有连续观察形成的 GitHub 24h 爆发榜。
+
+产品目标可以探索“全网现在最值得关注什么”，但数据页面不得声称已经扫描全 GitHub、榜单等于 GitHub 绝对全站 Top 20，或所有爆发项目都必然被召回。
 
 ## 1. 产品语义
 
@@ -53,13 +59,14 @@ observedStarDelta = totalStars(T) - totalStars(T - 24h)
 
 ## 3. 首次发现
 
-首次观察没有 `T-24h` 基线，必须进入独立的“新入榜待验证”区：
+首次观察没有 `T-24h` 基线，必须**立即**进入独立的“新入榜待验证”区，不得隐藏 24 小时：
 
 | 字段 | 显示规则 |
 | --- | --- |
 | 当前总 Star | 显示，来源为 GitHub API |
 | 外部 period stars | 可显示为“GitHub/Trendshift 报告”，不得标“精确” |
 | 首次发现时间 | 显示 Rardar `firstSeenAt` |
+| 实际观察窗口 | 显示例如 `已观察 2h：+X`，不得外推为 24h |
 | 精确 24h | 显示“等待完整窗口”，不得显示 proxy |
 | 排名 | 使用区域内的外部 source rank 或当前 Star，仅明确标注为待验证；不占精确榜名次 |
 
@@ -72,6 +79,15 @@ observedStarDelta = totalStars(T) - totalStars(T - 24h)
 - 每 2 小时：轻量候选召回与 repository metadata observation。
 - 每日 08:00：创建同相位 24h 窗口；完成 Schema/Audit 后发布正式 generation。
 - AI：榜单事实发布后异步运行；ready 结果最早由下一次安全 derive/publish 采用。
+
+每 2 小时路径只允许：
+
+- 候选召回；
+- GitHub repository metadata；
+- Star、Fork、`pushedAt`、`archived`、`disabled`；
+- 外部榜单来源与事实 capture bundle。
+
+每 2 小时路径不得执行浅克隆、完整静态分析、深度 AI 或完整 generation publication。如果上一轮 observer 尚未结束，新一轮必须跳过并记录 `skipped_overlap`；不得启动第二个 observer。
 
 与替代方案相比：
 
@@ -121,7 +137,7 @@ observedStarDelta = totalStars(T) - totalStars(T - 24h)
 
 - 同次采集优先以 GitHub numeric repository ID 去重。
 - repository rename/transfer 时保留同一 GitHub ID 的连续 observation，并记录 old/new repository。
-- 产品仍通过当前 Stable Project ID 进入 generation；GitHub ID 与 Stable ID 的长期连续性迁移必须是独立、可回滚的工程设计，不能在热榜 PR 顺带修改。
+- GitHub numeric repository ID 只作为 observation ledger 的外部连续性锚。产品仍通过当前 Stable Project ID 进入 Catalog、路由、D1、Action 和 Feedback；第一个 observation PR 不修改 Stable Project ID v1、canonical routes、D1 identity 或历史行动/反馈。
 - fork、mirror 与 source repository 分别保留身份，不把 Star 相加。
 
 ## 6. 入榜与排序
@@ -160,7 +176,7 @@ AI 只能补充：
 
 - 中文一句话；
 - 项目形态与核心能力；
-- 为什么可能在当前窗口爆发；
+- **AI 爆发原因判断**：为什么可能在当前窗口爆发；
 - 局限与证据引用。
 
 AI 不能：
@@ -169,6 +185,8 @@ AI 不能：
 - 把外部 reported delta 写入 observed delta；
 - 用“质量”“相关性”或用户反馈改变全局榜顺序；
 - 在证据版本变化后继续显示旧结论为 current。
+
+每条 AI 爆发原因判断必须包含 `evidenceRefs`、`confidence`、`limitations`、`sourceRevision`、`model`、`reasoningEffort`、`promptVersion` 和 `generatedAt`。页面必须把 24h Star、Trending、Release、Push 等事实与模型判断分栏，不得把“可能由什么推动”显示成确定因果。
 
 状态行为：
 
@@ -197,9 +215,10 @@ AI 不能：
 - observation 窗口和端点；
 - GitHub Trending 名次与 reported stars（注明来源）；
 - 首次发现、连续精确上榜次数；
-- 核心能力、项目形态、为什么爆发、局限；
+- 核心能力、项目形态、AI 爆发原因判断、局限；
 - fork/mirror/archive/异常标记；
 - 全部来源与 generation；
+- 候选来源、成功查询数、召回候选数、观察覆盖状态、数据更新时间和 degraded source；
 - Engineering Readiness、Reuse Fit、Evidence Completeness；
 - Endurance/长期趋势；
 - 兼容的“综合关注”分，但明确不影响今日榜。
@@ -246,9 +265,10 @@ AI 不能：
 1. observation 合同：时间区、负数、身份冲突、重复捕获幂等、路径安全。
 2. 窗口计算：严格 24h、边界容差、漏点、首次发现、Star 下降、同分稳定排序。
 3. 多源召回：去重、source provenance、`incomplete_results`、429/secondary limit、parser fixture 变化。
-4. generation：artifact hash、Schema、cross-file Audit、发布中断、并发 publisher、rollback。
-5. 页面：Top 5/20、不足不补、待验证隔离、AI 六态、单请求单 generation。
-6. 真实 HTTP：pointer 切换、损坏 current fail closed、AI outage 仍返回事实榜。
+4. observer ownership：单实例、未完成轮次跳过、`skipped_overlap`、无第二个 observer。
+5. generation：artifact hash、Schema、cross-file Audit、发布中断、并发 publisher、rollback。
+6. 页面：Top 5/20、不足不补、待验证隔离、覆盖说明、AI 六态、单请求单 generation。
+7. 真实 HTTP：pointer 切换、损坏 current fail closed、AI outage 仍返回事实榜。
 
 迁移期保留现有 Daily Five。新榜达到验收门槛后再通过独立 UI PR 将其设为首页第一主榜；回滚只切回旧页面和旧 artifact loader，不删除 observation 历史或 retained generations。
 

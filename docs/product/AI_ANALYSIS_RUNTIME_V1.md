@@ -1,375 +1,389 @@
 # AI Analysis Runtime v1
 
-> 状态：Draft / 尚未授权实现
-> 研究日期：2026-08-24
-> 目标：让模型分析进入 24 小时无人值守体系，同时永远不成为事实采集和 generation 发布的单点故障。
-> 本次研究没有调用任何付费 OpenAI API，也没有产生模型费用。
+> 状态：产品合同已接受 / 尚未授权实现
+> 决策日期：2026-08-24
+> 目标：让模型判断进入 24 小时无人值守体系，同时永远不成为事实采集和 generation 发布的单点故障。
+> 本 RFC 没有访问 Sub2API 管理后台、Production credential 或真实 API Key，也没有发起任何付费模型调用。
 
-## 1. 官方能力核验
+## 1. Provider 与模型合同
 
-### 1.1 模型和 model ID
-
-OpenAI 官方页面当前列出：
-
-| 层级 | API model ID | 定位 | reasoning effort | context / max output |
-| --- | --- | --- | --- | --- |
-| frontier | [`gpt-5.6-sol`](https://developers.openai.com/api/docs/models/gpt-5.6-sol) | 复杂专业任务 | none/low/medium/high/xhigh/max | 1,050,000 / 128,000 |
-| balanced | [`gpt-5.6-terra`](https://developers.openai.com/api/docs/models/gpt-5.6-terra) | 智能与成本平衡 | none/low/medium/high/xhigh/max | 1,050,000 / 128,000 |
-| volume | [`gpt-5.6-luna`](https://developers.openai.com/api/docs/models/gpt-5.6-luna) | 成本敏感高吞吐 | none/low/medium/high/xhigh/max | 1,050,000 / 128,000 |
-
-`gpt-5.6` alias 当前路由到 Sol，但生产合同应保存实际返回的 model/snapshot，并在可用时使用明确 ID，不把营销名当 model ID。
-
-官方页面确认三者支持 Responses、Batch、Streaming 和 Structured Outputs。Rardar 的组织/项目是否已获这些模型及具体 RPM、TPM、Batch queue 配额仍是 **UNVERIFIED**；实施前必须在项目 limits 中核对，不能依据文档 Tier 1 示例假定账户权限。
-
-### 1.2 价格
-
-2026-08-24 官方 text token 价格（每 1M tokens）：
-
-| 模型 | Input | Cached input | Output |
-| --- | ---: | ---: | ---: |
-| `gpt-5.6-sol` | USD 4.00 | USD 0.40 | USD 20.00 |
-| `gpt-5.6-terra` | USD 2.00 | USD 0.20 | USD 12.00 |
-| `gpt-5.6-luna` | USD 0.20 | USD 0.02 | USD 1.20 |
-
-Sol 页面明确称该价格为至少持续至 2026-11-21 的促销价。超过 272K 输入的请求按更高倍率计费，cache write 也有额外倍率。Rardar 的任务级输入上限远低于 272K，并在任何实现前重新抓取官方价格。
-
-### 1.3 API 选择
-
-- [Responses API](https://developers.openai.com/api/reference/responses/create)：统一的生产调用接口。
-- [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)：所有判断输出使用严格 JSON Schema；调用方仍需处理 refusal、incomplete、截断和语义错误。
-- [Background mode](https://developers.openai.com/api/docs/guides/background)：用于单个分钟级深度任务，Worker 轮询状态；不用浏览器请求持有长连接。
-- [Batch](https://developers.openai.com/api/docs/guides/batch)：非紧急夜间 backlog 可换取 50% 成本折扣和独立 rate pool，但完成窗口可达 24 小时，不能用于交互式找项目或当天发布硬门禁。
-- Streaming：只在未来需要增量说明时使用；v1 的结构化 Job 使用非流式/background，避免把未验证片段直接展示。
-- [Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)：把稳定 system policy、Schema 和 few-shot 放在前缀，动态仓库证据放后面；缓存命中只是成本优化，不能成为正确性依赖。
-
-### 1.4 数据与隐私
-
-[OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data) 说明 API 数据默认不用于训练，除非组织明确 opt in；默认 abuse-monitoring logs 最长可保留 30 天。Zero Data Retention 和 Modified Abuse Monitoring 需要资格审批，当前账户状态 **UNVERIFIED**。
-
-Rardar 默认：
-
-- `store=false`；
-- 自己保存经过 Schema 验证的结构化结果，不依赖 provider conversation state；
-- 只发送公开仓库必要证据切片；
-- background 的临时处理和 ZDR 细节在启用前复核；
-- 不宣称“零保留”，除非账户配置和请求行为都有证据。
-
-Background guide 还说明，即使在适用的 `store=false` / ZDR 场景，为了轮询也可能临时保存约 10 分钟的数据。它不是“调用结束立即无状态”的保证；实施前必须按当时官方文档和账户控制重新验证。
-
-### 1.5 文档 rate limits 与运行门禁
-
-三份 GPT-5.6 模型页当前都列出 Free 不支持；Tier 1 示例为 500 RPM、500,000 TPM、1,500,000 batch queued tokens，后续 tier 更高。它只是模型文档中的 tier 表，不证明 Rardar 项目已经获得该额度。
-
-实现必须在启动预检中读取或由管理员配置实际 project limits，运行时按响应头/429 调整，并始终保留 20% headroom。无法验证可用模型或 limits 时，AI Runtime 保持 disabled，事实 pipeline 继续。
-
-## 2. 任务分层
-
-下面的“最大输入/输出”是 Rardar 自己的硬上限，不是模型 context 极限。
-
-| 任务 | 默认模型 | Effort | 最大输入 | 最大输出 | 应用超时 | 重试 | 缓存 |
-| --- | --- | --- | ---: | ---: | --- | --- | --- |
-| candidate triage | `gpt-5.6-luna` | low | 8K | 600 | 30s | 最多 2 | 24h 或 metadata 变化 |
-| Chinese summary | `gpt-5.6-luna` | medium | 16K | 1.2K | 45s | 最多 2 | 证据指纹变化前，最长 30d |
-| deep repository analysis | `gpt-5.6-terra` | high | 80K | 4K | 15min background | 最多 2 | 证据指纹变化前，最长 30d |
-| daily cross-project comparison | `gpt-5.6-sol` | xhigh | 96K | 6K | 20min background | 最多 1 | 当前 generation/24h |
-| find-project requirement parsing | `gpt-5.6-terra` | medium | 12K | 2K | 45s | 最多 2 | Requirement text hash，30d |
-| find-project candidate comparison | `gpt-5.6-terra` | high | 120K | 6K | 10min background | 最多 1 | Profile/candidate revisions，30d |
-| high-value escalation | `gpt-5.6-sol` | xhigh | 120K | 6K | 20min background | 最多 1 | 与触发 Job 相同 |
-
-Sol xhigh 只用于：
-
-- 每日 Top N 的高价值跨项目综合判断；
-- 找项目候选证据相近、风险高或 Terra 明确低置信时的升级；
-- 人工标记为高价值的深度任务。
-
-它不用于每个候选的 triage、中文翻译或普通摘要。是否升级由服务端可测试规则决定，例如 `confidence <0.65` 且至少两个候选 must-have 覆盖接近；模型不能自我放宽预算。
-
-## 3. 推荐运行架构
-
-### 3.1 为什么不是 refresh 内直调
-
-直接在 refresh 调模型会使网络、配额、Schema refusal 和长推理都成为 generation publication 的失败条件。事实已准备时，AI 不应该阻止发布。
-
-推荐：
+Rardar 第一版 AI Provider 固定为用户自托管的 **Sub2API**。预期入口标识为：
 
 ```text
-事实/静态证据 ready
-→ enqueue idempotent AIJob
-→ 独立 Worker lease job
-→ provider adapter 调 Responses/Background/Batch
-→ 验证 Structured Output + evidence refs
-→ 原子发布版本化 AI result
-→ 下一 generation 可选引用
+https://api.cosflow.icu
 ```
 
-现有 Codex Queue 可以提供部分输入合同思路，但它是 JSON 任务清单，不具备 Worker、lease、retry、budget、provider 调用或结果状态，不能直接称为 Runtime。
+该字符串是待 capability probe 规范化的配置候选，不代表 `/v1/responses` 已经验证可用。RFC 不记录 API Key、完整请求头、管理后台信息或服务器部署细节。
 
-### 3.2 Queue + Worker
+第一版 Primary model 固定为：
 
-AIJob 至少包含：
+```text
+gpt-5.6-sol
+```
+
+[OpenAI 官方模型页](https://developers.openai.com/api/docs/models/gpt-5.6-sol)确认底层模型支持 Responses、Structured Outputs 和 medium/high/xhigh reasoning effort。该事实只描述 OpenAI 官方接口，不证明当前 Sub2API 部署已经透传模型、effort、Structured Outputs、usage 或任何其他字段。所有代理能力在 versioned capability probe 前均为 **UNVERIFIED**。
+
+第一版不要求 Luna / Terra / Sol 多模型路由，不实现自动模型竞价或 fallback。Rardar 使用同一个 `gpt-5.6-sol`，按任务选择 reasoning effort：
+
+| 任务 | Effort | 说明 |
+| --- | --- | --- |
+| 中文一句话简介 | `medium` | 短输出、事实引用明确 |
+| 简单项目形态与能力提取 | `medium` 或 `high` | 证据简单时 medium，存在多模块时 high |
+| AI 爆发原因判断 | `high` | 必须区分事实与模型判断 |
+| 找项目 RequirementProfile | `high` | 用户可以修订模型推断 |
+| 候选能力匹配 | `high` | 逐项核对 must-have 与缺口 |
+| 深度仓库分析 | `xhigh` | 高价值、长证据、复杂边界 |
+| 跨项目横向比较 | `xhigh` | 同一任务、最多 5 个候选一次比较 |
+| 低置信、高风险或候选接近时复核 | `xhigh` | 由服务端规则升级 |
+
+不得默认所有候选、摘要或翻译都使用 `xhigh`。模型不能自行提高 effort；Job 创建器根据版本化策略决定并保存实际值。
+
+## 2. 货币预算与强制运行边界
+
+第一版**不设置固定货币硬预算**。先前建议的 `USD 3/日`、`USD 90/月` 不再是产品合同，也不是启用 AI 的必要条件。不限货币预算不等于无限调用、无限重试或重复分析相同证据。
+
+v1 强制边界：
+
+- AI Worker provider concurrency 固定为 `1`；
+- pending backlog 总上限 `500`，达到上限后拒绝低优先级新 Job并记录 `backlog_limit_reached`；
+- 同一个 `jobType + sourceRevision + promptVersion + schemaVersion + model + effort` 只有一个 active Job；
+- 每个 Job 有最大输入、最大输出、deadline、最大尝试次数和稳定错误分类；
+- 所有重试复用同一 idempotency key，不创建第二个业务结果；
+- 连续错误触发 provider circuit，事实采集和 generation publication 继续；
+- 每次调用记录 usage 和 latency，即使当前没有金额上限；
+- AI 总开关默认 `false`，capability probe 未通过时并发强制为 `0`。
+
+建议的 v1 默认 Job ceilings：
+
+| Job | 最大输入 tokens | 最大输出 tokens | 单次超时 | 最大总尝试 |
+| --- | ---: | ---: | --- | ---: |
+| 中文一句话简介 | 16K | 1.2K | 90s | 2 |
+| 项目形态/能力提取 | 48K | 4K | 5min | 2 |
+| AI 爆发原因判断 | 32K | 2K | 3min | 2 |
+| RequirementProfile | 16K | 3K | 2min | 2 |
+| 候选能力匹配 | 96K | 6K | 10min | 2 |
+| 深度仓库分析 | 160K | 10K | 20min | 1 |
+| 跨项目横向比较/复核 | 192K | 12K | 20min | 1 |
+
+实现 PR 可以在不扩大上述上限的前提下收紧默认值；任何扩容必须是版本化策略变更并重新评测。
+
+## 3. Sub2API Capability Probe 门禁
+
+AI 启用前必须运行独立、显式、版本化的 `AI-PROVIDER-CAPABILITY-PROBE-01`。Probe 只验证 Provider 合同，不创建正式 AIJob、不写 generation、不修改 current，也不把 credential 写入输出。
+
+以下内容全部为 **UNVERIFIED UNTIL PROBE**：
+
+- canonical base URL 与 endpoint 拼接；
+- `/v1/models`；
+- `/v1/responses`；
+- `gpt-5.6-sol` 是否真实可调用；
+- `reasoning.effort=xhigh` 是否透传；
+- Structured Outputs 是否原生透传；
+- `store=false` 是否透传；
+- usage、cached tokens 与 request ID 字段；
+- 429、5xx 与 timeout 合同；
+- Provider Background、Batch 与 prompt cache 字段；
+- Sub2API implementation/fork、exact version/commit、部署日期和相关安全公告状态；
+- API Key 权限、并发限制、rate limits 与日志脱敏状态。
+
+最低可启用能力：
+
+1. 请求可以认证；
+2. 可以调用 `gpt-5.6-sol`；
+3. 可以发送并验证 reasoning effort；
+4. 可以获得完整非流式响应；
+5. 可以获得可解析文本或结构化内容；
+6. 4xx、429、5xx、timeout 和内容错误可以稳定分类；
+7. 响应 Content-Type 与 body 是预期 JSON，而不是 HTML 前端页面。
+
+Probe 输出至少绑定：
+
+```text
+probeVersion
+provider=sub2api
+baseUrlIdentifier
+normalizedBaseUrl
+responsesEndpoint
+model
+testedEfforts
+structuredOutputMode
+storeFalseObserved
+usageShape
+requestIdShape
+errorContractSummary
+sub2apiVersionEvidence
+securityReviewState
+probedAt
+result
+```
+
+API Key、Authorization header、完整响应中的敏感字段和管理后台数据不得进入 probe artifact、日志、Git 或 PR。
+
+### 3.1 Provider URL 规范化
+
+Provider adapter 必须先规范化 base URL，再通过一个受测试的 endpoint join 函数生成请求地址。只能在 Probe 后确定以下哪种配置有效：
+
+```text
+方案 A
+base_url=https://api.cosflow.icu
+endpoint=/v1/responses
+
+方案 B
+base_url=https://api.cosflow.icu/v1
+endpoint=/responses
+```
+
+必须拒绝：
+
+- `https://api.cosflow.icu/v1/v1/responses`；
+- 将请求误发到根前端后得到 HTML；
+- 非 HTTPS、userinfo、fragment、query 注入或 endpoint path traversal；
+- 重定向到非 allowlisted origin；
+- HTTP 成功但 Content-Type 或 JSON body 不符合 Provider 合同。
+
+### 3.2 Structured Output 模式
+
+Probe 只能选择以下一种模式：
+
+- `NATIVE`：Sub2API 已证明原生透传 Structured Outputs；
+- `LOCAL_SCHEMA_VALIDATION_FALLBACK`：Provider 能稳定返回完整 JSON，但不保证原生 Schema 约束。
+
+无论哪种模式，Rardar 都必须执行本地 JSON parse、Schema validation、evidence ref validation、source version validation，以及 prompt/schema version validation。自由文本永远不能直接写入正式 AI artifact。
+
+## 4. Rardar-owned 异步权威
+
+异步权威是 Rardar 自己的 durable AIJob queue 与独立 Worker，不依赖 Sub2API 或 OpenAI 官方 Background mode：
+
+```text
+事实或静态证据 ready
+→ 创建幂等 AIJob
+→ 独立 Worker 领取有期限 lease
+→ 同步、非流式调用 Sub2API
+→ 解析完整响应
+→ 本地 Schema / evidence / source version 校验
+→ 原子发布版本化 AI 结果
+→ 下一 generation 可选引用 ready 结果
+```
+
+Provider Background 是可选优化；Provider Batch 是可选优化；prompt cache 是可选成本优化；Streaming Deferred。这些能力均不存在时，Runtime 仍必须通过普通完整 Responses 请求工作。
+
+现有 Codex Queue 只能复用输入合同思路。它没有 lease、provider 调用、重试、熔断或结果状态，不能冒充 durable Runtime。
+
+### 4.1 AIJob 最低字段
 
 - job ID/type、idempotency key；
 - repository/projectId 或 requestId；
 - generationId；
-- source revision 与 input hash；
-- model policy、prompt/schema version；
+- source revision、evidence refs 与 input hash；
+- provider、base URL identifier、model、reasoning effort；
+- prompt version、Schema version；
 - priority、notBefore、deadline；
-- attempt、lease owner/expiry；
-- token/USD reservation；
-- state、error code、result ref、usage。
+- attempt、lease owner、lease expiry；
+- state、error code、result ref；
+- createdAt、startedAt、completedAt；
+- usage accounting。
 
-Worker 必须：
-
-- 以租约领取，崩溃后可重试；
-- 在调用前再次检查 source revision 和预算；
-- 不持有 generation data lock 进行网络请求；
-- 先写临时结果、验证 Schema/evidence/version，再原子发布；
-- 发现输入过期时转 `stale`，不调用或不发布结果；
-- 每次调用记录 provider request ID、model、effort、token usage、latency 和错误类别，但不记录 secret 或未裁剪原文。
-
-### 3.3 Background 与 Batch
-
-- 单个 deep profile、每日 Top N 比较、交互式 candidate comparison：Responses background。
-- 夜间非紧急历史画像补齐：Batch；只在其 24h 完成窗口不会影响产品承诺时使用。
-- requirement parsing：普通非流式 Responses，短超时。
-- Batch 输出回收也必须按 `custom_id`、input hash 和 source revision 校验；迟到结果若已 stale 则丢弃为审计记录，不升级为 ready。
-
-## 4. 状态机
-
-```mermaid
-stateDiagram-v2
-    [*] --> pending
-    pending --> running: lease
-    running --> ready: Schema + evidence + version PASS
-    running --> retryable_failed: 429 / timeout / 5xx / transient
-    retryable_failed --> pending: bounded backoff
-    running --> permanent_failed: refusal / invalid input / retry exhausted
-    pending --> stale: input revision changed
-    running --> stale: result revision no longer current
-    ready --> stale: source/prompt/model/schema invalidation
-    permanent_failed --> pending: explicit new version or human retry
-```
-
-页面和发布行为：
-
-| 状态 | 页面 | generation |
-| --- | --- | --- |
-| pending | 分析排队中；事实正常显示 | 不阻塞 |
-| running | 显示进度和开始时间 | 不阻塞 |
-| retryable_failed | 显示稍后重试，保留事实 | 不阻塞 |
-| permanent_failed | 显示暂无分析和最小错误码 | 不阻塞 |
-| stale | 不作为 current 判断；可显示“基于旧版本”历史 | 不引用 |
-| ready | 版本匹配时显示 | 下一次发布可冻结引用 |
-
-## 5. 版本绑定与缓存
-
-### 5.1 必需指纹
-
-每个 AIProjectProfile 绑定：
-
-- repository 和 Stable Project ID；
-- GitHub numeric repository ID（若有）；
-- source commit/default branch/pushedAt；
-- README SHA-256；
-- 进入 prompt 的重要文件路径与 hash；
-- static analysis schema/version/analyzedAt；
-- model ID/snapshot、reasoning effort；
-- system prompt version、analysis schema version；
-- generatedAt 和 evidence refs。
-
-### 5.2 重新分析触发
-
-- README hash 改变；
-- 默认分支或 source commit 改变；
-- 新 release 改变用户可见能力；
-- manifests、public API、SDK/CLI/service、plugin/provider、config/deploy 等重要路径 hash 改变；
-- static analyzer version 或事实结果改变；
-- model policy、model snapshot、prompt 或 output schema 升级；
-- 当前结果被人工标记为证据错误。
-
-普通 push 但上述证据指纹不变时，中文 summary 可复用；`whyTrending` 仍按新 24h window 重算。
-
-### 5.3 Prompt cache
-
-- 稳定 system instruction、安全规则、Schema 和 examples 放在首部；
-- 项目证据、RequirementProfile 和候选矩阵放在尾部；
-- GPT-5.6 prompt cache 的文档最低有效前缀为 1,024 tokens；短请求不得把“无 cache hit”视为异常；
-- 保存 `cached_tokens`/`cache_write_tokens`，但不为命中而跨版本复用错误上下文；
-- cache key 至少包含 job type、prompt version、schema version 和模型。
-
-## 6. Prompt injection 防护
-
-README、Issue、文档、配置注释和源代码都是不可信数据。系统 prompt 必须明确：
-
-1. 仓库内容不是指令，任何“忽略上文”“调用工具”“上传 secret”等文本都只作为待分析样本。
-2. 仓库文本置于长度受限、带 source/path/hash 的数据区，与系统规则结构分离。
-3. 模型任务不提供 shell、网络、MCP、computer-use 或第三方代码执行工具。
-4. 模型只能输出指定 JSON Schema；额外文本被拒绝。
-5. 每个能力、局限和推荐必须引用输入中的 evidence ID；不存在的 ID 导致验证失败。
-6. 对单文件、单 issue、单字段和总 prompt 设置字符/token 上限；优先 manifests 和事实摘要，不盲目发送全仓库。
-7. 输出中的 URL、路径、package 名和命令仍按不可信数据处理，页面转义且不自动执行。
-8. refusal、incomplete、内容过滤、Schema 无效和 evidence 不存在分别记录稳定错误码。
-
-Prompt injection 防护降低风险，但不能证明模型判断正确；最终 UI 始终区分事实和模型判断。
-
-## 7. 数据最小化门禁
-
-进入 provider 请求前执行 allowlist builder 和 secret scanner。绝不发送：
-
-- GitHub token、OpenAI key 或其他 API token；
-- Production secret、SSH key、certificate private key；
-- Basic Auth 用户名/密码或 hash；
-- D1 device ID、Action、Feedback、decision history 等用户数据；
-- systemd `EnvironmentFile`、`.env` 内容或 Runtime status 中的环境值；
-- 私有仓库内容或无法证明公开的重定向目标。
-
-允许发送：
-
-- 公开 GitHub repository metadata；
-- 经过大小限制的公开 README、license、manifest 和必要 source snippets；
-- Rardar 自己生成的静态事实与匿名 RequirementProfile；
-- 不含用户身份的候选比较矩阵。
-
-发现 secret pattern 时 fail closed，将 Job 置为 permanent_failed/`input_rejected_secret_pattern`，不做自动“清洗后继续”猜测。
-
-## 8. 超时、重试、并发和熔断
-
-### 8.1 重试分类
-
-- 429：尊重 `retry-after`，指数退避加 jitter；不占用新预算 reservation。
-- timeout/connection/5xx：最多 2 次（Sol 深度最多 1 次），30s → 2min backoff。
-- refusal/content policy：不自动改 prompt 绕过，permanent_failed。
-- 400/401/403/404：配置或输入错误，permanent_failed；401/403 同时打开全局 circuit。
-- Structured Output invalid/incomplete：允许一次同模型同输入重试；仍失败则 permanent_failed。
-- source revision changed：stale，不重试旧输入。
-
-### 8.2 初始并发
-
-- 全局最多 8 个 provider requests；
-- Luna 8、Terra 4、Sol 2，各自与全局上限取最小值；
-- 保留账户可用 TPM/RPM 的 20% headroom；
-- 实际 limits 未核验前并发为 0，即 Runtime disabled；
-- Batch queue 单独计量，不挤占交互 Job 的美元预算。
-
-### 8.3 熔断
-
-以下任一条件停止新调用，但不停止事实 pipeline：
-
-- 日/月 USD 预算达到 90%；
-- 连续 5 个 provider 配置错误；
-- 10 分钟内 retryable failure >30%；
-- usage 无法解析或实际费用估算超过 reservation 20%；
-- Schema/prompt version 未在 allowlist；
-- secret gate 命中；
-- provider limits 无法确认。
-
-## 9. 成本情景
-
-### 9.1 估算单位
-
-按全额 uncached、非 Batch 官方价格估算，实际 reasoning tokens 计入 output，工具费为 0：
-
-| 任务单位 | 假设 tokens | 单次估算 |
-| --- | --- | ---: |
-| Luna triage | 5K input + 0.5K output | USD 0.0016 |
-| Luna Chinese summary | 10K + 1K | USD 0.0032 |
-| Terra deep profile | 40K + 3K | USD 0.1160 |
-| Sol xhigh daily compare | 60K + 5K | USD 0.3400 |
-| Terra requirement parse | 4K + 1K | USD 0.0200 |
-| Terra find comparison | 60K + 4K | USD 0.1680 |
-
-### 9.2 低、中、高预算
-
-| 情景 | 每日任务量：triage / summary / deep / Sol compare / find parse / find compare | 估算/日 | 30 天 |
-| --- | --- | ---: | ---: |
-| 低 | 100 / 20 / 5 / 1 / 5 / 5 | USD 2.08 | USD 62.52 |
-| 中 | 300 / 50 / 15 / 2 / 20 / 20 | USD 6.82 | USD 204.60 |
-| 高 | 1000 / 150 / 40 / 4 / 60 / 60 | USD 19.36 | USD 580.80 |
-
-这些是规划上界，不是账单承诺。Prompt cache 和符合时效的 Batch 可降低费用；重试、较多 reasoning output 和促销结束会提高费用。
-
-第一版推荐：
-
-- 默认 disabled，人工配置 key、模型可用性和预算后才启用；
-- USD 3/日、USD 90/月硬上限；
-- 普通找项目 Job USD 0.25 目标，任何 Job USD 1 硬上限；
-- Top N 和 Job 数不足时不为“用完预算”而补调用；
-- 每日实际 token/费用和 cache hit 输出到 Runtime status。
-
-此预算必须由用户最终确认。
-
-## 10. Provider abstraction
-
-v1 只实现 OpenAI，保留一个窄接口：
+状态固定为：
 
 ```text
-submit(jobSpec, structuredSchema) -> providerJobRef
-poll(providerJobRef) -> pending | completed | failed
-cancel(providerJobRef) -> bestEffortResult
-usage(providerJobRef) -> tokenAndCostFacts
+pending
+running
+retryable_failed
+permanent_failed
+stale
+ready
 ```
 
-adapter 不决定业务模型路由、重试、证据绑定或发布；这些属于 Rardar。不要首版建设多供应商路由、自动竞价、跨供应商会话迁移或统一 tool layer。
+Worker 在每次外部调用前重新验证 source revision、Job lease、circuit 和 active-job 唯一性。输入已经过期时转 `stale`，不调用 Provider；响应返回后 source revision 已变化时保留审计事实但不得发布结果。
 
-## 11. generation 集成
+### 4.2 请求审计与 usage accounting
 
-推荐独立版本化分析存储：
+每次尝试必须记录：
 
-- AI result 发布采用 immutable object + digest；
-- current generation manifest 只引用 ready、digest 正确、source revision 匹配的 profile；
-- generation 发布后 profile 新版本不能改变该 generation 的页面；
-- 在线找项目 Job 绑定一个 generationId，可引用其 Project Profile 或独立 ready result revisions；
-- Job 结果不修改 current pointer，也不回退 flat 数据；
-- AI store 损坏时隐藏增强并报 degraded，事实 generation 仍可读；若 manifest 声明 profile 为 required，则按 generation 既有 fail-closed 合同失败，不能静默混用。
+- provider；
+- base URL identifier，但不记录 Key；
+- model；
+- reasoning effort；
+- provider request ID；
+- input tokens；
+- cached tokens（若 Provider 提供）；
+- output tokens；
+- latency；
+- attempt count；
+- error code；
+- createdAt；
+- completedAt。
 
-首版建议 AI profile 对榜单是 optional artifact；只有合同、Schema 和 Audit 成熟后，才评估成为 required。
+无法可信解析 usage 时结果可以按内容合同处理，但必须标记 `usage_unverified` 并参与 circuit；不得伪造 token 数。
 
-## 12. 监控
+## 5. 重试、幂等与熔断
 
-最少指标：
+- 429：尊重可验证的 `Retry-After`，否则使用指数退避和 jitter；不绕过 Provider 限制。
+- timeout/connection/5xx：只在 Job 的最大总尝试内重试。
+- 400/401/403/404：配置或请求错误，转 permanent failure；401/403 立即打开 provider circuit。
+- refusal/content policy：不自动改 prompt 绕过。
+- 非 JSON、HTML、Schema 无效、evidence ref 不存在：允许在最大尝试内重试；仍失败则 permanent failure。
+- source revision 改变：`stale`，不重试旧输入。
 
-- queue depth/oldest age、pending/running/六态数量；
-- lease timeout、retry、permanent failure、stale discard；
-- provider/model/effort 的 latency p50/p95；
-- input/output/cached/cache-write/reasoning tokens；
-- estimated USD per task/day/month；
-- budget remaining、circuit state；
-- Schema failure、refusal、incomplete、invalid evidence ref；
-- profile coverage/freshness；
-- AI outage 时事实 publish 成功率。
+以下任一条件打开 circuit，停止领取新的 Provider 调用，但不停止事实链：
 
-日志只保存 request ID、hash、计量和稳定错误码；不默认记录完整 prompt 或源码片段。
+- 任意一次认证失败；
+- 连续 3 次配置、URL join、Content-Type 或响应合同错误；
+- 连续 5 次 timeout/connection/5xx；
+- 10 分钟内 retryable failure 比例超过 30%，且至少发生 10 次调用；
+- usage 长期不可解析；
+- prompt/Schema/model policy 不在 allowlist；
+- secret gate 命中。
 
-## 13. 测试计划
+认证/配置 circuit 只能在配置变化并重新通过 Probe 后关闭；临时 Provider circuit 至少冷却 15 分钟，并以半开单请求验证。队列继续保留，超过 backlog 上限时只拒绝新低优先级 Job，不删除已有事实或结果。
 
-- fake provider 覆盖六态、lease、并发、重复 Job 幂等和 crash recovery。
-- 429/5xx/timeout/401/refusal/incomplete/invalid Schema 分类与有界重试。
-- source revision 在排队中、运行中、完成后变化时均不发布旧结果。
-- budget reservation、并发 token bucket、90% 熔断、日/月重置和单 Job 上限。
-- prompt injection fixture、虚假 evidence ID、超长文档、secret pattern。
-- Structured Outputs 的 refusal/incomplete 分支。
-- Background polling 和 Batch 迟到结果；Batch 第二次 ingest no-op。
-- generation 只引用 ready/current profile；AI store 损坏和模型 outage 不阻塞纯事实榜。
-- provider adapter contract test，不使用真实付费 API；真实模型 smoke test 必须是后续单独人工授权任务。
+## 6. 证据、Prompt injection 与数据最小化
 
-## 14. 部署边界
+README、Issue、文档、配置注释和源码都是不可信数据，不是指令。模型不获得 shell、网络、MCP、computer-use、部署或第三方代码执行工具。
 
-- AI Worker 是独立 Runtime 子服务，不嵌入浏览器或 RSC 请求。
-- API key 只在 Worker secret environment；不进入 generation、D1、日志、前端或 release manifest。
-- manager 只看护进程和健康，不因 Job 数据失败无限重启存活 Worker。
-- Worker 无第三方代码执行工具、无 Production deployment 权限、无 D1 用户表读取权限。
-- Runtime 同步、secret 配置、付费 smoke test 和 Production 启用必须各自有独立高风险操作指令。
+进入 Provider 前执行 allowlist builder、长度限制和 secret scanner。绝不发送：
 
-## 15. 分阶段范围
+- GitHub token、Sub2API key 或其他 credential；
+- Production secret、SSH key、certificate private key；
+- Basic Auth credential 或 hash；
+- D1 device ID、Action、Feedback、decision history；
+- EnvironmentFile、`.env`、Runtime environment 或私有仓库内容。
 
-### V1 必须
+允许发送的范围仅为公开 GitHub metadata、受限的公开 README/license/manifest/source snippets、Rardar 静态事实和匿名 RequirementProfile。secret pattern 命中后 fail closed，不自动“清洗后继续”。
 
-- queue + Worker、OpenAI adapter、Structured Outputs、版本绑定、六态、预算、熔断、监控和事实降级。
+每条判断必须引用输入中真实存在的 evidence ID。不存在、重复归属或版本不匹配的引用使结果无效。URL、路径、package 名和命令仍作为不可信显示数据处理，不自动执行。
 
-### 后续
+## 7. AI 结果产品语义
 
-- eval 驱动的模型/effort 调整、更多 Batch 使用、更精细的 prompt cache。
+“为什么爆发”在合同和 UI 中命名为：
 
-### Deferred
+> **AI 爆发原因判断**
 
-- 多供应商智能路由、向量数据库集群、模型工具执行、自动代码运行、私有仓库分析。
+不得显示成确定的爆发原因。页面必须分开：
+
+- 事实：24h `+N Star`、GitHub Trending 名次、最近 Release、最近 Push；
+- 模型判断：可能由什么推动、代表什么趋势、为什么当前值得理解。
+
+每条 AI 判断至少包含：
+
+```text
+evidenceRefs
+confidence
+limitations
+sourceRevision
+model
+reasoningEffort
+promptVersion
+schemaVersion
+generatedAt
+```
+
+AI 不得修改、过滤、插入或补齐今日爆发榜名次，也不得把用户反馈写成全局事实。
+
+## 8. Generation 集成
+
+- AI result 采用 immutable object + digest；
+- current generation 只引用发布时已 ready、digest 正确、source revision 完全匹配的结果；
+- generation 发布后，新 AI 结果不能改变该代页面；
+- 在线找项目 Job 固定 generationId、RequirementProfile hash、候选和 profile revisions；
+- Job 完成不修改 `current.json`；
+- AI store 损坏或 Worker 停止时隐藏增强并报告 degraded，事实 generation 继续可读；
+- AI 网络调用期间不得持有 generation data lock；
+- AI Worker 不直接发布未经本地校验的结果，也不拥有 pointer 写权限。
+
+首版 AI profile 对爆发榜是 optional artifact；AI 未配置、排队、失败或 stale 都不阻塞事实 publication。
+
+## 9. 进程与 Secret 隔离
+
+推荐拓扑：
+
+```text
+rardar.service
+└─ Manager
+   ├─ Website
+   └─ Scheduler
+
+rardar-ai-worker.service
+└─ AI Worker
+```
+
+AI Worker 故障不得导致 Website/Scheduler 重启，也不得阻塞事实采集或 generation publication。Worker 第一版 concurrency 固定为 `1`。
+
+非敏感配置建议：
+
+```text
+RARDAR_AI_ENABLED=false
+RARDAR_AI_PROVIDER=sub2api
+RARDAR_AI_BASE_URL=https://api.cosflow.icu
+RARDAR_AI_MODEL=gpt-5.6-sol
+RARDAR_AI_DEFAULT_EFFORT=high
+RARDAR_AI_DEEP_EFFORT=xhigh
+RARDAR_AI_MAX_CONCURRENCY=1
+```
+
+敏感配置只有：
+
+```text
+RARDAR_AI_API_KEY
+```
+
+建议未来放入独立 root-owned secret 文件，例如 `/etc/rardar/rardar-ai.secret`；本文不声称该文件已经创建。Key 只能由 AI Worker 继承，不得进入 Git、README、generation、AIJob payload、D1、Website environment、浏览器、Nginx、普通 Runtime 日志或 PR body。
+
+Worker 不获得 Website 不需要的 secret、D1 用户表读取权限、第三方代码执行权限、Production 部署权限或 `current.json` 修改权限。最终 systemd 内存/CPU/IO 边界必须在独立实现与部署 PR 中用真实资源数据确定。
+
+## 10. Adapter 合同
+
+v1 只实现窄 Sub2API adapter：
+
+```text
+normalizeBaseUrl(config) -> normalized provider config
+joinEndpoint(normalized config, responses) -> exact HTTPS URL
+executeComplete(jobSpec, schemaMode) -> complete provider response
+classify(error/response) -> stable error code + retryability
+extractUsage(response) -> observed usage facts | unverified
+```
+
+adapter 不负责业务重试、Job lease、证据版本、effort 选择、Schema/evidence 验证或结果发布；这些属于 Rardar。Background/Batch 若未来启用，应新增版本化 adapter capability，不能改变普通完整请求的最低可用路径。
+
+## 11. 测试与启用门禁
+
+实现 PR 至少覆盖：
+
+- fake Provider 下的六态、lease、crash recovery、active-job 唯一性和重复请求幂等；
+- concurrency=1、backlog=500、输入/输出/timeout/retry 上限；
+- 429/5xx/timeout/401/refusal/HTML/invalid JSON/invalid Schema 分类；
+- circuit 打开、半开、Probe 后恢复，事实 publication 始终继续；
+- source revision 在排队、运行和完成后变化时都不发布旧结果；
+- URL A/B join、双 `/v1`、根 HTML、重定向、Content-Type 和 JSON body；
+- NATIVE 与 LOCAL_SCHEMA_VALIDATION_FALLBACK；
+- prompt injection、虚假 evidence ID、超长输入和 secret pattern；
+- usage 字段存在/缺失/非法，不补造 token；
+- generation 只引用 ready/current profile，AI outage 不阻塞纯事实榜；
+- Worker secret 不进入 Website、Job、D1、generation、日志或状态接口。
+
+Provider capability probe、真实模型 smoke test、secret 配置与 Production 启用必须是后续独立高风险任务。本 RFC 不执行这些操作。
+
+## 12. 已接受与仍待验证
+
+已接受：
+
+- Sub2API Provider 与预期 `api.cosflow.icu` 标识；
+- `gpt-5.6-sol` 单模型；
+- medium/high/xhigh 任务分层；
+- 暂不设置货币硬预算；
+- Rardar-owned durable queue + 独立 Worker；
+- Background/Batch/prompt cache 可选，Streaming Deferred；
+- 默认 disabled、独立 secret、concurrency=1；
+- AI 失败不阻塞事实榜。
+
+仍待独立 Probe/实施验证：
+
+1. Sub2API exact capability probe 结果；
+2. 实际 API 权限与 rate limits；
+3. Structured Outputs 透传或本地 fallback；
+4. canonical endpoint join；
+5. Sub2API exact version/commit、部署日期和安全状态；
+6. AI Worker 最终 systemd 资源值；
+7. 真实调用 latency 与 token usage。
+
+这些未验证项不能被文档或代码默认值伪装成已通过。

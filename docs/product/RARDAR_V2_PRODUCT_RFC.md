@@ -1,6 +1,6 @@
 # Rardar v2 产品与架构 RFC
 
-> 状态：Draft / 只供人工产品审查
+> 状态：产品与架构合同已接受 / 尚未授权实现
 > 研究日期：2026-08-24
 > 范围：今日爆发榜 v2、找项目 v2、AI Analysis Runtime v1
 > 非授权声明：本文不是实现批准，不表示任何功能已经开始或完成。
@@ -17,8 +17,9 @@ Rardar v2 应把两个不同问题明确拆开：
 
 ```text
 Trending 事实观察
-→ 无 AI 的今日爆发榜
-→ 最小 AI Runtime
+→ audited 24h artifact
+→ 最小 AI Runtime（默认 disabled）
+→ 今日爆发榜 UI
 → 中文增强
 → 找项目 v2
 ```
@@ -34,6 +35,12 @@ Rardar 不是“又一个 GitHub 热门项目列表”。它应形成从发现�
 
 两者共享 Project Profile 和证据基础，但不共享排序语义：热榜排名是事实；任务匹配是针对当前需求的模型判断。它们最终都服务于 North Star——用户每周对多少个项目采取了真实行动，而不是单纯提升浏览量。
 
+数据页面的正式覆盖文案是：
+
+> 基于 Rardar 多源候选召回与自有连续观察形成的 GitHub 24h 爆发榜。
+
+“全网现在最值得关注什么”只能作为产品目标。Rardar 不得声称已经扫描全 GitHub、当前榜等于 GitHub 绝对全站 Top 20，或所有爆发项目都必然被召回。页面必须展示或可查看候选来源、成功查询数、召回候选数、观察覆盖状态、数据更新时间和 degraded source。
+
 ### 2.1 三个模块的关系
 
 | 模块 | 核心输入 | 核心输出 | 权威边界 |
@@ -44,26 +51,36 @@ Rardar 不是“又一个 GitHub 热门项目列表”。它应形成从发现�
 
 高价值资产库本阶段只积累最低限度历史，不设计页面、分类导航、专属评分或自动晋升。
 
-## 3. 已决定与未决定
+## 3. 已接受决策与实施前未知项
 
-### 3.1 已决定
+### 3.1 已接受
 
-- 首页第一主榜是“当前正在爆发”，主排序为客观 24h 新增 Star。
-- AI 可以解释，不能修改名次。
-- 找项目 v2 同时支持纯需求和需求加公开 GitHub 仓库 URL。
-- 动态候选召回、静态证据和跨项目比较都是找项目 v2 的必要部分。
-- 模型不可用时，事实榜仍发布。
-- 所有公开仓库形态均可进入候选；非软件仓库必须被正确描述。
-- 不执行用户或第三方仓库代码。
+- 首页精确 Top 5、完整页精确 Top 20；主排序只使用 `observedStarDelta DESC`，同分依次使用 `totalStars DESC`、`repository ASC`。
+- 每 2 小时只运行轻量 observation；每日 08:00（Asia/Shanghai）审计并正式发布。
+- 首次发现立即进入独立“新入榜待验证”区，显示实际观察窗口；取得完整 24h 基线前不进入精确榜。
+- AI 可以生成中文简介、核心能力和“AI 爆发原因判断”，但不能修改、过滤、插入或补齐客观名次。
+- 找项目 v2 同时支持纯自然语言需求，以及需求加一个公开 GitHub 仓库 URL。
+- 原始需求和 RequirementProfile 默认保留 30 天；长期个性化必须由用户显式 opt-in。
+- 复用结果固定为 `whole_product`、`module_or_library`、`provider_or_connector`、`workflow`、`reference_only`、`not_recommended`；参考细类放入 `referenceKinds`。
+- Trendshift 仅为可关闭的辅助召回与交叉信号，不是事实权威或 publication gate，且不得公开再分发其完整原始 API 数据。
+- GitHub numeric repository ID 仅作为 observation ledger 的 rename/transfer 连续性锚；现有 Stable Project ID 继续负责 Catalog、路由、D1、Action 和 Feedback。
+- 第一版 AI Provider 是自托管 Sub2API，Primary model 是 `gpt-5.6-sol`；普通任务使用 medium/high，深度分析、跨项目比较和高风险复核使用 xhigh。
+- 第一版不要求 Luna/Terra/Sol 多模型路由，不设置固定货币硬预算；仍强制限制并发、Job 输入/输出、timeout、重试、backlog、幂等和熔断。
+- Rardar 自己拥有 durable AIJob queue 和独立 Worker；Provider Background/Batch/prompt cache 只作为可选优化，Streaming Deferred。
+- 模型不可用时，事实榜和 generation publication 仍继续；所有公开仓库形态均可进入候选，非软件仓库必须被正确描述；不执行用户或第三方仓库代码。
+- 高价值资产库完整产品建设 Deferred，只积累最低限度历史事实。
 
-### 3.2 等待人工确认
+### 3.2 仅实施前才能验证
 
-1. 首页首屏 Top 5、完整榜 Top 20 的信息密度是否合适。
-2. 每 2 小时轻量采集、每日 08:00（Asia/Shanghai）形成审计榜的节奏是否合适。
-3. 首次发现仓库只进入“新入榜待验证”区，是否接受最多等待 24 小时进入精确榜。
-4. OpenAI 初始硬预算是否采用不超过 USD 3/日、USD 90/月，且默认关闭直到人工配置。
-5. 找项目历史默认保留 30 天，是否允许用户显式选择将结果用于长期个性化。
-6. Trendshift 是否仅保留为可选试验源；若付费，是否接受其原始数据不得再分发的条款。
+1. Sub2API exact capability probe 结果；
+2. 实际 API 权限与 rate limits；
+3. Structured Outputs 是否透传，或是否使用本地 Schema validation fallback；
+4. canonical endpoint join；
+5. Sub2API implementation/fork、exact version/commit、部署日期和安全状态；
+6. AI Worker 最终 systemd 资源值；
+7. 真实调用 latency 与 token usage。
+
+这些不是尚未决定的产品方向，也不能在 capability probe 前被写成已验证事实。
 
 ## 4. 现状审计
 
@@ -103,62 +120,64 @@ Rardar 不是“又一个 GitHub 热门项目列表”。它应形成从发现�
 
 ### 5.1 今日爆发榜
 
-| 问题 | 可选方案 | 推荐方案 | 理由 | 主要风险 | 需用户确认 |
+| 问题 | 可选方案 | 已接受方案 | 理由 | 主要风险 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| 24h 权威 | 自有快照 / GitHub Trending / Trendshift / 外部日榜 | 自有连续快照唯一权威；其余仅召回与佐证 | 可审计、可重复、无供应商排序黑盒 | 冷启动覆盖不足 | 否，已确认事实优先 |
-| 首次发现 | 不入榜 / 直接用外部值 / 单列 | 单列“新入榜待验证”，保留外部 reported 值与来源 | 不伪造 24h，又不漏掉新爆发 | 最多延迟 24h 进入精确榜 | 是 |
-| 采集节奏 | 每日 / 4h / 2h / 混合 | 每 2h 轻量观察；每日 08:00 正式审计发布 | 固定相位能形成严格 24h 基线；资源仍可控 | API 限流、漏跑 | 是 |
-| 候选召回 | 9 queries / Trending / Trendshift / 外部榜 / Signal | Search + GitHub Trending（合规门禁）+ 现有外部信号；Trendshift 可选 | 多源召回，事实仍由 GitHub 元数据验证 | HTML 变化、第三方中断 | 否（Trendshift 购买需确认） |
-| 去重 | repository 字符串 / Stable ID / 外部排名 | GitHub numeric repository ID 为连续性锚，映射到 Stable Project ID；记录全部 source observations | 支持 rename/transfer 且保留来源 | 现有 Stable ID 仍基于 repository，需独立迁移设计 | 是，实施前需身份评审 |
-| 榜单长度 | 5 / 10 / 20 / 全量 | 首页首屏 5，完整页 20；不以弱数据补满 | 保持决策密度并提供探索空间 | 首屏可能过少 | 是 |
-| AI 失败 | 阻塞 / 复用旧分析 / 事实先发 | 事实先发；AI 显示 pending/stale，旧结果只在证据版本完全一致时复用 | 模型不是发布单点故障 | 页面短期缺少中文解释 | 否，已确认 |
-| 异常处理 | 自动剔除 / 全量反作弊 / 标记 | v1 只做 fork/mirror/archive/disabled、source disagreement、异常增幅、首次发现、rename/transfer 标记 | 最小可解释防护，不误杀 | 无法识别复杂刷 Star | 否 |
-| 首页字段 | 全部首屏 / 极简 / 分层 | 首屏：排名、24h、新总 Star、名称、中文一句话、事实置信/AI 状态；详情：外部名次、连续上榜、能力、原因、来源 | 首屏回答核心问题 | 解释信息需一次点击 | 是 |
-| 五维评分 | 保留排序 / 隐藏 / 详情 / 改名 / 废弃 | 不参与榜单；工程准备度、复用适配、证据完整度移至详情；Attention 改称“综合关注”仅兼容页；Endurance 进入长期趋势详情 | 避免分数覆盖事实 | 旧用户会看到语义变化 | 否 |
+| 24h 权威 | 自有快照 / GitHub Trending / Trendshift / 外部日榜 | 自有连续快照唯一权威；其余仅召回与佐证 | 可审计、可重复、无供应商排序黑盒 | 冷启动覆盖不足 | 已接受 |
+| 首次发现 | 不入榜 / 直接用外部值 / 单列 | 立即进入“新入榜待验证”，保留实际观察窗口与外部 reported 值/来源 | 不伪造 24h，又不漏掉新爆发 | 取得完整基线前不能进入精确榜 | 已接受 |
+| 采集节奏 | 每日 / 4h / 2h / 混合 | 每 2h 轻量观察；每日 08:00 正式审计发布；重叠轮次记录 `skipped_overlap` | 固定相位能形成严格 24h 基线；单 owner 避免并发污染 | API 限流、漏跑 | 已接受 |
+| 候选召回 | 9 queries / Trending / Trendshift / 外部榜 / Signal | Search + GitHub Trending（合规门禁）+ 现有外部信号；Trendshift 可选 | 多源召回，事实仍由 GitHub 元数据验证 | HTML 变化、第三方中断 | 已接受 |
+| 去重 | repository 字符串 / Stable ID / external numeric ID | GitHub numeric repository ID 仅作为 observation 连续性锚；Stable Project ID 合同保持不变 | 支持 rename/transfer 观察连续性且不扩大身份迁移 | 未来长期身份统一需独立设计 | 已接受 |
+| 榜单长度 | 5 / 10 / 20 / 全量 | 首页首屏 5，完整页 20；不以弱数据补满 | 保持决策密度并提供探索空间 | 首屏可能过少 | 已接受 |
+| AI 失败 | 阻塞 / 复用旧分析 / 事实先发 | 事实先发；AI 显示 pending/stale，旧结果只在证据版本完全一致时复用 | 模型不是发布单点故障 | 页面短期缺少中文解释 | 已接受 |
+| 异常处理 | 自动剔除 / 全量反作弊 / 标记 | v1 只做 fork/mirror/archive/disabled、source disagreement、异常增幅、首次发现、rename/transfer 标记 | 最小可解释防护，不误杀 | 无法识别复杂刷 Star | 已接受 |
+| 首页字段 | 全部首屏 / 极简 / 分层 | 首屏：排名、24h、新总 Star、名称、中文一句话、事实置信/AI 状态；详情：外部名次、连续上榜、能力、AI 爆发原因判断、来源 | 首屏回答核心问题 | 解释信息需一次点击 | 已接受 |
+| 五维评分 | 保留排序 / 隐藏 / 详情 / 改名 / 废弃 | 不参与榜单；Engineering Readiness 移至详情，Reuse Fit 只用于找项目，Evidence Completeness 只说明置信/覆盖；Attention 改称“综合关注”，Endurance 进入长期趋势 | 避免分数覆盖事实 | 旧用户会看到语义变化 | 已接受 |
 
 ### 5.2 AI Runtime Foundation
 
-| 问题 | 可选方案 | 推荐方案 | 理由 | 主要风险 | 需用户确认 |
+| 问题 | 可选方案 | 已接受方案 | 理由 | 主要风险 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| 模型策略 | 全部 Sol xhigh / 单模型多 effort / 分层 | Luna 快速层 + Terra 主判断 + Sol xhigh 只做高价值升级 | 质量、成本和吞吐可控 | 路由阈值需评测 | 是 |
-| 执行方式 | refresh 内直调 / 独立 Worker / queue+worker / Batch | durable queue + 独立 Worker；长任务用 Responses background，非紧急批量可用 Batch | 不阻塞 generation，可重试与观测 | 新增运行组件 | 否 |
-| 结果绑定 | 只绑 repository / 只绑时间 / 完整证据指纹 | repository、projectId、commit/pushedAt、README hash、static version、模型、effort、prompt、schema、generatedAt 全绑定 | 阻止陈旧解释错配 | 缓存命中降低 | 否 |
-| 重分析触发 | 固定 TTL / 任意 push / 证据变化 | README/default branch/release/重要目录/静态分析、模型、prompt、schema 任一变化 | 只在判断依据变化时花费 | 重要目录定义不全 | 否 |
-| 状态机 | 成败二态 / 六态 | pending/running/retryable_failed/permanent_failed/stale/ready | 页面和重试行为明确 | 状态迁移实现复杂度 | 否 |
-| 成本 | 不限 / 单日 token / 美元硬限额 | 任务级 token 限额 + USD 日/月预算 + 并发/熔断；默认总开关关闭 | 避免无人值守失控 | 预算过低影响覆盖 | 是 |
-| Prompt injection | 信任 README / 文本过滤 / 不可信数据边界 | 仓库文本永远是带边界的不可信数据，禁工具执行，Structured Outputs，证据引用和长度限制 | 最直接压缩攻击面 | 模型仍可能误判 | 否 |
-| 数据最小化 | 发送全仓库 / 摘要 / 必要证据切片 | 仅公开仓库必要切片；绝不发送 token、Production secret、D1 用户数据、Basic Auth、EnvironmentFile | 降低泄漏面与成本 | 证据不足时质量下降 | 否 |
-| 供应商抽象 | OpenAI 写死 / 通用路由平台 / 极小 adapter | v1 只实现 OpenAI，但保留一个窄 provider adapter 合同 | 不过早建设多模型平台 | 切换供应商仍需实现 | 否 |
-| 发布行为 | AI 写入 current / 下一代采用 / 在线 mutable join | AI 结果独立版本化；generation 只引用发布时已 ready 且版本匹配的结果；在线 Job 结果绑定 generation 独立展示 | 保持 immutable generation | 用户可能看到“结果已完成、榜单下一代才采用” | 否 |
+| Provider | OpenAI direct / Sub2API / 多供应商 | 自托管 Sub2API；预期 base URL 标识 `https://api.cosflow.icu`，exact join 由 Probe 决定 | 复用用户自托管入口，同时保留明确适配层 | 代理能力与安全状态尚未验证 | 已接受，能力待 Probe |
+| 模型策略 | 全部 xhigh / 单模型多 effort / 多模型分层 | `gpt-5.6-sol` 单模型；普通任务 medium/high，深度分析、横向比较和高风险复核 xhigh | 架构简单，effort 与任务价值匹配 | 真实 latency/usage 待测 | 已接受 |
+| 执行方式 | refresh 内直调 / Rardar queue+Worker / Provider Background/Batch | Rardar-owned durable queue + 独立 Worker；普通完整非流式请求是最低路径，Background/Batch 仅可选优化 | 不阻塞 generation，Provider 无异步能力也能运行 | 新增独立运行组件 | 已接受 |
+| 结果绑定 | 只绑 repository / 只绑时间 / 完整证据指纹 | repository、projectId、commit/pushedAt、README hash、static version、模型、effort、prompt、schema、generatedAt 全绑定 | 阻止陈旧解释错配 | 缓存命中降低 | 已接受 |
+| 重分析触发 | 固定 TTL / 任意 push / 证据变化 | README/default branch/release/重要目录/静态分析、模型、prompt、schema 任一变化 | 只在判断依据变化时调用 | 重要目录定义不全 | 已接受 |
+| 状态机 | 成败二态 / 六态 | pending/running/retryable_failed/permanent_failed/stale/ready | 页面和重试行为明确 | 状态迁移实现复杂度 | 已接受 |
+| 调用边界 | 不限 / 金额上限 / operational guardrails | 暂不设货币硬预算；强制 concurrency=1、单 Job 输入/输出/timeout/retry、backlog=500、幂等、usage accounting 和连续错误熔断 | 不把金额当启用门槛，同时防止无限调用 | 真实成本需从 usage 观察 | 已接受 |
+| Structured result | 自由文本 / Provider Schema / 本地校验 | Probe 后选择 NATIVE 或 LOCAL_SCHEMA_VALIDATION_FALLBACK；两者都执行本地 JSON/Schema/evidence/source-version validation | Provider 能力不成为正确性单点 | fallback 输出无原生约束 | 已接受 |
+| Prompt injection | 信任 README / 文本过滤 / 不可信数据边界 | 仓库文本永远是带边界的不可信数据，禁工具执行、证据引用和长度限制 | 最直接压缩攻击面 | 模型仍可能误判 | 已接受 |
+| 数据最小化 | 发送全仓库 / 摘要 / 必要证据切片 | 仅公开仓库必要切片；绝不发送 token、Production secret、D1 用户数据、Basic Auth、EnvironmentFile | 降低泄漏面与成本 | 证据不足时质量下降 | 已接受 |
+| 供应商抽象 | Provider 写死 / 通用路由平台 / 极小 adapter | v1 只实现窄 Sub2API adapter；业务重试、lease、版本和发布属于 Rardar | 不过早建设多供应商平台 | 切换供应商仍需实现 | 已接受 |
+| 发布行为 | AI 写入 current / 下一代采用 / 在线 mutable join | AI 结果独立版本化；generation 只引用发布时已 ready 且版本匹配的结果；在线 Job 结果绑定 generation 独立展示 | 保持 immutable generation | 用户可能看到“结果已完成、榜单下一代才采用” | 已接受 |
 
 ### 5.3 找项目 v2
 
-| 问题 | 可选方案 | 推荐方案 | 理由 | 主要风险 | 需用户确认 |
+| 问题 | 可选方案 | 已接受方案 | 理由 | 主要风险 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| 输入模式 | 仅需求 / 仅仓库 / 两者 | 两者共享 RequirementProfile 和候选流水线；URL 模式额外生成用户项目兼容画像 | 单一产品心智，差异清楚 | URL 模式耗时更长 | 否，已确认 |
-| 仓库范围 | 公开 / GitHub App 私有 / 上传摘要 | v1 仅公开 GitHub；私有接入和上传均 Deferred | 无私有 token 与授权面 | 无法服务私有代码 | 否 |
-| 需求结构 | 自由文本 / 固定关键词 / Structured Output | 模型输出版本化 RequirementProfile，失败时让用户修订 | 可验证、可作为查询和评测输入 | 解析错误传播 | 否 |
-| 复用类型 | 全部 11 类 / 少量 / 单一推荐 | v1：whole_product、module_or_library、provider_or_connector、workflow、architecture_reference、not_recommended | 覆盖主要行动，减少分类争议 | SDK/UI/知识参考表达较粗 | 是 |
-| 搜索范围 | Catalog / 历史 / 动态 / 全部 | 当前+历史 profile 索引优先，随后最多 6 条 GitHub Search，再补 watchlist/Trending；Trendshift 可选 | 兼顾速度与新鲜度 | 动态搜索噪声 | 否 |
-| 候选上限 | 无上限 / 单一 N / 分层漏斗 | 100 recall → 30 metadata → 12 static → 5 deep → 3–5 展示 | 有界成本，可观测淘汰理由 | 长尾漏召回 | 是 |
-| Query 生成 | 任意模型文本 / 模板 / 受限混合 | 模型给语义词，服务端只允许已知 qualifier、最多 6 条；候选必须来自实际 API 响应 | 不允许模型编造仓库 | 受限语法降低召回 | 否 |
-| 静态深度 | 维持现状 / 执行代码 / 扩展静态 | v1 增加 manifest/依赖、API/SDK/CLI/service、模块边界、plugin/provider/config/deploy 的静态探针，仍不执行 | 支持复用判断且保持安全 | 语言生态覆盖不均 | 否 |
-| 比较方式 | 独立宣传文案 / 规则分 / 同任务矩阵 | 一次模型调用比较同一任务的少量候选，输出能力、兼容、复用、成本、成熟度、许可、风险、置信度 | 产生真实取舍 | 长上下文成本 | 否 |
-| 在线 UX | 全同步 / 纯异步 / 渐进 | <10s 返回解析和快速候选；异步 1–5min 补静态与深度比较 | 快速反馈与质量兼得 | 状态 UI 和取消语义 | 否 |
-| URL 画像 | 只 README / 全量执行 / 安全静态 | 语言、框架、目录、依赖、API 风格、数据库、部署、许可、已有模块；禁止执行 | 足够支持兼容分析 | 静态推断需标置信度 | 否 |
-| 输出 | 排名 / 长文 / 行动卡 | 每个候选回答匹配原因、must-have、缺口、复用方式、模块、成本、风险、证据、置信度 | 可直接采取行动 | 信息密度高 | 是 |
-| 历史 | 不存 / 永久 / 有限 | 原始需求和结果默认 30 天，可删除；只有显式同意才提取长期偏好 | 支持复查并控制隐私 | 删除与备份边界需实现 | 是 |
-| 无结果 | 热门项目兜底 / 空白 / 明确状态 | no_match、weak_match、needs_extended_search、analysis_pending；绝不把热门当匹配 | 保持诚实 | 用户可能感到“结果少” | 否 |
+| 输入模式 | 仅需求 / 仅仓库 / 两者 | 两者共享 RequirementProfile 和候选流水线；URL 模式额外生成用户项目兼容画像 | 单一产品心智，差异清楚 | URL 模式耗时更长 | 已接受 |
+| 仓库范围 | 公开 / GitHub App 私有 / 上传摘要 | v1 仅公开 GitHub；私有接入和上传均 Deferred | 无私有 token 与授权面 | 无法服务私有代码 | 已接受 |
+| 需求结构 | 自由文本 / 固定关键词 / versioned structure | 模型输出版本化 RequirementProfile，Rardar 本地验证，失败时让用户修订 | 可验证、可作为查询和评测输入 | 解析错误传播 | 已接受 |
+| 复用类型 | 全部 11 类 / 少量 / 单一推荐 | v1：whole_product、module_or_library、provider_or_connector、workflow、reference_only、not_recommended；参考细类用 `referenceKinds` | 覆盖主要行动，避免参考类型过窄 | 需要维护参考细类 allowlist | 已接受 |
+| 搜索范围 | Catalog / 历史 / 动态 / 全部 | 当前/历史 profile、Watchlist、历史静态/AI画像、最多 6 条 GitHub Search、Trending/Signal；Trendshift 可选 | 兼顾速度与新鲜度 | 动态搜索噪声 | 已接受 |
+| 候选上限 | 无上限 / 单一 N / 分层漏斗 | 100 recall → 30 metadata → 12 static → 5 deep → 3–5 展示 | 有界调用，可观测淘汰理由 | 长尾漏召回 | 已接受 |
+| Query 生成 | 任意模型文本 / 模板 / 受限混合 | 模型给语义词，服务端只允许已知 qualifier、最多 6 条；候选必须来自实际 API/索引响应 | 不允许模型编造仓库 | 受限语法降低召回 | 已接受 |
+| 静态深度 | 维持现状 / 执行代码 / 扩展静态 | v1 增加 manifest/依赖、API/SDK/CLI/service、模块边界、plugin/provider/config/deploy 的静态探针，仍不执行 | 支持复用判断且保持安全 | 语言生态覆盖不均 | 已接受 |
+| 比较方式 | 独立宣传文案 / 规则分 / 同任务矩阵 | 同一个 RequirementProfile 与最多 5 个候选的标准化证据进入一次比较任务 | 产生真实取舍，避免拼接宣传文案 | 长上下文延迟 | 已接受 |
+| 在线 UX | 全同步 / 纯异步 / 渐进 | <10s 返回解析和快速候选；异步 1–5min 补静态与深度比较 | 快速反馈与质量兼得 | 状态 UI 和取消语义 | 已接受 |
+| URL 画像 | 只 README / 全量执行 / 安全静态 | 语言、框架、目录、依赖、API 风格、数据库、部署、许可、已有模块；禁止执行 | 足够支持兼容分析 | 静态推断需标置信度 | 已接受 |
+| 输出 | 排名 / 长文 / 行动卡 | 输出匹配原因、must-have覆盖、缺失/未知能力、兼容、复用类型、集成工作项、工程证据、许可风险、证据、置信度和下一验证动作 | 可直接采取行动 | 信息密度高 | 已接受 |
+| 历史 | 不存 / 永久 / 有限 | 原始需求和 RequirementProfile 默认 30 天，可删除；只有显式同意才提取长期偏好 | 支持复查并控制隐私 | 删除与备份边界需实现 | 已接受 |
+| 无结果 | 热门项目兜底 / 空白 / 明确状态 | no_match、weak_match、needs_extended_search、analysis_pending；绝不把热门当匹配 | 保持诚实 | 用户可能感到“结果少” | 已接受 |
 
 ### 5.4 共享数据与长期积累
 
-| 问题 | 可选方案 | 推荐方案 | 理由 | 主要风险 | 需用户确认 |
+| 问题 | 可选方案 | 已接受方案 | 理由 | 主要风险 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| Project Profile | 两套 / 全共享 / 分层共享 | 共享事实、静态证据和通用 AIProjectProfile；任务适配每次重算 | 避免重复，又不把通用画像当任务结论 | 版本依赖复杂 | 否 |
-| AI 画像复用 | 永久 / TTL / 证据指纹 | 证据指纹完全一致才复用；任务比较不跨请求复用，除非 RequirementProfile hash 一致 | 防止陈旧或错任务 | 成本增加 | 否 |
-| 后台资产字段 | 不保留 / 全资产库 / 最小历史 | 保留 firstSeen、Star 时序、Trending 出现、release、push、AI/static history、match history、feedback | 为未来资产库留事实，不设计 UI | 数据增长 | 否 |
-| generation 集成 | mutable join / AI 直接改 current / 引用 ready 版本 | generation 发布时冻结 AI 引用；Job 结果在独立命名空间按 generationId 展示 | 单请求一致且可回滚 | 两套读取路径需清楚标识 | 否 |
-| 历史保留 | 全部永久 / 全部短期 / 分层 | 2h 原始观察 90 天、每日 Star rollup 长期；AI profile 保留最新与变更历史；搜索 30 天；反馈按用户删除契约 | 控制容量并保留趋势价值 | 归档策略需测试 | 是 |
+| Project Profile | 两套 / 全共享 / 分层共享 | 共享事实、静态证据和通用 AIProjectProfile；任务适配每次重算 | 避免重复，又不把通用画像当任务结论 | 版本依赖复杂 | 已接受 |
+| AI 画像复用 | 永久 / TTL / 证据指纹 | 证据指纹完全一致才复用；任务比较不跨请求复用，除非 RequirementProfile hash 一致 | 防止陈旧或错任务 | 调用增加 | 已接受 |
+| 后台资产字段 | 不保留 / 全资产库 / 最小历史 | 保留 firstSeen、Star 时序、Trending 出现、release、push、AI/static history、match history、feedback | 为未来资产库留事实，不设计 UI | 数据增长 | 已接受 |
+| generation 集成 | mutable join / AI 直接改 current / 引用 ready 版本 | generation 发布时冻结 AI 引用；Job 结果在独立命名空间按 generationId 展示 | 单请求一致且可回滚 | 两套读取路径需清楚标识 | 已接受 |
+| 历史保留 | 全部永久 / 全部短期 / 分层 | 2h 原始观察 90 天、每日 Star rollup 长期；AI profile 保留最新与变更历史；搜索 30 天；反馈按用户删除契约 | 控制容量并保留趋势价值 | 归档策略需测试 | 已接受 |
 
 ### 5.5 高价值资产库暂缓期间的最低限度后台字段
 
@@ -193,6 +212,8 @@ Rardar 不是“又一个 GitHub 热门项目列表”。它应形成从发现�
 - 可查看来源、观测窗口、GitHub Trending 交叉信号、连续上榜和异常标记。
 - 数据不足时显示实际数量，不使用 proxy 补位。
 
+2h observer 只允许候选召回、GitHub repository metadata、Star/Fork/`pushedAt`/`archived`/`disabled`、外部榜单来源和事实 bundle。它不得浅克隆、完整静态分析、运行深度 AI 或发布完整 generation。上一轮未完成时跳过新一轮并记录 `skipped_overlap`，不得启动第二个 observer。
+
 ### 6.3 找项目工作台
 
 - 第一步确认结构化需求。
@@ -223,7 +244,7 @@ flowchart LR
 
     subgraph AI[异步 AI 路径]
       QUEUE[Durable AI Job Queue]
-      WORKER[AI Worker\nOpenAI adapter]
+      WORKER[独立 AI Worker\nSub2API adapter]
       PROFILE[版本化 AIProjectProfile]
       MATCH[任务级跨项目比较]
     end
@@ -271,6 +292,16 @@ flowchart LR
 - Job 完成不会修改 `current.json`。其结果只在 Job 命名空间显示，下一次 derive/publish 才可选择纳入 generation。
 - current 损坏时继续 fail closed，不回退 flat 数据；AI 失败只影响增强字段。
 
+### 7.2 AI Provider 与进程边界
+
+- Rardar 自己的 durable AIJob queue 和独立 AI Worker 是异步权威；Worker 使用同步、非流式完整请求调用 Sub2API。
+- Provider Background/Batch/prompt cache 只作可选优化，Streaming Deferred；缺失这些能力时主路径仍须工作。
+- capability probe 必须在启用前验证 exact Sub2API version/security、认证、`gpt-5.6-sol`、reasoning effort、响应/错误/usage 合同和 Structured Output 模式。
+- Provider URL join 只能由 Probe 在 `base=https://api.cosflow.icu + /v1/responses` 与 `base=https://api.cosflow.icu/v1 + /responses` 中确定；双 `/v1`、根 HTML、错误 Content-Type、非 allowlisted redirect 必须拒绝。
+- 第一版 Worker concurrency 为 1，backlog 上限 500；每个 Job 有 input/output、timeout、retry、幂等、同证据唯一 active Job、usage accounting 和连续错误熔断。
+- `RARDAR_AI_API_KEY` 只能由未来独立 AI Worker 的受限 secret 环境继承。Website、Scheduler、generation、D1、AIJob payload、浏览器、Nginx、日志和 PR 都不得获得该 Key。
+- AI Worker 与 `rardar.service` 分离；Worker 故障不得重启 Website/Scheduler，不持有 generation data lock 做网络调用，也不拥有 `current.json` 写权限。
+
 ## 8. 数据合同草案
 
 这些仅是 RFC 中的示例 JSON Schema 片段，不修改 `contracts/`。`x-fieldClass` 的取值为 `fact`、`model_judgment`、`user_input`、`cache`、`version_binding`；一个字段可属于多类。
@@ -307,7 +338,7 @@ flowchart LR
 {
   "$id": "rardar://draft/ai-project-profile-v1",
   "type": "object",
-  "required": ["repository", "projectId", "sourceRevision", "summaryZh", "coreCapabilities", "projectForm", "notablePoint", "limitations", "whyTrending", "model", "reasoningEffort", "promptVersion", "schemaVersion", "generatedAt", "evidenceRefs", "confidence"],
+  "required": ["repository", "projectId", "sourceRevision", "summaryZh", "coreCapabilities", "projectForm", "notablePoint", "limitations", "whyTrendingJudgment", "provider", "baseUrlIdentifier", "model", "reasoningEffort", "promptVersion", "schemaVersion", "generatedAt", "evidenceRefs", "confidence"],
   "properties": {
     "repository": {"type": "string", "x-fieldClass": ["fact", "version_binding"]},
     "projectId": {"type": "string", "x-fieldClass": ["fact", "version_binding"]},
@@ -321,7 +352,9 @@ flowchart LR
     "projectForm": {"type": "string", "x-fieldClass": ["model_judgment", "cache"]},
     "notablePoint": {"type": "string", "x-fieldClass": ["model_judgment", "cache"]},
     "limitations": {"type": "array", "maxItems": 10, "x-fieldClass": ["model_judgment", "cache"]},
-    "whyTrending": {"type": ["string", "null"], "x-fieldClass": ["model_judgment", "cache"]},
+    "whyTrendingJudgment": {"type": ["string", "null"], "x-fieldClass": ["model_judgment", "cache"]},
+    "provider": {"const": "sub2api", "x-fieldClass": ["version_binding"]},
+    "baseUrlIdentifier": {"type": "string", "x-fieldClass": ["version_binding"]},
     "model": {"type": "string", "x-fieldClass": ["version_binding"]},
     "reasoningEffort": {"type": "string", "x-fieldClass": ["version_binding"]},
     "promptVersion": {"type": "string", "x-fieldClass": ["version_binding"]},
@@ -409,21 +442,28 @@ flowchart LR
 {
   "$id": "rardar://draft/project-match-result-v1",
   "type": "object",
-  "required": ["requestId", "repository", "projectId", "requirementProfileHash", "matchState", "reuseType", "evidenceRefs", "confidence", "analysisRevision"],
+  "required": ["requestId", "repository", "projectId", "requirementProfileHash", "matchState", "summaryZh", "whyMatched", "mustHaveCoverage", "missingCapabilities", "unknownCapabilities", "technicalCompatibility", "reuseType", "integrationCost", "integrationWorkItems", "engineeringEvidence", "licenseAndRisk", "evidenceRefs", "confidence", "nextValidationAction", "analysisRevision"],
   "properties": {
     "requestId": {"type": "string", "x-fieldClass": ["version_binding"]},
     "repository": {"type": "string", "x-fieldClass": ["fact", "version_binding"]},
     "projectId": {"type": "string", "x-fieldClass": ["fact", "version_binding"]},
     "requirementProfileHash": {"type": "string", "x-fieldClass": ["version_binding", "cache"]},
     "matchState": {"enum": ["strong_match", "weak_match", "not_recommended"], "x-fieldClass": ["model_judgment"]},
-    "reuseType": {"enum": ["whole_product", "module_or_library", "provider_or_connector", "workflow", "architecture_reference", "not_recommended"], "x-fieldClass": ["model_judgment"]},
+    "summaryZh": {"type": "string", "x-fieldClass": ["model_judgment"]},
+    "whyMatched": {"type": "array", "x-fieldClass": ["model_judgment"]},
+    "reuseType": {"enum": ["whole_product", "module_or_library", "provider_or_connector", "workflow", "reference_only", "not_recommended"], "x-fieldClass": ["model_judgment"]},
+    "referenceKinds": {"type": "array", "items": {"enum": ["architecture", "ui", "workflow_design", "knowledge", "infrastructure"]}, "x-fieldClass": ["model_judgment"]},
     "mustHaveCoverage": {"type": "array", "x-fieldClass": ["model_judgment"]},
-    "gaps": {"type": "array", "x-fieldClass": ["model_judgment"]},
-    "integrationPlan": {"type": "array", "x-fieldClass": ["model_judgment"]},
+    "missingCapabilities": {"type": "array", "x-fieldClass": ["model_judgment"]},
+    "unknownCapabilities": {"type": "array", "x-fieldClass": ["model_judgment"]},
+    "technicalCompatibility": {"type": "object", "x-fieldClass": ["model_judgment"]},
+    "integrationWorkItems": {"type": "array", "x-fieldClass": ["model_judgment"]},
     "integrationCost": {"enum": ["low", "medium", "high", "unknown"], "x-fieldClass": ["model_judgment"]},
-    "risks": {"type": "array", "x-fieldClass": ["model_judgment"]},
+    "engineeringEvidence": {"type": "array", "x-fieldClass": ["fact", "model_judgment"]},
+    "licenseAndRisk": {"type": "object", "x-fieldClass": ["fact", "model_judgment"]},
     "evidenceRefs": {"type": "array", "minItems": 1, "x-fieldClass": ["fact", "version_binding"]},
     "confidence": {"type": "number", "minimum": 0, "maximum": 1, "x-fieldClass": ["model_judgment"]},
+    "nextValidationAction": {"type": "string", "x-fieldClass": ["model_judgment"]},
     "analysisRevision": {"type": "object", "x-fieldClass": ["version_binding", "cache"]}
   }
 }
@@ -435,13 +475,18 @@ flowchart LR
 {
   "$id": "rardar://draft/ai-job-v1",
   "type": "object",
-  "required": ["jobId", "jobType", "inputRef", "inputHash", "modelPolicy", "state", "createdAt", "attempt", "idempotencyKey"],
+  "required": ["jobId", "jobType", "inputRef", "inputHash", "provider", "baseUrlIdentifier", "model", "reasoningEffort", "promptVersion", "schemaVersion", "state", "createdAt", "attempt", "idempotencyKey"],
   "properties": {
     "jobId": {"type": "string", "x-fieldClass": ["version_binding"]},
     "jobType": {"type": "string", "x-fieldClass": ["fact"]},
     "inputRef": {"type": "object", "x-fieldClass": ["version_binding"]},
     "inputHash": {"type": "string", "x-fieldClass": ["version_binding", "cache"]},
-    "modelPolicy": {"type": "object", "x-fieldClass": ["version_binding"]},
+    "provider": {"const": "sub2api", "x-fieldClass": ["version_binding"]},
+    "baseUrlIdentifier": {"type": "string", "x-fieldClass": ["version_binding"]},
+    "model": {"const": "gpt-5.6-sol", "x-fieldClass": ["version_binding"]},
+    "reasoningEffort": {"enum": ["medium", "high", "xhigh"], "x-fieldClass": ["version_binding"]},
+    "promptVersion": {"type": "string", "x-fieldClass": ["version_binding"]},
+    "schemaVersion": {"type": "integer", "x-fieldClass": ["version_binding"]},
     "state": {"$ref": "rardar://draft/ai-job-state-v1", "x-fieldClass": ["fact"]},
     "createdAt": {"type": "string", "format": "date-time", "x-fieldClass": ["fact"]},
     "notBefore": {"type": ["string", "null"], "format": "date-time", "x-fieldClass": ["fact"]},
@@ -470,24 +515,27 @@ flowchart LR
 }
 ```
 
+每次 Provider 尝试的审计必须记录 provider、base URL 标识（不含 Key）、model、reasoning effort、request ID、input/cached/output tokens（存在时）、latency、attempt count、error code、createdAt 和 completedAt。usage 缺失或非法时标记 `usage_unverified`，不得补造数值。
+
 ## 9. 实现路线比较
 
 | 方案 | 优点 | 缺点 | 判断 |
 | --- | --- | --- | --- |
 | A：AI Runtime → Trending → 榜单 → 找项目 | 先统一模型能力 | 用户价值出现最晚；先承担成本和新运行组件风险 | 不推荐 |
-| B：Trending 事实 → 无 AI 榜 → AI Runtime → 中文增强 → 找项目 | 最快交付可信榜；每步可单独回滚；AI 不在关键路径 | 中文体验稍晚 | **推荐** |
+| B：Trending 事实 → audited artifact → AI Runtime → 榜单 UI → 中文增强 → 找项目 | 先建立事实，再建立默认 disabled 的增强底座；每步可单独回滚，AI 不在排名关键路径 | 中文体验稍晚 | **已接受** |
 | C：AI Runtime 与 Trending 并行 → 集成 | 日历时间可能更短 | 两条关键链同时变化，审查、故障定位和回滚变复杂 | 当前团队规模不推荐 |
 
 ### 9.1 推荐 PR 切片
 
 1. **Trending Observation contract + append-only observation store**：只采集、验证和保留事实，不改 UI、不调用模型。
 2. **Audited 24h Explosion artifact**：从严格窗口生成榜单 artifact，加入 Schema/Audit/generation；不含 AI。
-3. **Explosion Board UI**：首页 Top 5、完整 Top 20、新入榜待验证和降级状态。
-4. **AI Runtime foundation**：队列、Worker、OpenAI adapter、状态机、预算熔断和结构化结果；先用测试 provider。
-5. **Chinese project enhancement**：版本绑定画像进入下一 generation，失败不阻塞事实榜。
-6. **Find Project request + dynamic recall**：双输入、RequirementProfile、受限 GitHub Search、异步 Job 快速阶段。
-7. **Capability static analysis v2**：有界增加 API/SDK/CLI/service/module/provider 等探针。
-8. **Cross-project matcher**：对最多 5 个候选做同任务比较并输出复用计划。
+3. **AI Runtime foundation**：Provider interface、Sub2API adapter、AIJob contract、durable queue、独立 Worker、usage accounting、mock Provider，默认 disabled；不配置真实 Key。
+4. **Explosion Board UI**：首页 Top 5、完整 Top 20、新入榜待验证和 AI 状态槽位。
+5. **Chinese project enhancement**：版本绑定画像与 AI 爆发原因判断进入下一 generation，失败不阻塞事实榜。
+6. **Find Project RequirementProfile + Job contract**：双输入、30 天保留、异步 Job 合同。
+7. **Dynamic GitHub candidate recall**：最多 6 条受限 GitHub Search，候选只能来自真实 API/索引。
+8. **Capability static analysis v2**：有界增加 API/SDK/CLI/service/module/provider 等探针。
+9. **Cross-project matcher**：对最多 5 个候选做同任务比较并输出复用计划。
 
 第一个实现 PR 推荐只做第 1 项，建议分支 `feat/trending-observations`。它必须在人工批准本 RFC 后另行创建。
 
@@ -510,7 +558,7 @@ flowchart LR
 - 人工评价“复用方式有用”的结果至少 70%。
 - benchmark 中确实无合适结果时，诚实 no_match/weak_match 命中率 100%。
 - 快速阶段 p95 小于 10 秒；深度阶段 p95 小于 5 分钟，不以无限等待换质量。
-- 普通查询的模型成本 p95 不超过 USD 0.25；任何单次 Job 硬上限 USD 1，超限转 `analysis_pending` 或降级而不是继续消费。
+- 所有 AI Job 都满足版本化 input/output、timeout、retry、backlog、concurrency、幂等和熔断合同；货币预算暂无限制也不得重复分析同一证据版本。
 
 ## 11. 非目标与过度工程化门禁
 
@@ -518,7 +566,7 @@ flowchart LR
 
 - 自有 Star 观察、严格 24h 语义和待验证新入榜。
 - 有界动态召回、公开仓库静态验证、同任务比较。
-- 最小 queue + Worker、版本绑定、结构化输出、预算和失败降级。
+- 最小 durable queue + 独立 Worker、Sub2API adapter、版本绑定、本地 Schema/evidence 校验、usage accounting、operational limits 和失败降级。
 
 初始容量目标是一台小型单机即可承担事实路径：collector 单进程、约 1 vCPU/512 MiB 峰值预算；500 candidates × 12 observations/day 约 6,000 行/日。按每行 0.3–1 KiB 粗估，原始观测为约 0.7–2.2 GiB/年，90 天热保留再加长期 daily rollup 可保持在单机可管理范围。该数字是容量规划假设，实施 PR 必须用真实序列化大小复测。
 
@@ -563,16 +611,15 @@ flowchart LR
 
 ### 12.3 OpenAI
 
-- 官方模型页确认 API model ID `gpt-5.6-sol` 可用；`gpt-5.6` alias 当前路由到 Sol。Sol、Terra、Luna 均支持 `reasoning.effort=xhigh`、Responses、Batch、Streaming 和 Structured Outputs。[Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)、[Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)、[Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
-- 2026-08-24 官方标价（每 1M text tokens，input / cached input / output）：Sol USD 4 / 0.40 / 20，Terra USD 2 / 0.20 / 12，Luna USD 0.20 / 0.02 / 1.20。Sol 价格注明为至少持续到 2026-11-21 的促销价；实施前必须重新核价。
-- [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) 可以约束 Schema，但调用方仍须处理 refusal 和 incomplete；Schema 合法不等于事实正确。
-- [Background mode](https://developers.openai.com/api/docs/guides/background) 适合分钟级长任务；[Batch](https://developers.openai.com/api/docs/guides/batch) 通常以 24 小时完成窗口换取 50% 成本折扣，适合非紧急夜间画像，不适合交互式查找。
-- [Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching) 依赖完全相同的 prompt 前缀；应把稳定系统指令和 Schema 放前面、动态证据放后面。
-- [Data controls](https://developers.openai.com/api/docs/guides/your-data) 说明 API 数据默认不用于训练，除非组织选择加入；默认 abuse-monitoring retention 可达 30 天。Zero Data Retention / Modified Abuse Monitoring 需获批，当前账户资格未验证。
+- [OpenAI 官方模型页](https://developers.openai.com/api/docs/models/gpt-5.6-sol)确认 `gpt-5.6-sol` 支持 Responses、Structured Outputs，以及 medium/high/xhigh reasoning effort。Rardar 接受该 model ID 作为 Sub2API 后面的 Primary model。
+- OpenAI 官方接口能力不能证明自托管 Sub2API 已透传相同字段。Rardar 必须在启用前用 versioned capability probe 验证模型、effort、完整非流式响应、Structured Outputs 或 JSON fallback、`store=false`、usage、request ID 和错误合同。
+- Rardar 的异步权威是自己的 durable queue 和独立 Worker。OpenAI/Provider Background 与 Batch 只是未来可选优化，不能成为 v1 正确性或可用性的依赖；Streaming Deferred，prompt cache 只作可选成本优化。
+- 第一版不设置固定货币硬预算，不再以 Luna/Terra 多模型路由或官方直连价格估算作为产品合同。仍强制记录 token usage、latency、attempt 和稳定错误码。
 
 ### 12.4 未验证事项
 
-- Rardar 所用 OpenAI 项目是否已获 `gpt-5.6-*`、background、Batch、ZDR，以及实际组织级 RPM/TPM/Batch queue 限额：**UNVERIFIED**。
+- Sub2API canonical base URL/endpoint join、`/v1/models`、`/v1/responses`、`gpt-5.6-sol` 可调用性、xhigh/Structured Outputs/`store=false`/usage/request ID/429/5xx/timeout 透传：**UNVERIFIED UNTIL PROBE**。
+- Sub2API implementation/fork、exact version/commit、部署日期、日志脱敏、API Key 权限、并发/rate limits 与安全公告状态：**UNVERIFIED UNTIL PROBE**。
 - Trendshift Signal 的精确 rate limit、SLA、导出字段和公开派生展示边界：公开页面未完整说明，**UNVERIFIED**。
 - GitHub 是否会为 Trending 提供长期稳定官方 API：未在官方文档找到，**UNVERIFIED**。
 - 低频自动读取 GitHub Trending HTML 用于未来公开产品的具体许可边界：需在实现时结合最新条款或法律意见确认，**UNVERIFIED**。
@@ -582,17 +629,24 @@ flowchart LR
 - 现有综合 Daily Five、搜索 v1 和 Codex Queue 先保留，不在单个 PR 中删除。
 - 新 observation 和 explosion artifact 使用新版本合同；旧 generation 仍可由旧代码读取。
 - UI 切换采用明确 feature gate；回滚 UI 不删除 observation 历史。
-- AI Runtime 初次上线默认 disabled，无 API key 或预算时只能产生事实榜和 `pending` 状态。
+- AI Runtime 初次上线默认 disabled；capability probe 未通过或 AI Worker 未获得独立 secret 时只产生事实榜和 `pending` 状态。API Key 只由 Worker 继承，不进入 Website、Git、generation、AIJob payload、D1、浏览器、Nginx、日志或 PR。
 - 任一 AI schema、profile 或 Job 失败不能触碰 current pointer。
 - 找项目 v2 先建立新 Job API/页面，v1 保留到真实行为验证通过；回滚只关闭新入口，不改写 Action/Feedback 历史。
 
-## 14. 人工审查检查点
+## 14. 人工决策收口
 
-人工批准本 RFC 前，不得创建实现分支。审查时至少确认：
+以下决策已批准，不再是 unresolved：
 
-1. 是否接受“严格 24h 项目可能少于 20 个”。
-2. 是否接受首次发现仓库在独立区域最多等待 24 小时。
-3. 是否批准 2h observation 与 08:00 正式发布。
-4. 是否批准模型分层和初始预算上限。
-5. 是否批准公开仓库限定与 30 天查询保留。
-6. 是否将 Trendshift 保持为非必要、可关闭的辅助信号。
+- 严格 24h 项目可以少于 20 个，不用 proxy 补位；
+- 首次发现立即展示在独立待验证区，完整 24h 基线前不进入精确榜；
+- 2h observation、重叠跳过和每日 08:00 发布；
+- 首页 Top 5、完整页 Top 20；
+- Trendshift 非必要且可关闭；
+- 找项目公开仓库限定、30 天查询保留、长期个性化显式 opt-in；
+- GitHub numeric repository ID 只作 observation 连续性锚；
+- 6 种复用类型并使用 `reference_only`；
+- Sub2API、`gpt-5.6-sol` 单模型和 medium/high/xhigh effort 分层；
+- 暂不设置货币硬预算，保留强制 operational guardrails；
+- Rardar-owned queue + 独立 Worker；AI 失败不阻塞事实榜。
+
+剩余 unresolved 共 7 项：实施前 capability probe 结果、真实 API 权限/rate limits、Structured Outputs 透传、canonical endpoint join、Sub2API exact version/security、Worker 最终 systemd 资源，以及真实 latency/token usage。RFC 接受不等于实现授权；第一个 `TRENDING-OBSERVATIONS-01` 分支必须由下一条独立任务创建。

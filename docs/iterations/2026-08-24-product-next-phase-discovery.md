@@ -1,7 +1,7 @@
-# PRODUCT-NEXT-PHASE-DISCOVERY-01
+# PRODUCT-NEXT-PHASE-DISCOVERY-01 / 02
 
 > 日期：2026-08-24
-> 状态：Draft RFC / 等待人工产品审查
+> 状态：产品决策已接受 / PR #25 最终收口
 > 分支：`research/rardar-v2-product-rfc`
 > 基线：`9b4c6e7d5171af4878d47290f0b902eccb7cc7a3`
 
@@ -14,7 +14,7 @@
 
 同时设计最小 AI Analysis Runtime，使模型进入无人值守体系但不阻塞事实发布。高价值资产库只保留最低限度后台历史，产品 UI Deferred。
 
-本轮只改 Markdown，不实现产品代码，不访问 Production，不调用付费 OpenAI API，不创建实现分支，不 Ready 或合并 PR。
+Discovery-01 只形成 Draft RFC；Discovery-02 将用户已批准的产品与 AI Provider 决策写入同一 RFC，并在 exact-head Verify 门禁通过后收口 PR #25。两轮都只改 Markdown，不实现产品代码，不访问 Production，不调用付费 API，不配置密钥，也不创建实现分支。
 
 ## 2. 基线与隔离
 
@@ -63,23 +63,30 @@
 
 ### OpenAI
 
-- 官方确认 `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`，均支持 xhigh、Responses、Batch、Streaming、Structured Outputs。
-- 2026-08-24 价格按每 1M input/output：Sol 4/20、Terra 2/12、Luna 0.2/1.2 美元；Sol 为促销价，实施前需重查。
-- 推荐 Luna 快速层、Terra 主判断、Sol xhigh 高价值升级；默认禁用，人工配置 key、可用性和预算后才启用。
-- 组织模型权限、实际 limits、ZDR 和 Trendshift API SLA/rate limit 均标为 UNVERIFIED。
+- 官方 OpenAI 文档确认 `gpt-5.6-sol` 支持 Responses、Structured Outputs，以及 medium/high/xhigh reasoning effort；这些事实不证明自托管代理已透传相同能力。
+- 用户选择自托管 Sub2API 作为 Rardar v1 Provider，预期入口标识为 `https://api.cosflow.icu`，Primary model 固定为 `gpt-5.6-sol`。
+- 第一版不要求 Luna/Terra/Sol 多模型路由，也不设置固定货币硬预算；普通任务使用 medium/high，深度仓库分析、跨项目比较和高风险复核使用 xhigh。
+- Sub2API endpoint join、模型权限、effort/Structured Outputs/store/usage/request ID/错误合同、exact version/commit 与安全状态全部在 versioned capability probe 前保持 **UNVERIFIED**。
 
 ## 5. 收敛的产品决策
 
 1. 自有连续快照是 24h 新增 Star 唯一 authority。
-2. 每 2 小时轻量观察，每日 08:00 形成正式审计榜。
-3. 无基线项目进入“新入榜待验证”，不以外部值或 age proxy 进入精确榜。
+2. 每 2 小时轻量观察，每日 08:00 形成正式审计榜；observer 重叠时跳过并记录 `skipped_overlap`。
+3. 无基线项目立即进入“新入榜待验证”，显示实际观察窗口，不以外部值或 age proxy 进入精确榜。
 4. 首页精确 Top 5、完整页 Top 20；条目不足不补弱数据。
-5. AI 异步增强，失败时事实照常发布；旧分析必须证据版本完全一致才复用。
-6. 最小 durable queue + Worker；非紧急 backlog 可用 Batch，交互任务用 Responses/background。
-7. 找项目 v2 使用 100 → 30 → 12 → 5 → 3–5 的有界漏斗。
-8. v1 只支持公开 GitHub 仓库，禁止执行代码。
-9. 通用 Project Profile 可共享，任务匹配绑定 RequirementProfile hash 单独计算。
-10. generation 只冻结 ready 且版本匹配的 AI 引用；在线 Job 不修改 current。
+5. Trendshift 只作可选辅助召回/交叉信号，未配置或失败不阻塞事实链，不再分发完整原始数据。
+6. AI 异步增强，失败时事实照常发布；旧分析必须证据版本完全一致才复用。
+7. AI Provider 为自托管 Sub2API，模型固定 `gpt-5.6-sol`；medium/high 用于普通任务，xhigh 用于深度与比较。
+8. 暂不设置货币硬预算，但强制 concurrency、输入/输出、timeout、重试、backlog、幂等、usage accounting 和熔断。
+9. Rardar 自己拥有 durable AIJob queue、独立 Worker 和 lease；主链使用完整非流式请求，Provider Background/Batch 仅为可选优化。
+10. 找项目 v2 同时支持自然语言需求和需求加公开 GitHub URL；第一版不接入私有仓库、不执行代码。
+11. 找项目使用 100 → 30 → 12 → 5 → 3–5 的有界漏斗，候选只能来自真实 API/索引。
+12. 原始需求与 RequirementProfile 默认保留 30 天；长期个性化必须显式 opt-in。
+13. 通用 Project Profile 可共享，任务匹配绑定 RequirementProfile hash 单独计算。
+14. generation 只冻结 ready 且版本匹配的 AI 引用；在线 Job 不修改 current。
+15. 复用结果固定为 whole_product、module_or_library、provider_or_connector、workflow、reference_only、not_recommended，参考细类进入 `referenceKinds`。
+16. GitHub numeric repository ID 只作为 observation ledger 的 rename/transfer 连续性锚；现有 Stable Project ID、路由、D1、Action/Feedback 不在首个 observation PR 修改。
+17. 高价值资产库完整产品建设 Deferred，只积累最低限度历史事实。
 
 ## 6. 交付文档
 
@@ -95,18 +102,19 @@
 
 1. Trending Observation contract 与追加式 observation store；
 2. audited 24h explosion artifact；
-3. 无 AI 榜单 UI；
-4. AI Runtime foundation；
-5. 中文增强；
-6. 找项目 request + dynamic recall；
-7. static capability analysis v2；
-8. cross-project matcher。
+3. AI Runtime foundation（Provider interface、Sub2API adapter、AIJob、durable queue、独立 Worker、usage accounting、mock provider，默认 disabled）；
+4. 今日爆发榜 UI（Top 5 / Top 20 / 新入榜待验证 / AI 状态槽位）；
+5. 中文项目画像与 AI 爆发原因判断；
+6. 找项目 RequirementProfile + Job contract；
+7. 动态 GitHub 候选召回；
+8. Capability Static Analysis v2；
+9. Cross-project Matcher。
 
 每一项均创建独立分支和 Draft PR，并在 merge 后更新治理状态。第一实现 PR 仍需人工批准，本轮不得自动创建。
 
 ## 8. 过度工程化门禁
 
-本轮明确 Deferred：复杂多模型路由、向量数据库集群、私有仓库 GitHub App、自动执行第三方项目、高价值资产库完整 UI、复杂反作弊、全网社交监控、多租户和秒级榜。
+本轮明确 Deferred：复杂多模型路由、Provider Background/Batch 必需依赖、Streaming、向量数据库集群、私有仓库 GitHub App、自动执行第三方项目、高价值资产库完整 UI、复杂反作弊、全网社交监控、多租户和秒级榜。
 
 ## 9. 验证记录
 
@@ -118,6 +126,8 @@
 - Production 未访问；无残留测试进程。
 - Draft PR 的 GitHub Verify 必须为 SUCCESS 后本轮才可报告 PASS。
 
-## 10. 停止条件
+## 10. Discovery-02 收口门禁
 
-Draft PR 创建并通过 GitHub Verify 后停止，只进入人工产品审查。不得标记 Ready、合并、部署或自动开始任何实现。
+用户已经批准 RFC 的产品范围、榜单语义、Sub2API Provider、`gpt-5.6-sol` 单模型 effort 分层、无固定货币硬预算、Rardar-owned queue/Worker 与 30 天历史边界。剩余未验证共 7 项，仅限实施前 capability probe 结果、真实权限/rate limits、Structured Outputs 透传、canonical endpoint join、Sub2API exact version/security、Worker 最终 systemd 资源和真实 latency/token usage。
+
+PR #25 只有在本地完整 Verify、exact-head GitHub Verify、0 review blocker、Ready/Squash merge 和 main push Verify 全部通过后才完成。完成后移除独立 research worktree并停止；不得自动创建 `feat/trending-observations`、访问 Production 或开始实现。

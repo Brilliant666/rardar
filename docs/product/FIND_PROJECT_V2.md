@@ -1,6 +1,6 @@
 # 找项目 v2
 
-> 状态：Draft / 尚未授权实现
+> 状态：产品合同已接受 / 尚未授权实现
 > 目标：为具体开发任务寻找可整套采用、局部复用、Provider 接入或架构参考的公开 GitHub 项目。
 > 安全边界：只做只读元数据和有界静态分析，不执行任何用户或第三方代码。
 
@@ -60,7 +60,7 @@ v2 将搜索变成一条可审计漏斗：
 
 ## 3. RequirementProfile
 
-模型必须使用 Structured Outputs 生成以下版本化结构，随后让用户确认或修订：
+模型必须生成以下版本化结构；无论 Provider 是否原生支持 Structured Outputs，Rardar 都必须在本地完成 JSON parse、Schema、来源和版本验证，随后让用户确认或修订：
 
 | 字段 | 含义 | 例子 |
 | --- | --- | --- |
@@ -87,10 +87,10 @@ v2 将搜索变成一条可审计漏斗：
 | `module_or_library` | 可引入包、目录或相对独立模块 |
 | `provider_or_connector` | 可接入外部系统、模型、存储或平台 |
 | `workflow` | 可复用流程、pipeline 或自动化编排 |
-| `architecture_reference` | 不宜直接复制，但架构和边界值得参考 |
+| `reference_only` | 不宜直接复制，但可作为架构、UI、流程、知识或基础设施参考 |
 | `not_recommended` | 存在 must-have 缺失、许可、成熟度或集成风险 |
 
-`sdk` 在 v1 归入 module_or_library，`provider`/`connector` 合并。`ui_reference` 和 `knowledge_reference` 作为后续输出标签，不进入首版主分类。
+`sdk` 在 v1 归入 `module_or_library`，`provider`/`connector` 合并。`reference_only` 可以附加 `referenceKinds[]`，第一版允许 `architecture`、`ui`、`workflow_design`、`knowledge`、`infrastructure`；它们不是新的主分类。旧的过窄参考分类不再发布。
 
 ## 5. 候选召回漏斗
 
@@ -168,17 +168,20 @@ GitHub Search 每个 query 最多提供 1,000 个结果且可能 incomplete，�
 
 深度比较必须把同一 RequirementProfile、用户项目画像（若有）、最多 5 个候选的**同类型结构化证据**放入一次比较任务。模型不得为每个仓库分别写宣传文案后再拼接。
 
-每个结果回答：
+每个结果必须输出：
 
-1. 为什么匹配；
-2. 哪些 must-have 已有证据支持；
-3. 缺少或未知什么；
-4. 推荐复用类型；
-5. 应接入哪些 package、目录、API 或 Provider；
-6. 集成成本及其依据；
-7. 工程成熟度与许可证风险；
-8. evidence refs；
-9. 置信度和最重要的下一验证动作。
+1. `repository` 与中文简介；
+2. `whyMatched`；
+3. `mustHaveCoverage`；
+4. `missingCapabilities` 与 `unknownCapabilities`；
+5. `technicalCompatibility`；
+6. `reuseType` 与适用时的 `referenceKinds`；
+7. `integrationCost` 与 `integrationWorkItems`；
+8. `engineeringEvidence`；
+9. `licenseAndRisk`；
+10. `evidenceRefs`、`confidence` 与 `nextValidationAction`。
+
+不得只输出综合匹配分、宣传性摘要，或没有证据的“推荐使用”。跨项目比较必须把同一个 RequirementProfile 与最多 5 个候选的标准化证据放入同一次比较任务；不得分别生成宣传文案后拼接排名。
 
 比较矩阵至少包含：
 
@@ -258,7 +261,7 @@ GitHub Search 每个 query 最多提供 1,000 个结果且可能 incomplete，�
 - static probe 的存在、未知与不得声称边界。
 - 同任务矩阵、must-have 缺口、许可证冲突和不推荐。
 - `no_match`、`weak_match`、`needs_extended_search`、`analysis_pending`。
-- Job 幂等、并发领取、租约过期、取消、重试和预算熔断。
+- Job 幂等、并发领取、租约过期、取消、有界重试、backlog 和 Provider 熔断。
 - pointer 切换时 Job 仍保持一个 generation，新 Job 能看到新 generation。
 - 删除历史、30 天到期和未授权个性化。
 
@@ -287,7 +290,7 @@ GitHub Search 每个 query 最多提供 1,000 个结果且可能 incomplete，�
 - 人工认为复用计划有用的比例 ≥70%。
 - benchmark 的诚实 no-result 处理正确率 100%。
 - 快速阶段 p95 <10 秒，深度阶段 p95 <5 分钟。
-- 普通查询模型成本 p95 ≤USD 0.25，单 Job 硬上限 USD 1。
+- 所有 Job 都满足版本化 input/output、timeout、retry、backlog 和 concurrency 边界；不因货币预算暂无限制而重复分析相同证据。
 - 模型、GitHub 或静态分析失败不会把低相关热门项目伪装成推荐。
 
 ## 14. 分阶段范围
