@@ -16,6 +16,7 @@ import os
 import re
 import stat
 import tempfile
+import time
 import urllib.error
 from collections import Counter, deque
 from contextlib import contextmanager
@@ -49,6 +50,8 @@ REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 CAPTURE_FILE_PATTERN = re.compile(r"^trending-v1-\d{8}T\d{6}Z\.json$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 TEMPORARY_FILE_PATTERN = re.compile(r"^\..+\.tmp$")
+_CREATE_SETTLEMENT_MAX_ATTEMPTS = 4
+_CREATE_SETTLEMENT_BACKOFF_SECONDS = (0.005, 0.01, 0.02)
 
 
 class TrendingObservationError(RuntimeError):
@@ -1211,16 +1214,107 @@ def _serialized_bundle(bundle: dict[str, Any]) -> bytes:
     ).encode("utf-8") + b"\n"
 
 
-def _existing_capture(path: Path, capture_id: str) -> dict[str, Any] | None:
+def _capture_settlement_identity(path: Path) -> tuple[int, int, int, int, int, int]:
+    try:
+        metadata = os.lstat(path)
+    except OSError as error:
+        raise TrendingObservationError(
+            "unsafe_or_unstable_capture",
+            f"capture target is unavailable during create settlement: {error.__class__.__name__}",
+        ) from None
+    if _is_reparse(metadata) or not stat.S_ISREG(metadata.st_mode):
+        raise TrendingObservationError(
+            "unsafe_or_unstable_capture",
+            "capture target is not a no-follow regular file during create settlement",
+        )
+    return (
+        int(metadata.st_dev),
+        int(metadata.st_ino),
+        stat.S_IFMT(metadata.st_mode),
+        int(metadata.st_size),
+        int(metadata.st_mtime_ns),
+        int(metadata.st_nlink),
+    )
+
+
+def _load_capture_for_concurrent_create_settlement(path: Path) -> dict[str, Any]:
+    """Read a same-slot create winner after its hard-link source is released.
+
+    The only retryable transition is the winning publisher unlinking another
+    name for the same immutable inode.  Object replacement, byte mutation,
+    disappearance, unsafe types, and semantic validation failures remain
+    permanent failures.
+    """
+
+    path = _absolute_without_escape(path, label="capture path")
+    _assert_safe_existing(path.parent, expect_directory=True)
+    _assert_safe_existing(path, expect_directory=False)
+    for attempt in range(_CREATE_SETTLEMENT_MAX_ATTEMPTS):
+        before = _capture_settlement_identity(path)
+        try:
+            snapshot = stable_read(path)
+        except StableReadError as error:
+            if error.reason != "concurrent_change" or not error.retryable:
+                raise TrendingObservationError(
+                    "unsafe_or_unstable_capture",
+                    "capture target failed a permanent stable-read check during create settlement",
+                ) from None
+            after = _capture_settlement_identity(path)
+            same_immutable_object = before[:5] == after[:5]
+            hardlink_source_released = after[5] < before[5] and after[5] >= 1
+            if not same_immutable_object or not hardlink_source_released:
+                raise TrendingObservationError(
+                    "unsafe_or_unstable_capture",
+                    "capture target changed beyond a hard-link source release during create settlement",
+                ) from None
+            if attempt + 1 >= _CREATE_SETTLEMENT_MAX_ATTEMPTS:
+                raise TrendingObservationError(
+                    "capture_create_settlement_failed",
+                    "capture target remained unstable after bounded create settlement",
+                    details={"attempts": _CREATE_SETTLEMENT_MAX_ATTEMPTS},
+                ) from None
+            time.sleep(_CREATE_SETTLEMENT_BACKOFF_SECONDS[attempt])
+            continue
+
+        snapshot_identity = (
+            snapshot.identity[0],
+            snapshot.identity[1],
+            stat.S_IFMT(snapshot.identity[2]),
+            snapshot.identity[3],
+            snapshot.identity[4],
+        )
+        if snapshot_identity != before[:5]:
+            raise TrendingObservationError(
+                "unsafe_or_unstable_capture",
+                "capture target was replaced before a stable create-settlement read",
+            )
+        return _decode_capture(snapshot.content, path)
+
+    raise AssertionError("bounded capture create settlement did not terminate")
+
+
+def _existing_capture(
+    path: Path,
+    capture_id: str,
+    *,
+    settle_concurrent_create: bool = False,
+) -> dict[str, Any] | None:
     if not os.path.lexists(path):
         return None
     try:
+        loaded = (
+            _load_capture_for_concurrent_create_settlement(path)
+            if settle_concurrent_create
+            else load_capture(path)
+        )
         return validate_capture_bundle(
-            load_capture(path),
+            loaded,
             expected_capture_id=capture_id,
             expected_path=path,
         )
     except TrendingObservationError as error:
+        if error.code == "capture_create_settlement_failed":
+            raise
         raise TrendingObservationError(
             "existing_capture_invalid",
             f"existing capture is unsafe, corrupt, or has a mismatched identity: {error.code}",
@@ -1234,7 +1328,11 @@ def write_capture_create_only(
     validated = validate_capture_bundle(bundle)
     scheduled = parse_timestamp(validated["scheduledAt"], field="scheduledAt")
     target = capture_path_for_scheduled_at(data_dir, scheduled)
-    existing = _existing_capture(target, validated["captureId"])
+    existing = _existing_capture(
+        target,
+        validated["captureId"],
+        settle_concurrent_create=True,
+    )
     if existing is not None:
         return "already_captured", target
     _ensure_capture_parent(data_dir, target)
@@ -1259,7 +1357,11 @@ def write_capture_create_only(
         try:
             os.link(temporary, target)
         except FileExistsError:
-            existing = _existing_capture(target, validated["captureId"])
+            existing = _existing_capture(
+                target,
+                validated["captureId"],
+                settle_concurrent_create=True,
+            )
             if existing is not None:
                 return "already_captured", target
             raise TrendingObservationError(

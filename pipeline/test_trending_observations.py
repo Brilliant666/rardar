@@ -13,8 +13,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import pipeline.stable_read as stable_read_module
+import pipeline.trending_observations as trending_observations_module
 from pipeline.collect_github import candidate_queries
 from pipeline.schema_validation import ArtifactKind, strict_json_loads, validate_payload
+from pipeline.stable_read import StableReadError
 from pipeline.trending_observations import (
     DEFAULT_LIMIT,
     SCHEDULE_TIMEZONE,
@@ -184,6 +187,16 @@ def _bundle(
         },
     }
     return validate_capture_bundle(attach_bundle_digest(payload))
+
+
+def _bundle_bytes(bundle: dict[str, object]) -> bytes:
+    return json.dumps(
+        bundle,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        indent=2,
+    ).encode("utf-8") + b"\n"
 
 
 class FakeGitHubClient:
@@ -729,6 +742,22 @@ class TrendingAppendOnlyTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, "existing_capture_invalid")
             self.assertEqual(target.read_bytes(), original)
 
+    def test_existing_digest_mismatch_fails_closed_without_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary) / "data"
+            target = capture_path_for_scheduled_at(data, SCHEDULED)
+            target.parent.mkdir(parents=True)
+            corrupt = copy.deepcopy(_bundle())
+            corrupt["digest"]["value"] = "0" * 64
+            original = _bundle_bytes(corrupt)
+            target.write_bytes(original)
+
+            with self.assertRaises(TrendingObservationError) as raised:
+                write_capture_create_only(data, _bundle())
+
+            self.assertEqual(raised.exception.code, "existing_capture_invalid")
+            self.assertEqual(target.read_bytes(), original)
+
     def test_symlink_target_is_rejected_without_touching_link_destination(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -796,6 +825,330 @@ class TrendingAppendOnlyTests(unittest.TestCase):
             target = capture_path_for_scheduled_at(data, SCHEDULED)
             self.assertEqual(load_capture(target)["captureId"], bundle["captureId"])
             self.assertEqual(list(target.parent.glob("*.tmp")), [])
+
+    def test_concurrent_loser_settles_after_winner_unlinks_hardlink_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary) / "data"
+            bundle = _bundle()
+            target = capture_path_for_scheduled_at(data, SCHEDULED)
+            link_barrier = threading.Barrier(2)
+            winner_linked = threading.Event()
+            loser_first_snapshot = threading.Event()
+            winner_unlinked = threading.Event()
+            real_link = os.link
+            real_unlink = Path.unlink
+            real_snapshot = stable_read_module._read_regular_snapshot
+            loser_target_snapshots = 0
+            injected_change = False
+            outcomes: dict[str, str] = {}
+            errors: dict[str, BaseException] = {}
+
+            def controlled_link(source, destination, *args, **kwargs):
+                link_barrier.wait(timeout=5)
+                if threading.current_thread().name == "capture-winner":
+                    result = real_link(source, destination, *args, **kwargs)
+                    winner_linked.set()
+                    return result
+                if not winner_linked.wait(5):
+                    raise AssertionError("winner did not publish the hard link")
+                return real_link(source, destination, *args, **kwargs)
+
+            def controlled_unlink(path: Path, *args, **kwargs):
+                if (
+                    threading.current_thread().name == "capture-winner"
+                    and path.name.endswith(".tmp")
+                ):
+                    if not loser_first_snapshot.wait(5):
+                        raise AssertionError("loser did not start its target read")
+                    result = real_unlink(path, *args, **kwargs)
+                    winner_unlinked.set()
+                    return result
+                return real_unlink(path, *args, **kwargs)
+
+            def controlled_snapshot(path: Path):
+                nonlocal loser_target_snapshots, injected_change
+                snapshot = real_snapshot(path)
+                if (
+                    threading.current_thread().name == "capture-loser"
+                    and Path(path) == target
+                ):
+                    loser_target_snapshots += 1
+                    if loser_target_snapshots == 1:
+                        loser_first_snapshot.set()
+                        if not winner_unlinked.wait(5):
+                            raise AssertionError("winner did not unlink its hard-link source")
+                    elif loser_target_snapshots == 2 and not injected_change:
+                        injected_change = True
+                        raise StableReadError(
+                            "concurrent_change",
+                            target,
+                            "hard-link source unlink changed target inode metadata",
+                            retryable=True,
+                        )
+                return snapshot
+
+            def publish(label: str) -> None:
+                try:
+                    outcomes[label] = write_capture_create_only(data, bundle)[0]
+                except BaseException as error:
+                    errors[label] = error
+
+            with (
+                patch("pipeline.trending_observations.os.link", new=controlled_link),
+                patch.object(Path, "unlink", new=controlled_unlink),
+                patch.object(
+                    stable_read_module,
+                    "_read_regular_snapshot",
+                    new=controlled_snapshot,
+                ),
+            ):
+                threads = [
+                    threading.Thread(
+                        target=publish,
+                        args=("winner",),
+                        name="capture-winner",
+                    ),
+                    threading.Thread(
+                        target=publish,
+                        args=("loser",),
+                        name="capture-loser",
+                    ),
+                ]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=10)
+
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual(errors, {})
+            self.assertEqual(outcomes, {"winner": "captured", "loser": "already_captured"})
+            self.assertTrue(injected_change)
+            self.assertEqual(load_capture(target)["captureId"], bundle["captureId"])
+            self.assertEqual(list(target.parent.glob("*.tmp")), [])
+
+    def test_delete_and_recreate_during_settlement_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary) / "data"
+            bundle = _bundle()
+            _, target = write_capture_create_only(data, bundle)
+            original = target.read_bytes()
+            original_inode = target.stat().st_ino
+            replacement = target.with_name("replacement.json")
+            replacement.write_bytes(original)
+            replacement_inode = replacement.stat().st_ino
+            self.assertNotEqual(original_inode, replacement_inode)
+            real_stable_read = trending_observations_module.stable_read
+            calls = 0
+
+            def replace_during_read(path: Path, *args, **kwargs):
+                nonlocal calls
+                if Path(path) == target:
+                    calls += 1
+                    target.unlink()
+                    replacement.rename(target)
+                    raise StableReadError(
+                        "concurrent_change",
+                        target,
+                        "target was deleted and recreated",
+                        retryable=True,
+                    )
+                return real_stable_read(path, *args, **kwargs)
+
+            with patch(
+                "pipeline.trending_observations.stable_read",
+                new=replace_during_read,
+            ):
+                with self.assertRaises(TrendingObservationError) as raised:
+                    write_capture_create_only(data, bundle)
+
+            self.assertEqual(raised.exception.code, "existing_capture_invalid")
+            self.assertEqual(calls, 1)
+            self.assertEqual(target.read_bytes(), original)
+            self.assertEqual(load_capture(target)["captureId"], bundle["captureId"])
+
+    def test_same_length_in_place_rewrite_during_settlement_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary) / "data"
+            bundle = _bundle()
+            _, target = write_capture_create_only(data, bundle)
+            original = target.read_bytes()
+            before = target.stat()
+            changed = copy.deepcopy(bundle)
+            changed["observations"][0]["totalStars"] += 1
+            changed = validate_capture_bundle(attach_bundle_digest(changed))
+            replacement = _bundle_bytes(changed)
+            self.assertEqual(len(replacement), len(original))
+            real_stable_read = trending_observations_module.stable_read
+            calls = 0
+
+            def mutate_during_read(path: Path, *args, **kwargs):
+                nonlocal calls
+                if Path(path) == target:
+                    calls += 1
+                    with target.open("r+b") as handle:
+                        handle.write(replacement)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns))
+                    raise StableReadError(
+                        "concurrent_change",
+                        target,
+                        "same-length in-place mutation",
+                        retryable=True,
+                    )
+                return real_stable_read(path, *args, **kwargs)
+
+            with patch(
+                "pipeline.trending_observations.stable_read",
+                new=mutate_during_read,
+            ):
+                with self.assertRaises(TrendingObservationError) as raised:
+                    write_capture_create_only(data, bundle)
+
+            self.assertEqual(raised.exception.code, "existing_capture_invalid")
+            self.assertEqual(calls, 1)
+            self.assertEqual(target.stat().st_ino, before.st_ino)
+            self.assertEqual(load_capture(target)["observations"][0]["totalStars"], 101)
+
+    def test_persistent_hardlink_metadata_changes_exhaust_settlement_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary) / "data"
+            bundle = _bundle()
+            _, target = write_capture_create_only(data, bundle)
+            original = target.read_bytes()
+            aliases = [target.with_name(f"settlement-{index}.link") for index in range(4)]
+            for alias in aliases:
+                os.link(target, alias)
+            real_stable_read = trending_observations_module.stable_read
+            calls = 0
+
+            def remain_unstable(path: Path, *args, **kwargs):
+                nonlocal calls
+                if Path(path) == target:
+                    aliases[calls].unlink()
+                    calls += 1
+                    raise StableReadError(
+                        "concurrent_change",
+                        target,
+                        "hard-link metadata kept changing",
+                        retryable=True,
+                    )
+                return real_stable_read(path, *args, **kwargs)
+
+            with patch(
+                "pipeline.trending_observations.stable_read",
+                new=remain_unstable,
+            ):
+                with self.assertRaises(TrendingObservationError) as raised:
+                    write_capture_create_only(data, bundle)
+
+            self.assertEqual(raised.exception.code, "capture_create_settlement_failed")
+            self.assertEqual(
+                raised.exception.details,
+                {"attempts": trending_observations_module._CREATE_SETTLEMENT_MAX_ATTEMPTS},
+            )
+            self.assertEqual(calls, 4)
+            self.assertLess(
+                sum(trending_observations_module._CREATE_SETTLEMENT_BACKOFF_SECONDS),
+                0.25,
+            )
+            self.assertEqual(target.read_bytes(), original)
+            self.assertTrue(all(not alias.exists() for alias in aliases))
+
+    def test_target_disappearing_during_settlement_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary) / "data"
+            bundle = _bundle()
+            _, target = write_capture_create_only(data, bundle)
+            real_stable_read = trending_observations_module.stable_read
+            calls = 0
+
+            def disappear_during_read(path: Path, *args, **kwargs):
+                nonlocal calls
+                if Path(path) == target:
+                    calls += 1
+                    target.unlink()
+                    raise StableReadError(
+                        "concurrent_change",
+                        target,
+                        "target disappeared",
+                        retryable=True,
+                    )
+                return real_stable_read(path, *args, **kwargs)
+
+            with patch(
+                "pipeline.trending_observations.stable_read",
+                new=disappear_during_read,
+            ):
+                with self.assertRaises(TrendingObservationError) as raised:
+                    write_capture_create_only(data, bundle)
+
+            self.assertEqual(raised.exception.code, "existing_capture_invalid")
+            self.assertEqual(calls, 1)
+            self.assertFalse(target.exists())
+
+    def test_non_concurrent_stable_read_failure_is_not_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary) / "data"
+            bundle = _bundle()
+            _, target = write_capture_create_only(data, bundle)
+            calls = 0
+
+            def unavailable(path: Path, *args, **kwargs):
+                nonlocal calls
+                calls += 1
+                raise StableReadError(
+                    "unavailable",
+                    Path(path),
+                    "simulated permanent IO failure",
+                    retryable=False,
+                )
+
+            with patch("pipeline.trending_observations.stable_read", new=unavailable):
+                with self.assertRaises(TrendingObservationError) as raised:
+                    write_capture_create_only(data, bundle)
+
+            self.assertEqual(raised.exception.code, "existing_capture_invalid")
+            self.assertEqual(calls, 1)
+            self.assertEqual(target.read_bytes(), _bundle_bytes(bundle))
+
+    def test_create_only_500_round_stress_has_exact_outcomes(self) -> None:
+        exceptions: list[BaseException] = []
+        outcomes: list[list[str]] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary) / "data"
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                for index in range(500):
+                    scheduled = SCHEDULED + timedelta(hours=2 * index)
+                    captured = CAPTURED + timedelta(hours=2 * index)
+                    bundle = _bundle(scheduled, captured)
+                    barrier = threading.Barrier(2)
+
+                    def publish() -> str:
+                        barrier.wait(timeout=5)
+                        return write_capture_create_only(data, bundle)[0]
+
+                    futures = [pool.submit(publish) for _ in range(2)]
+                    round_outcomes: list[str] = []
+                    for future in futures:
+                        try:
+                            round_outcomes.append(future.result(timeout=10))
+                        except BaseException as error:
+                            exceptions.append(error)
+                    outcomes.append(sorted(round_outcomes))
+                    target = capture_path_for_scheduled_at(data, scheduled)
+                    self.assertEqual(load_capture(target)["captureId"], bundle["captureId"])
+
+            self.assertEqual(exceptions, [])
+            self.assertEqual(
+                outcomes,
+                [["already_captured", "captured"] for _ in range(500)],
+            )
+            self.assertEqual(list(data.rglob("*.tmp")), [])
+            self.assertEqual(
+                len(list(data.rglob("trending-v1-*.json"))),
+                500,
+            )
 
     def test_new_slot_never_changes_prior_capture_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
