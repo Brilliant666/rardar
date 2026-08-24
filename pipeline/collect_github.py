@@ -28,22 +28,60 @@ class GitHubClient:
     def __init__(self, token: str | None = None) -> None:
         self.token = token
 
-    def search(self, query: str, per_page: int = 30) -> list[dict[str, Any]]:
+    def _headers(self) -> dict[str, str]:
+        return {
+            "accept": "application/vnd.github+json",
+            "user-agent": "rardar-candidate-collector/0.1",
+            "x-github-api-version": "2022-11-28",
+            **({"authorization": f"Bearer {self.token}"} if self.token else {}),
+        }
+
+    def search_response(
+        self,
+        query: str,
+        *,
+        per_page: int = 30,
+        page: int = 1,
+    ) -> dict[str, Any]:
         parameters = urllib.parse.urlencode(
-            {"q": query, "sort": "stars", "order": "desc", "per_page": min(per_page, 100)}
+            {
+                "q": query,
+                "sort": "stars",
+                "order": "desc",
+                "per_page": min(per_page, 100),
+                "page": page,
+            }
         )
         request = urllib.request.Request(
             f"https://api.github.com/search/repositories?{parameters}",
-            headers={
-                "accept": "application/vnd.github+json",
-                "user-agent": "rardar-candidate-collector/0.1",
-                "x-github-api-version": "2022-11-28",
-                **({"authorization": f"Bearer {self.token}"} if self.token else {}),
-            },
+            headers=self._headers(),
         )
         with urllib.request.urlopen(request, timeout=30) as response:
             payload = json.load(response)
+        if not isinstance(payload, dict):
+            raise RuntimeError("GitHub Search returned a non-object response")
+        return payload
+
+    def search(self, query: str, per_page: int = 30) -> list[dict[str, Any]]:
+        payload = self.search_response(query, per_page=per_page, page=1)
         return payload.get("items", [])
+
+    def repository(self, github_repository_id: int) -> dict[str, Any]:
+        if (
+            isinstance(github_repository_id, bool)
+            or not isinstance(github_repository_id, int)
+            or github_repository_id <= 0
+        ):
+            raise ValueError("GitHub repository ID must be a positive integer")
+        request = urllib.request.Request(
+            f"https://api.github.com/repositories/{github_repository_id}",
+            headers=self._headers(),
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.load(response)
+        if not isinstance(payload, dict):
+            raise RuntimeError("GitHub repository metadata returned a non-object response")
+        return payload
 
 
 def candidate_queries(now: datetime, since_days: int = 14) -> list[str]:

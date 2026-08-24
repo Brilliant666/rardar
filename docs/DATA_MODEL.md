@@ -16,6 +16,40 @@
 | 前端目录 | `<generation>/catalog/latest.json` | `catalog.schema.json` | `schemaVersion` |
 | Codex 队列 | `<generation>/queues/codex.json` | `codex-queue.schema.json` | `schemaVersion` |
 
+## Trending Observation v1
+
+GitHub 趋势观察是 generation 之外的追加式原始事实账本。它与 `data/current.json`、retained generation、flat staging 和 D1 相互独立；generation 切换、回滚或清理 candidate 都不得改写观察历史。它是本地或 Production 运行事实而不是源码，因此 `data/observations/` 被 Git 忽略，但仍随完整 `RARDAR_DATA_DIR` 备份。
+
+| 产物 | 路径 | Schema | 身份 |
+| --- | --- | --- | --- |
+| 单仓库事实 | capture bundle 的 `observations[]` | `trending-observation.schema.json` | GitHub numeric repository ID |
+| 两小时采集包 | `data/observations/trending/v1/captures/YYYY/MM/DD/<captureId>.json` | `trending-capture-bundle.schema.json` | `policyVersion + scheduledAt` |
+
+`captureId` 由固定策略与 UTC phase 机械生成，例如 `trending-v1-20260824T000000Z`。phase 必须是 `Asia/Shanghai` 时区下的偶数整点，cadence 固定为 120 分钟。`capturedAt` 是本轮 metadata 请求全部结束后的事实冻结时间；`captureDelaySeconds` 是它与 `scheduledAt` 的精确差，只有绝对延迟不超过 600 秒时 `windowEligible=true`。窗口资格是后续 24h 推导的输入条件，本层不计算 Star 增量或名次。
+
+每条 observation 记录仓库当时的 Star、Fork、Issue、生命周期时间、默认分支、语言、topics、license、archived/disabled/fork/mirror 状态。GitHub Search 只负责候选召回；`/repositories/{numeric-id}` metadata 响应才是这些事实的权威。`recalledBy` 保存 query 或最近 26 小时 observation carry-forward 的来源、来源键、rank 与采集时间。当前复用 `pipeline.collect_github.candidate_queries` 的九条 Search query；当前 phase 之前 26 小时（含边界）的健康/降级 capture 中出现过的仓库都优先继续观察。carry-forward 超过全局 500 上限时以 `tracking_capacity_exceeded` 失败，不静默截断。
+
+GitHub numeric repository ID 只保证 observation ledger 在 rename/transfer 前后的连续性。Catalog、路由、D1、Action 与 Feedback 继续使用 Rardar Stable Project ID；两套身份不能互相替代或在本协议内迁移。同一 capture 内，一个 ID 对应多个 `owner/name` 时返回 `repository_identity_changed_during_capture`，一个名称对应多个 ID 时返回 `repository_name_identity_collision`；不同 capture 之间允许同一 numeric ID 改名。
+
+capture 使用严格 UTF-8 JSON、拒绝重复键与非有限数。顶层 `digest` 是去除 `digest` 字段后，对 Unicode、不转义、key 排序、无多余空白的 canonical JSON bytes 计算的 SHA-256。写入先在目标目录创建并 fsync 临时 regular file，完成 Schema、跨字段语义和 digest 验证后，再以 hard-link no-replace 原子发布；既有合法 slot 返回 `already_captured` 且不访问 GitHub，损坏、身份不符、symlink、junction/reparse point 或路径逃逸都 fail closed，永不覆盖。
+
+Observer 使用独立于 generation data lock、Manager 和 Scheduler 的单实例锁。重叠调用立即返回 `skipped_overlap`，不等待、不访问 GitHub、不创建 bundle。CLI 不接受 token 参数，也不匿名降级；新采集必须从 `GITHUB_TOKEN` 环境变量取得 token：
+
+```powershell
+python -m pipeline.collect_trending_observations `
+  --data-dir data `
+  --scheduled-at 2026-08-24T08:00:00+08:00 `
+  --timezone Asia/Shanghai `
+  --limit 500 `
+  --dry-run
+```
+
+不提供 `--scheduled-at` 时选择距离当前时间最近的固定两小时 phase。`--dry-run` 可以请求 GitHub 并构造完整 bundle，但不创建或修改 data 路径。此工程轮不把 CLI 接入现有每日 Scheduler/Manager；长期 2h 调度与部署属于独立运维变更。
+
+`python -m pipeline.audit_trending_observations --data-dir <isolated-data>` 是只读 store audit：验证目录与文件名、no-follow regular-file 边界、严格 JSON、Schema、phase/时间/窗口、digest、slot 唯一性、身份、计数、26 小时 carry-forward 完整性及仍在 retention store 内的跨 capture rank 引用、90 天 retention metadata 以及残留临时文件。无结构错误但含失败 query、incomplete Search 或 metadata failure 的历史返回 `degraded`；任何不可信字节或路径返回 `failed`，audit 不修复、删除或重写文件。
+
+原始 capture 的 retention class 固定为 `raw_2h_observation`，`retainUntil` 必须机械等于 `capturedAt + 90 days`。本轮只记录保留元数据，不实现自动清理。历史事实只能通过后续 capture 补充，不能反向修改。
+
 这里的 `<generation>` 表示 `data/current.json` 一次解析后得到的 `data/generations/<generationId>/`。页面、API、审计命令和下一轮增长基线不得分别重读指针或拼接 flat 路径。
 
 Schema 使用 JSON Schema Draft 2020-12，并限制必填字段、对象额外字段、字段类型、数组成员、枚举、时间、HTTP(S) URL、`owner/name` 仓库身份、字符串长度和数值范围。Schema 只引用仓库内文件，验证过程不会联网获取契约。

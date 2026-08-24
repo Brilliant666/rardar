@@ -47,6 +47,8 @@ class ArtifactKind(str, Enum):
     CODEX_QUEUE = "codex-queue"
     GENERATION_MANIFEST = "generation-manifest"
     CURRENT_GENERATION = "current-generation"
+    TRENDING_OBSERVATION = "trending-observation"
+    TRENDING_CAPTURE_BUNDLE = "trending-capture-bundle"
 
 
 SCHEMA_FILES = {
@@ -59,6 +61,8 @@ SCHEMA_FILES = {
     ArtifactKind.CODEX_QUEUE: "codex-queue.schema.json",
     ArtifactKind.GENERATION_MANIFEST: "generation-manifest.schema.json",
     ArtifactKind.CURRENT_GENERATION: "current-generation.schema.json",
+    ArtifactKind.TRENDING_OBSERVATION: "trending-observation.schema.json",
+    ArtifactKind.TRENDING_CAPTURE_BUNDLE: "trending-capture-bundle.schema.json",
 }
 
 
