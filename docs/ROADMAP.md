@@ -88,18 +88,17 @@ Repository `main` 与 Production release 可以合法不同。只有完成 exact
 
 ---
 
-# Now — PRODUCT-NEXT-PHASE-DISCOVERY
+# Now — Rardar v2 accepted product direction
 
-状态：**等待人工产品讨论 / 尚未授权实现 / 尚未创建产品 branch 或 PR**
+状态：**RARDAR-V2-RFC ACCEPTED / 等待独立实现任务**
 
-本阶段只讨论，不选择方案、不建立实现计划。需要与用户共同回答：
+- P0：今日爆发榜 v2，以 Rardar 自有连续 observation 形成可审计的精确 24h Star 增量榜；
+- P0：找项目 v2，以自然语言需求、可选公开 GitHub URL、动态召回、静态证据和同任务横向比较形成复用决策；
+- AI v1：通过自托管 Sub2API 调用 `gpt-5.6-sol`，由 Rardar 自有 durable queue 与独立 Worker 负责异步、幂等、重试和熔断；
+- 高价值资产库完整产品建设继续 Deferred，只积累最低限度历史事实；
+- 第一个实现任务固定为 `TRENDING-OBSERVATIONS-01`，建议分支 `feat/trending-observations`，必须由下一条独立任务创建。
 
-1. 当前真实使用中最痛的点是什么？
-2. 下一阶段优先解决发现、判断、行动还是留存？
-3. 产品是继续个人使用，还是准备逐步开放给其他用户？
-4. 哪些能力最接近用户可感知价值？
-
-在这些问题得到人工结论前，不自动创建 Research Profile、Momentum、Alerts、MCP 或其他产品工程轮。
+推荐实现顺序：observation contract/store → audited 24h artifact → AI Runtime foundation（默认 disabled）→ 今日爆发榜 UI → 中文画像与 AI 爆发原因判断 → RequirementProfile/Job → 动态 GitHub 召回 → Static Analysis v2 → Cross-project Matcher。每一步必须是独立、可审计、可回滚的 PR。
 
 ---
 
