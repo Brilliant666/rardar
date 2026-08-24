@@ -53,3 +53,4 @@ next-env.d.ts
 /wheelhouse/
 /data/scheduler/status.json
 /data/generations/.candidates/
+/data/observations/

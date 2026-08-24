@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/trending-observation.schema.json",
+  "title": "Rardar GitHub trending observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "githubRepositoryId",
+    "repository",
+    "htmlUrl",
+    "capturedAt",
+    "totalStars",
+    "forks",
+    "openIssues",
+    "createdAt",
+    "updatedAt",
+    "pushedAt",
+    "defaultBranch",
+    "primaryLanguage",
+    "topics",
+    "licenseSpdxId",
+    "archived",
+    "disabled",
+    "fork",
+    "mirrorUrl",
+    "recalledBy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "githubRepositoryId": { "type": "integer", "minimum": 1 },
+    "repository": { "$ref": "#/$defs/repositoryName" },
+    "htmlUrl": { "$ref": "#/$defs/githubRepositoryUrl" },
+    "description": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "maxLength": 4000 }
+      ]
+    },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "totalStars": { "type": "integer", "minimum": 0 },
+    "forks": { "type": "integer", "minimum": 0 },
+    "openIssues": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "pushedAt": { "type": "string", "format": "date-time" },
+    "defaultBranch": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "primaryLanguage": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1, "maxLength": 100 }
+      ]
+    },
+    "topics": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+    },
+    "licenseSpdxId": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1, "maxLength": 100 }
+      ]
+    },
+    "archived": { "type": "boolean" },
+    "disabled": { "type": "boolean" },
+    "fork": { "type": "boolean" },
+    "mirrorUrl": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^[^\\s\\\\]+$"
+        }
+      ]
+    },
+    "recalledBy": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/provenance" }
+    }
+  },
+  "$defs": {
+    "repositoryName": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200,
+      "format": "repository",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "githubRepositoryUrl": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 2048,
+      "format": "http-url",
+      "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sourceKey", "sourceRank", "capturedAt"],
+      "properties": {
+        "source": {
+          "enum": ["github_search", "recent_observation_carry_forward"]
+        },
+        "sourceKey": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "sourceRank": { "type": "integer", "minimum": 1, "maximum": 5000 },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "queryId": { "type": "string", "pattern": "^query-[0-9]{2}$" },
+        "query": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "page": { "type": "integer", "minimum": 1, "maximum": 100 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "source": { "const": "github_search" } },
+            "required": ["source"]
+          },
+          "then": { "required": ["queryId", "query", "page"] },
+          "else": {
+            "not": {
+              "anyOf": [
+                { "required": ["queryId"] },
+                { "required": ["query"] },
+                { "required": ["page"] }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/trending-capture-bundle.schema.json",
+  "title": "Rardar GitHub trending capture bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "policyVersion",
+    "captureId",
+    "scheduleTimezone",
+    "cadenceMinutes",
+    "scheduledAt",
+    "capturedAt",
+    "captureDelaySeconds",
+    "windowEligible",
+    "coverageState",
+    "successfulQueryCount",
+    "failedQueryCount",
+    "candidateCount",
+    "observationCount",
+    "metadataFailureCount",
+    "queryStatus",
+    "metadataFailures",
+    "observations",
+    "retention",
+    "digest"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "policyVersion": { "const": "trending-observation-v1" },
+    "captureId": {
+      "type": "string",
+      "pattern": "^trending-v1-[0-9]{8}T[0-9]{6}Z$"
+    },
+    "scheduleTimezone": { "const": "Asia/Shanghai" },
+    "cadenceMinutes": { "const": 120 },
+    "scheduledAt": { "type": "string", "format": "date-time" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "captureDelaySeconds": { "type": "number" },
+    "windowEligible": { "type": "boolean" },
+    "coverageState": { "enum": ["healthy", "degraded"] },
+    "successfulQueryCount": { "type": "integer", "minimum": 1, "maximum": 9 },
+    "failedQueryCount": { "type": "integer", "minimum": 0, "maximum": 8 },
+    "candidateCount": { "type": "integer", "minimum": 1, "maximum": 500 },
+    "observationCount": { "type": "integer", "minimum": 1, "maximum": 500 },
+    "metadataFailureCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+    "queryStatus": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": { "$ref": "#/$defs/queryStatus" }
+    },
+    "metadataFailures": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/metadataFailure" }
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/observation" }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retentionClass", "retentionDays", "retainUntil"],
+      "properties": {
+        "retentionClass": { "const": "raw_2h_observation" },
+        "retentionDays": { "const": 90 },
+        "retainUntil": { "type": "string", "format": "date-time" }
+      }
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "value": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  },
+  "$defs": {
+    "repositoryName": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200,
+      "format": "repository",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "queryStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "queryId",
+        "query",
+        "state",
+        "resultCount",
+        "incompleteResults",
+        "errorCode",
+        "errorMessage"
+      ],
+      "properties": {
+        "queryId": { "type": "string", "pattern": "^query-[0-9]{2}$" },
+        "query": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "state": { "enum": ["healthy", "failed"] },
+        "resultCount": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "incompleteResults": { "type": "boolean" },
+        "errorCode": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 100 }
+          ]
+        },
+        "errorMessage": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 300 }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "healthy" } }, "required": ["state"] },
+          "then": {
+            "properties": {
+              "errorCode": { "type": "null" },
+              "errorMessage": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "state": { "const": "failed" } }, "required": ["state"] },
+          "then": {
+            "properties": {
+              "resultCount": { "const": 0 },
+              "incompleteResults": { "const": false },
+              "errorCode": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "errorMessage": { "type": "string", "minLength": 1, "maxLength": 300 }
+            }
+          }
+        }
+      ]
+    },
+    "metadataFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["githubRepositoryId", "repository", "errorCode", "errorMessage"],
+      "properties": {
+        "githubRepositoryId": { "type": "integer", "minimum": 1 },
+        "repository": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/repositoryName" }
+          ]
+        },
+        "errorCode": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "errorMessage": { "type": "string", "minLength": 1, "maxLength": 300 }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sourceKey", "sourceRank", "capturedAt"],
+      "properties": {
+        "source": { "enum": ["github_search", "recent_observation_carry_forward"] },
+        "sourceKey": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "sourceRank": { "type": "integer", "minimum": 1, "maximum": 5000 },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "queryId": { "type": "string", "pattern": "^query-[0-9]{2}$" },
+        "query": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "page": { "type": "integer", "minimum": 1, "maximum": 100 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "source": { "const": "github_search" } }, "required": ["source"] },
+          "then": { "required": ["queryId", "query", "page"] },
+          "else": {
+            "not": {
+              "anyOf": [
+                { "required": ["queryId"] },
+                { "required": ["query"] },
+                { "required": ["page"] }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "githubRepositoryId",
+        "repository",
+        "htmlUrl",
+        "capturedAt",
+        "totalStars",
+        "forks",
+        "openIssues",
+        "createdAt",
+        "updatedAt",
+        "pushedAt",
+        "defaultBranch",
+        "primaryLanguage",
+        "topics",
+        "licenseSpdxId",
+        "archived",
+        "disabled",
+        "fork",
+        "mirrorUrl",
+        "recalledBy"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "githubRepositoryId": { "type": "integer", "minimum": 1 },
+        "repository": { "$ref": "#/$defs/repositoryName" },
+        "htmlUrl": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 2048,
+          "format": "http-url",
+          "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "description": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "maxLength": 4000 }
+          ]
+        },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "totalStars": { "type": "integer", "minimum": 0 },
+        "forks": { "type": "integer", "minimum": 0 },
+        "openIssues": { "type": "integer", "minimum": 0 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "pushedAt": { "type": "string", "format": "date-time" },
+        "defaultBranch": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "primaryLanguage": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 100 }
+          ]
+        },
+        "topics": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+        },
+        "licenseSpdxId": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 100 }
+          ]
+        },
+        "archived": { "type": "boolean" },
+        "disabled": { "type": "boolean" },
+        "fork": { "type": "boolean" },
+        "mirrorUrl": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "^[^\\s\\\\]+$"
+            }
+          ]
+        },
+        "recalledBy": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/provenance" }
+        }
+      }
+    }
+  }
+}
