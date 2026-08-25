@@ -1,6 +1,6 @@
 # 今日爆发榜 v2
 
-> 状态：产品合同已接受 / 尚未授权实现
+> 状态：产品合同已接受 / 24h 事实 Artifact 为当前 Draft 实现
 > 主问题：过去 24 小时，GitHub 上哪些项目获得了最多新增关注？
 > 排名合同：只按 Rardar 自有连续快照计算的 24h 新增 Star 降序。
 
@@ -9,6 +9,8 @@
 > 基于 Rardar 多源候选召回与自有连续观察形成的 GitHub 24h 爆发榜。
 
 产品目标可以探索“全网现在最值得关注什么”，但数据页面不得声称已经扫描全 GitHub、榜单等于 GitHub 绝对全站 Top 20，或所有爆发项目都必然被召回。
+
+当前工程合同见 [`2026-08-25-trending-explosion-artifact.md`](../iterations/2026-08-25-trending-explosion-artifact.md)。正式事实路径为 `<generation>/trending/explosion.json`，重算来源冻结于 `<generation>/trending/sources/*.json`；本 Draft 只实现 Artifact、derive 与 Audit，不实现页面或 AI。
 
 ## 1. 产品语义
 

@@ -15,6 +15,8 @@
 | 动态中文画像 | `<generation>/signals/enrichment.json` | `signal-enrichment.schema.json` | `schemaVersion` |
 | 前端目录 | `<generation>/catalog/latest.json` | `catalog.schema.json` | `schemaVersion` |
 | Codex 队列 | `<generation>/queues/codex.json` | `codex-queue.schema.json` | `schemaVersion` |
+| GitHub 24h 爆发事实 | `<generation>/trending/explosion.json` | `trending-explosion-artifact.schema.json` | `schemaVersion` |
+| 爆发事实来源副本 | `<generation>/trending/sources/*.json` | `trending-capture-bundle.schema.json` | `schemaVersion` |
 
 ## Trending Observation v1
 
@@ -49,6 +51,30 @@ python -m pipeline.collect_trending_observations `
 `python -m pipeline.audit_trending_observations --data-dir <isolated-data>` 是只读 store audit：验证目录与文件名、no-follow regular-file 边界、严格 JSON、Schema、phase/时间/窗口、digest、slot 唯一性、身份、计数、26 小时 carry-forward 完整性及仍在 retention store 内的跨 capture rank 引用、90 天 retention metadata 以及残留临时文件。无结构错误但含失败 query、incomplete Search 或 metadata failure 的历史返回 `degraded`；任何不可信字节或路径返回 `failed`，audit 不修复、删除或重写文件。
 
 原始 capture 的 retention class 固定为 `raw_2h_observation`，`retainUntil` 必须机械等于 `capturedAt + 90 days`。本轮只记录保留元数据，不实现自动清理。历史事实只能通过后续 capture 补充，不能反向修改。
+
+## Trending Explosion Artifact v1
+
+`TrendingExplosionArtifact v1` 是 retained generation 内的可选事实产物。它把 generation 外的两小时 observation ledger 机械派生为一个正式 24 小时窗口，并冻结完整重算所需的源字节：
+
+```text
+<generation>/trending/explosion.json
+<generation>/trending/sources/current.json
+<generation>/trending/sources/baseline.json          # 端点存在时
+<generation>/trending/sources/partial-XX.json        # pending 实际窗口需要时
+<generation>/trending/sources/coverage-witness.json  # 证明 baseline_missing 时
+```
+
+`schemaVersion=1`、`policyVersion=trending-explosion-v1`，正式 `window.endedAt` 必须是 `08:00 Asia/Shanghai` 的固定两小时 phase，`durationHours=24`、`toleranceSeconds=600`。当前端点必须存在、通过 strict JSON、Schema、payload digest、capture ID、scheduled path 与 `windowEligible` 验证；否则 derive fail closed。T-24h 端点存在且 eligible 时为 `exact`；账本尚未覆盖完整 24 小时时为 `warming_up`；已有更早 capture 但目标端点缺失或不 eligible 时为 `baseline_missing` 并明确 degraded。
+
+仓库连续性只按 GitHub numeric repository ID。`exactRanked` 机械计算 `current.totalStars - baseline.totalStars`，按 `observedStarDelta DESC`、`totalStars DESC`、`repository ASC` 排序，最多保存 500 个完整候选，而不是只保存 UI Top 20。rename/transfer 以当前名称展示并保存 `previousRepository`；archived、fork 和 mirror 保留独立事实。负增量、current disabled 或跨端点名称→numeric ID 冲突进入 `conflicts`，不得用外部 reported delta 修复。
+
+没有合法 exact baseline 的 current 项进入独立 `pendingRanked`。derive 只扫描窗口内最多 11 个中间固定 phase，以最早实际观察和 current 计算 partial hours/delta；单观察点保持 null，不线性外推、不占 exact rank。`exactRanked`、`pendingRanked` 与 `conflicts` 的 numeric ID 必须互斥。
+
+源 capture 先 no-follow stable-read，再以原始字节复制；每个 source reference 同时绑定 payload digest 与文件 SHA-256，全部副本和 explosion artifact 都进入 manifest artifact/hash 清单。semantic Audit 只使用 generation-local bytes 完整重算窗口、分区、delta、排序、rank、coverage 和 provenance。因此原始 90 天 observation store 删除后，retained generation 仍可独立完成 Schema、Audit、manifest integrity 和 rollback target verification。Artifact 不允许 AI 简介、爆发原因、confidence、模型、复用建议或工程成熟度字段；这些属于后续独立 AI artifact。
+
+`python -m pipeline.derive_trending_explosion --data-dir <path> --window-end <RFC3339>` 在 generation 外准备来源，以 `operation=derive` 创建 candidate，经 Schema/Audit 后用既有 base-generation CAS 发布；`--dry-run` 不创建 candidate 或改动 current。同一窗口与端点 digest 返回 `already_derived`，较旧窗口返回 `stale_explosion_window`，同窗口不同端点字节返回 `explosion_source_conflict`。竞争 publisher 获胜后 loser 返回 `stale_base_generation`，ready candidate 保留诊断，winner current 不被覆盖。
+
+无关 refresh/derive 会 byte-exact 保留 source 副本和事实窗口，只机械把 `explosion.json.generationId` 重绑定到新 enclosing generation，然后重新执行 Schema/Audit。专用 Explosion derive 才能用新窗口替换该 namespace。历史 generation 没有 `trending/` 仍然合法；一旦出现任一 Explosion 文件，artifact 与完整 source inventory 必须同时通过审计。
 
 这里的 `<generation>` 表示 `data/current.json` 一次解析后得到的 `data/generations/<generationId>/`。页面、API、审计命令和下一轮增长基线不得分别重读指针或拼接 flat 路径。
 

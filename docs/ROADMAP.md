@@ -1,6 +1,6 @@
 # Rardar Roadmap
 
-> Last updated: **2026-08-24**
+> Last updated: **2026-08-25**
 >
 > 这是执行路线，不是承诺时间表。长期产品原则由 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md) 定义；当前完成度看 [`PROJECT_STATUS.md`](PROJECT_STATUS.md)。候选项的出现顺序不代表已经确定产品优先级。
 
@@ -90,16 +90,17 @@ Repository `main` 与 Production release 可以合法不同。只有完成 exact
 
 # Now — Rardar v2 implementation
 
-状态：**RARDAR-V2-RFC ACCEPTED / TRENDING-OBSERVATIONS-01 IN DRAFT**
+状态：**RARDAR-V2-RFC ACCEPTED / TRENDING-EXPLOSION-ARTIFACT-01 IN DRAFT**
 
 - P0：今日爆发榜 v2，以 Rardar 自有连续 observation 形成可审计的精确 24h Star 增量榜；
 - P0：找项目 v2，以自然语言需求、可选公开 GitHub URL、动态召回、静态证据和同任务横向比较形成复用决策；
 - AI v1：通过自托管 Sub2API 调用 `gpt-5.6-sol`，由 Rardar 自有 durable queue 与独立 Worker 负责异步、幂等、重试和熔断；
 - 高价值资产库完整产品建设继续 Deferred，只积累最低限度历史事实；
-- 第一个实现任务 `TRENDING-OBSERVATIONS-01` 已在独立分支实现 observation Schema、immutable capture bundle、九查询召回、26 小时 carry-forward、numeric repository ID 连续性、create-only store、单实例锁和只读 audit；只有对应 PR 合并到 `main` 后才视为完成。
-- 本轮没有实现 24h delta、榜单 artifact、UI、AI、D1、调度或 Production 部署。Draft PR 合并前不得开始下一阶段；合并后下一项仍是独立的 audited 24h explosion artifact 设计与实现。
+- `TRENDING-OBSERVATIONS-01` 已由 PR #26 合并；PR #27 已解决 Linux same-slot create-only settlement 竞态，observation Schema、immutable capture bundle、九查询召回、26 小时 carry-forward、numeric repository ID 连续性、create-only store、单实例锁和只读 audit 均已进入 `main`。
+- 当前 Draft 工程轮 `TRENDING-EXPLOSION-ARTIFACT-01` 从 eligible observation 机械生成 24h exact/pending/conflict 事实，冻结 byte-exact source copies，并通过 generation Schema、semantic Audit、幂等和 CAS 发布。只有本 Draft PR 合并到 `main` 后才视为完成。
+- 本轮不实现 UI、AI、Sub2API、D1、Scheduler/systemd、TopicEye 代码或 Production 部署。Draft PR 合并前不得开始下一阶段；合并后的下一独立目标是 `RARDAR-INTELLIGENCE-ADAPTER-01`。
 
-推荐实现顺序：observation contract/store → audited 24h artifact → AI Runtime foundation（默认 disabled）→ 今日爆发榜 UI → 中文画像与 AI 爆发原因判断 → RequirementProfile/Job → 动态 GitHub 召回 → Static Analysis v2 → Cross-project Matcher。每一步必须是独立、可审计、可回滚的 PR。
+推荐实现顺序：observation contract/store（已完成）→ audited 24h artifact（当前 Draft）→ Rardar Intelligence Adapter（下一独立任务）→ AI Runtime foundation（默认 disabled）→ 今日爆发榜 UI → 中文画像与 AI 爆发原因判断 → RequirementProfile/Job → 动态 GitHub 召回 → Static Analysis v2 → Cross-project Matcher。每一步必须是独立、可审计、可回滚的 PR。
 
 ---
 
