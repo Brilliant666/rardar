@@ -367,6 +367,41 @@ class TrendingExplosionDerivationTests(unittest.TestCase):
             self.assertFalse(artifact["pendingRanked"])
             self.assertEqual(artifact["conflicts"][0]["reason"], "source_identity_conflict")
 
+    def test_rename_into_another_baseline_identity_is_explicit_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "data"
+            baseline = [
+                _observation_at(1, "owner/original", WINDOW_START, stars=50),
+                _observation_at(2, "owner/reused", WINDOW_START, stars=60),
+            ]
+            current = [_observation_at(1, "owner/reused", WINDOW_END, stars=100)]
+            _write_capture(root, WINDOW_START, baseline)
+            _write_capture(root, WINDOW_END, current)
+            artifact = build_trending_explosion_artifact(
+                generation_id="rename-conflict-generation",
+                window_end=WINDOW_END,
+                generated_at=GENERATED_AT,
+                sources=load_explosion_sources(root, WINDOW_END),
+            )
+            self.assertFalse(artifact["exactRanked"])
+            self.assertFalse(artifact["pendingRanked"])
+            self.assertEqual(
+                artifact["conflicts"],
+                [
+                    {
+                        "reason": "source_identity_conflict",
+                        "githubRepositoryId": 1,
+                        "repository": "owner/reused",
+                        "currentStars": 100,
+                        "baselineStars": 60,
+                        "sourceCaptureIds": [
+                            "trending-v1-20260823T000000Z",
+                            "trending-v1-20260824T000000Z",
+                        ],
+                    }
+                ],
+            )
+
     def test_warming_up_and_baseline_missing_are_distinct(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             warming = Path(temporary) / "warming"

@@ -625,8 +625,7 @@ def build_trending_explosion_artifact(
         baseline = baseline_by_id.get(repository_id)
         name_match = baseline_by_name.get(str(current["repository"]).casefold())
         if (
-            baseline is None
-            and name_match is not None
+            name_match is not None
             and int(name_match["githubRepositoryId"]) != repository_id
         ):
             conflicts.append(
