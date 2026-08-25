@@ -82,6 +82,8 @@ OPTIONAL_GLOB_ARTIFACTS = (
     ("snapshots/history", "*.json"),
     ("analysis", "*.json"),
     ("enrichment", "*.json"),
+    ("trending", "explosion.json"),
+    ("trending/sources", "*.json"),
 )
 
 
@@ -1124,6 +1126,32 @@ def _copy_supported_artifacts(source_root: Path, destination_root: Path) -> None
         _copy_file(source, destination_root / relative, source_root, destination_root)
 
 
+def _rebind_candidate_explosion_generation_id(
+    destination_root: Path,
+    generation_id: str,
+) -> None:
+    """Mechanically carry the latest optional explosion fact across generations.
+
+    Source bytes and the formal window remain unchanged.  Only the enclosing
+    generation identity is rebound so the self-contained artifact continues to
+    satisfy its audit contract after an unrelated refresh or derive.
+    """
+
+    artifact_path = destination_root / "trending" / "explosion.json"
+    if not artifact_path.exists():
+        return
+    from pipeline.trending_explosion import validate_explosion_artifact
+
+    payload = _read_object(
+        artifact_path,
+        code="candidate_write_failed",
+        stage="build",
+    )
+    payload["generationId"] = generation_id
+    validate_explosion_artifact(payload)
+    _atomic_write_json(artifact_path, payload)
+
+
 def _overlay_flat_staging(data_dir: Path, destination_root: Path) -> None:
     """Overlay only missing or provably newer flat staging evidence.
 
@@ -1321,6 +1349,7 @@ def create_candidate_generation(
     candidate = _candidate_from_manifest(canonical, candidate_path, manifest)
     try:
         _copy_supported_artifacts(current.root, candidate_path)
+        _rebind_candidate_explosion_generation_id(candidate_path, normalized)
         if overlay_flat_staging and not current.legacy:
             _overlay_flat_staging(canonical, candidate_path)
         _rebuild_candidate_queue_paths(candidate_path, normalized)

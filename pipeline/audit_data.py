@@ -33,6 +33,7 @@ from pipeline.schema_validation import (
     strict_json_loads,
     validate_payload,
 )
+from pipeline.trending_explosion import audit_trending_explosion_generation
 
 
 def _parse_time(value: object) -> datetime | None:
@@ -218,6 +219,9 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
     signal_enrichment_path = data_dir / "signals" / "enrichment.json"
     if signal_enrichment_path.exists():
         _load(signal_enrichment_path, issues, ArtifactKind.SIGNAL_ENRICHMENT)
+
+    explosion = audit_trending_explosion_generation(data_dir)
+    issues.extend(explosion["issues"])
 
     repository_value = snapshot.get("repositories")
     project_value = catalog.get("projects")
@@ -1088,6 +1092,9 @@ def audit_data(data_dir: Path) -> dict[str, Any]:
             for item in queue_items
         ),
         "historyCount": len(history_paths),
+        "trendingExplosion": {
+            key: value for key, value in explosion.items() if key != "issues"
+        },
         "errorCount": error_count,
         "warningCount": warning_count,
         "issues": issues,

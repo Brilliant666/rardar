@@ -49,6 +49,7 @@ class ArtifactKind(str, Enum):
     CURRENT_GENERATION = "current-generation"
     TRENDING_OBSERVATION = "trending-observation"
     TRENDING_CAPTURE_BUNDLE = "trending-capture-bundle"
+    TRENDING_EXPLOSION = "trending-explosion"
 
 
 SCHEMA_FILES = {
@@ -63,6 +64,7 @@ SCHEMA_FILES = {
     ArtifactKind.CURRENT_GENERATION: "current-generation.schema.json",
     ArtifactKind.TRENDING_OBSERVATION: "trending-observation.schema.json",
     ArtifactKind.TRENDING_CAPTURE_BUNDLE: "trending-capture-bundle.schema.json",
+    ArtifactKind.TRENDING_EXPLOSION: "trending-explosion-artifact.schema.json",
 }
 
 
@@ -561,6 +563,10 @@ def infer_artifact_kind(path: Path) -> ArtifactKind | None:
         return ArtifactKind.CATALOG
     if parent == "queues" and name == "codex.json":
         return ArtifactKind.CODEX_QUEUE
+    if parent == "trending" and name == "explosion.json":
+        return ArtifactKind.TRENDING_EXPLOSION
+    if parent == "sources" and grandparent == "trending" and name.endswith(".json"):
+        return ArtifactKind.TRENDING_CAPTURE_BUNDLE
     return None
 
 
@@ -577,6 +583,12 @@ def artifact_data_root(path: Path) -> Path | None:
     if (
         kind is ArtifactKind.GITHUB_SNAPSHOT
         and resolved.parent.name.lower() == "history"
+    ):
+        return resolved.parent.parent.parent
+    if (
+        kind is ArtifactKind.TRENDING_CAPTURE_BUNDLE
+        and resolved.parent.name.lower() == "sources"
+        and resolved.parent.parent.name.lower() == "trending"
     ):
         return resolved.parent.parent.parent
     return resolved.parent.parent
@@ -603,7 +615,15 @@ def require_valid_for_path(path: Path, payload: object) -> dict[str, Any]:
 
 
 _GENERATION_ARTIFACT_DIRECTORIES = frozenset(
-    {"snapshots", "signals", "analysis", "enrichment", "catalog", "queues"}
+    {
+        "snapshots",
+        "signals",
+        "analysis",
+        "enrichment",
+        "catalog",
+        "queues",
+        "trending",
+    }
 )
 
 
@@ -737,6 +757,9 @@ def _artifact_timestamp(kind: ArtifactKind, payload: dict[str, Any]) -> datetime
         ArtifactKind.CODEX_QUEUE: "generatedAt",
         ArtifactKind.GENERATION_MANIFEST: "createdAt",
         ArtifactKind.CURRENT_GENERATION: "publishedAt",
+        ArtifactKind.TRENDING_OBSERVATION: "capturedAt",
+        ArtifactKind.TRENDING_CAPTURE_BUNDLE: "capturedAt",
+        ArtifactKind.TRENDING_EXPLOSION: "generatedAt",
     }[kind]
     value = payload.get(field)
     if not isinstance(value, str) or not _is_rfc3339(value):
@@ -854,6 +877,12 @@ def validate_data_tree(data_dir: Path) -> list[ValidationResult]:
     current_pointer_path = data_dir / "current.json"
     if current_pointer_path.exists():
         optional_paths.append(current_pointer_path)
+    explosion_path = data_dir / "trending" / "explosion.json"
+    if explosion_path.exists():
+        optional_paths.append(explosion_path)
+    source_directory = data_dir / "trending" / "sources"
+    if source_directory.exists():
+        optional_paths.extend(sorted(source_directory.glob("*.json")))
 
     results: list[ValidationResult] = []
     for path in required_paths:
