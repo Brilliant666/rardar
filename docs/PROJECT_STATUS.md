@@ -1,6 +1,6 @@
 # Rardar Project Status
 
-> Last updated: **2026-08-24**
+> Last updated: **2026-08-26**
 >
 > 本文记录“Rardar 现在做到哪”。长期使命和不变量看 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md)，未来路线看 [`ROADMAP.md`](ROADMAP.md)，具体工程证据看 [`iterations/`](iterations/)。generation、snapshot 和 `nextRunAt` 均是带日期的验收快照，不应被解释为永久 current 状态。
 
@@ -20,7 +20,9 @@ Rardar 的 **Private authenticated production MVP 已 ACTIVE**：2026-08-23 生�
 - PR #18：Launch Decision Flow；
 - PR #21：Signal → Project Audited Association v1；
 - PR #22：CI-built Exact Release Artifact v1；
-- PR #23：Vite Exact Public Host Contract。
+- PR #23：Vite Exact Public Host Contract；
+- PR #26 / #27：append-only GitHub Trending Observation v1 与 create-only 并发 settlement；
+- PR #28：audited 24-hour Trending Explosion Artifact v1。
 
 GitHub Actions 的最终门禁仍是统一的 `npm run verify`。`Release Artifact` 不替代 Verify：它只接受同仓库 `main` push 的成功 Verify exact SHA，在固定 builder 上生成绑定 commit、manifest 和 checksum 的 artifact，并完成 fresh extraction、offline Python install 与 runnable acceptance。
 
@@ -136,6 +138,9 @@ nextRunAt:       2026-08-24 08:00 Asia/Shanghai
 | Resource hardening | ✅ PASS | swap、swappiness 与 systemd memory guardrails 已验收 |
 | Vite exact public Host | ✅ DEPLOYED | 精确 FQDN allowlist 与 Host 200/403 边界已验收 |
 | Public Edge | ✅ ACTIVE | HTTPS + 整站 Basic Auth；3000/3002 继续 loopback-only |
+| Trending Observation v1 | ✅ MERGED | 固定两小时事实 capture、numeric GitHub identity、26h carry-forward、create-only store 与只读 Audit |
+| Trending Explosion Artifact v1 | ✅ MERGED | 08:00 exact/pending/conflict、byte-exact generation sources、Schema/Audit、幂等与 CAS publication |
+| Trending Producer Runtime | 🚧 IMPLEMENTED / NOT DEPLOYED | 单 Scheduler 集成在独立工程轮审查；flag 默认 `false`，须经 exact artifact Production 验收后才能称为 ACTIVE |
 | Legacy collision lifecycle | ⏸ Deferred | P1-6C2 尚未收口，不阻塞当前 Stable ID 主链 |
 
 ---
@@ -174,6 +179,10 @@ Signal 只有在同 generation 可精确验证 repository identity 时进入项�
 
 PR #22、PR #23、`PROD-PRODUCT-RELEASE-02`、`SERVER-NATURAL-RUN-03`、`OPS-RESOURCE-HARDEN-01` 和 `PROD-DEPLOY-02` 已完成：CI 构建 exact artifact，Production 离线激活，资源门禁通过，Website exact Host 合同已部署，私有认证 Public Edge 已 ACTIVE。
 
+### Phase F — Rardar v2 fact producer
+
+PR #26、#27 与 #28 已把固定两小时 GitHub Observation 和 audited 24-hour Explosion Artifact 合入 Repository `main`，但合并的数据能力不等于 Production producer 已启用。`RARDAR-PRODUCER-RUNTIME-INTEGRATION-01` 只在唯一 Managed Scheduler 内编排 Observation、原有 08:00 Refresh 和 Explosion，并以默认关闭的 feature flag、Scheduler-only `GITHUB_TOKEN`、失败隔离与嵌套 telemetry 保持现有 Runtime 边界。只有新 exact main artifact 完成离线部署、一次受控 restart 和首个自然两小时 Observation 验收后，才能把该能力标为 Production ACTIVE。
+
 ---
 
 ## 保留的维护项与边界
@@ -191,9 +200,9 @@ PR #22、PR #23、`PROD-PRODUCT-RELEASE-02`、`SERVER-NATURAL-RUN-03`、`OPS-RES
 
 ## 当前产品决策状态
 
-当前唯一的产品工作是 `PRODUCT-NEXT-PHASE-DISCOVERY`：等待与用户讨论真实使用痛点、发现/判断/行动/留存的优先关系、目标用户范围和最可感知价值。尚未授权实现，尚未创建新的产品 branch 或 PR。
+Rardar v2 RFC 已获批准，当前授权工程轮是 `RARDAR-PRODUCER-RUNTIME-INTEGRATION-01`：把已合并的 Observation 与 Explosion 接入唯一 Managed Scheduler，并通过 exact artifact 和自然运行完成 Production 验收。它不授权 TopicEye、Sub2API/AI Runtime、Find Project、P1-6C2 或其他候选方向。
 
-Research Profile、Momentum Lifecycle、Alerts / Digest、MCP、Advanced Personalization 与 Watch Lifecycle 仍是候选方向；本状态文档不替用户选择顺序。
+Research Profile、Momentum Lifecycle、Alerts / Digest、MCP、Advanced Personalization 与 Watch Lifecycle 仍是候选方向；本状态文档不替用户选择顺序，也不把尚未通过 Production 门禁的 Producer 写成已部署。
 
 ---
 

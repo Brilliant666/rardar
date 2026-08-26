@@ -71,6 +71,8 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 | Launch Decision Flow | ✅ 已合并 | PR #18 已把 Why now → Evidence → Risk → Action 产品流合入 `main`（`4e9c0ea`） |
 | Public Edge | ✅ ACTIVE | [`https://rardar.cosflow.icu`](https://rardar.cosflow.icu)；HTTPS + 整站 Basic Auth 的私有公网 MVP，不是匿名公开产品 |
 | Signal → Project audited association | ✅ 已实现 | 仅以同一 generation 的 `signal.repo` 精确验证 Stable ID；证据不足时继续 signal-only |
+| Trending fact foundation | ✅ 已合并 | 两小时 append-only Observation 与 audited 24h Explosion Artifact 已进入 `main` |
+| Trending Producer Runtime | 🚧 待生产验收 | 单 Scheduler 集成受默认 `false` flag 保护；不能在 exact artifact 与自然运行通过前称为已部署 |
 | P1-6C2 legacy collision history | ⏸ Deferred | 不影响当前 Stable ID 主链，但历史 collision 生命周期尚未收口 |
 | TrendRadar/P2 能力 | 🧭 Backlog | Research Profile、Momentum Lifecycle、Alerts/Digest、MCP 等尚未进入当前主线 |
 
@@ -93,6 +95,7 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 - **SERVER-NATURAL-RUN-03**：截至 2026-08-23，08:00（Asia/Shanghai）自然刷新独立发布 generation `20260823T000005118713Z-e5cfd5b8c5c9`，Schema/Audit 与 publication 通过。
 - **OPS-RESOURCE-HARDEN-01**：基础资源门禁已通过。
 - **PROD-DEPLOY-02**：HTTPS + 整站 Basic Auth 的 Public Edge 已验收并保持 ACTIVE。
+- **PR #26 / #27 / #28**：append-only Trending Observation、Linux create-only settlement 与 audited 24-hour Explosion Artifact 已合并；Runtime producer 激活仍是独立门禁。
 
 ---
 
@@ -185,6 +188,7 @@ systemd
 
 - systemd 只管理一个 foreground Manager；
 - Manager 是 Website 与 Scheduler 的唯一 owner；
+- Producer 启用后仍由同一个 Scheduler 串行运行固定两小时 Observation，并在 08:00 按 Observation → Refresh → Explosion 排序；不新增 cron、timer 或 service；
 - Website 与 Runtime status 只监听 loopback；
 - exact release 与 data / D1 / runtime / cache / logs / backups 分离；
 - 启动前做只读 deployment preflight；
@@ -327,6 +331,8 @@ npm run local:stop
 ```text
 08:00 Asia/Shanghai
 ```
+
+`RARDAR_TRENDING_PRODUCER_ENABLED` 默认且未配置时为 `false`，因此保持上面的 daily-refresh-only 行为。经过独立部署授权设为严格小写 `true` 后，唯一 Scheduler 才会增加 Asia/Shanghai 偶数整点 Observation 与每日 08:00 Explosion derive；`GITHUB_TOKEN` 只进入 Scheduler child，不进入 Website、状态 JSON、日志或浏览器。Repository 能力合并不表示 Production 已启用。
 
 ### 常用数据命令
 

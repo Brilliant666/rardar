@@ -672,7 +672,7 @@ test("deployment v1 does not add a second scheduler or a public listener", async
   assert.doesNotMatch(guide, /^\s*proxy_set_header Host 127\.0\.0\.1;\s*$/m);
   assert.match(guide, /__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rardar\.cosflow\.icu/);
   assert.doesNotMatch(guide, /^vinext dev --hostname/m);
-  assert.match(guide, /本轮不执行真实部署/);
+  assert.match(guide, /代码合并不能被描述为已经部署/);
 });
 
 test("foreground manager survives an isolated reboot without split data or a second scheduler", { timeout: 300_000 }, async () => {

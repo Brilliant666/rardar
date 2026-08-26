@@ -52,6 +52,7 @@ SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 TEMPORARY_FILE_PATTERN = re.compile(r"^\..+\.tmp$")
 _CREATE_SETTLEMENT_MAX_ATTEMPTS = 4
 _CREATE_SETTLEMENT_BACKOFF_SECONDS = (0.005, 0.01, 0.02)
+_RETRYABLE_GITHUB_HTTP_CODES = frozenset({408, 429, *range(500, 600)})
 
 
 class TrendingObservationError(RuntimeError):
@@ -732,6 +733,27 @@ def _sanitize_error(error: BaseException, *, token: str | None) -> tuple[str, st
     return code[:100], message[:300]
 
 
+def _all_github_failures_are_retryable(error_codes: list[str]) -> bool:
+    if not error_codes:
+        return False
+    for code in error_codes:
+        if code == "github_network_error":
+            continue
+        match = re.fullmatch(r"github_http_(\d{3})", code)
+        if match is None or int(match.group(1)) not in _RETRYABLE_GITHUB_HTTP_CODES:
+            return False
+    return True
+
+
+def observation_error_retryable(error: TrendingObservationError) -> bool:
+    """Return whether one failed phase may use its single bounded retry."""
+
+    return error.code in {
+        "all_candidate_queries_failed",
+        "all_repository_metadata_failed",
+    } and error.details.get("retryable") is True
+
+
 def _search_response(
     client: TrendingGitHubClient,
     query: str,
@@ -1056,9 +1078,20 @@ def collect_capture_bundle(
 
     successful = sum(item["state"] == "healthy" for item in query_status)
     if successful == 0:
+        error_codes = sorted(
+            {
+                str(item["errorCode"])
+                for item in query_status
+                if item.get("errorCode")
+            }
+        )
         raise TrendingObservationError(
             "all_candidate_queries_failed",
             "all nine GitHub candidate queries failed; no capture was created",
+            details={
+                "errorCodes": error_codes,
+                "retryable": _all_github_failures_are_retryable(error_codes),
+            },
         )
 
     carry_ids = {item.github_repository_id for item in carry}
@@ -1164,9 +1197,20 @@ def collect_capture_bundle(
         names[key] = observation["githubRepositoryId"]
         observations.append(observation)
     if not observations:
+        error_codes = sorted(
+            {
+                str(item["errorCode"])
+                for item in metadata_failures
+                if item.get("errorCode")
+            }
+        )
         raise TrendingObservationError(
             "all_repository_metadata_failed",
             "metadata lookup failed for every selected candidate; no capture was created",
+            details={
+                "errorCodes": error_codes,
+                "retryable": _all_github_failures_are_retryable(error_codes),
+            },
         )
 
     delay = (captured - scheduled).total_seconds()
@@ -1541,6 +1585,14 @@ def _summary(
     capture_path: Path,
     captured: bool,
 ) -> dict[str, Any]:
+    observations = bundle.get("observations", []) if bundle else []
+    carry_forward_count = sum(
+        any(
+            source.get("source") == "recent_observation_carry_forward"
+            for source in observation.get("recalledBy", [])
+        )
+        for observation in observations
+    )
     return {
         "state": state,
         "captureId": capture_id,
@@ -1550,6 +1602,11 @@ def _summary(
         "candidateCount": bundle.get("candidateCount") if bundle else 0,
         "observationCount": bundle.get("observationCount") if bundle else 0,
         "metadataFailureCount": bundle.get("metadataFailureCount") if bundle else 0,
+        "successfulQueryCount": bundle.get("successfulQueryCount") if bundle else 0,
+        "failedQueryCount": bundle.get("failedQueryCount") if bundle else 0,
+        "captureDelaySeconds": bundle.get("captureDelaySeconds") if bundle else None,
+        "carryForwardCount": carry_forward_count,
+        "newRepositoryCount": len(observations) - carry_forward_count,
         "capturePath": str(capture_path),
         "windowEligible": bundle.get("windowEligible") if bundle else None,
         "captured": captured,
@@ -1645,6 +1702,11 @@ def run_observer(
             "candidateCount": 0,
             "observationCount": 0,
             "metadataFailureCount": 0,
+            "successfulQueryCount": 0,
+            "failedQueryCount": 0,
+            "captureDelaySeconds": None,
+            "carryForwardCount": 0,
+            "newRepositoryCount": 0,
             "capturePath": str(target),
             "windowEligible": None,
             "captured": False,

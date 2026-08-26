@@ -36,6 +36,7 @@ from pipeline.runtime_settings import (
     PERSISTENT_PATH_VARIABLES,
     RUNTIME_HOST,
     SCHEDULER_ALREADY_RUNNING_EXIT_CODE,
+    TRENDING_PRODUCER_ENABLED_ENV,
     RuntimeLayout,
     RuntimeSettings,
     RuntimeSettingsError,
@@ -381,6 +382,9 @@ def _runtime_child_environment(
     environment["RARDAR_SCHEDULE_AT"] = settings.schedule_at
     environment["RARDAR_SCHEDULE_TIMEZONE"] = settings.schedule_timezone
     environment["RARDAR_STALE_AFTER_HOURS"] = str(settings.stale_after_hours)
+    environment[TRENDING_PRODUCER_ENABLED_ENV] = (
+        "true" if settings.trending_producer_enabled else "false"
+    )
     # Persistent state locations remain opt-in for local compatibility.  The
     # strict layout loader validates every explicitly supplied value, and this
     # copy preserves those exact deployment paths for Vinext/Wrangler.
@@ -1300,6 +1304,83 @@ def _scheduler_process_id_is_trusted(
     return arguments == tuple(expected_command[1:])
 
 
+def _public_producer_telemetry(value: object) -> dict[str, Any] | None:
+    """Project Scheduler telemetry onto the reviewed, path-free public shape."""
+
+    if not isinstance(value, dict):
+        return None
+    root_fields = (
+        "enabled",
+        "state",
+        "nextObservationAt",
+        "nextExplosionAt",
+        "first08CaptureAt",
+        "firstExactEligibleAt",
+    )
+    section_fields = {
+        "observation": (
+            "state",
+            "cadenceMinutes",
+            "timezone",
+            "lastScheduledAt",
+            "lastStartedAt",
+            "lastCompletedAt",
+            "lastCaptureId",
+            "windowEligible",
+            "coverageState",
+            "successfulQueryCount",
+            "failedQueryCount",
+            "candidateCount",
+            "observationCount",
+            "metadataFailureCount",
+            "carryForwardCount",
+            "newRepositoryCount",
+            "captureDelaySeconds",
+            "retryCount",
+            "lastErrorCode",
+            "nextRunAt",
+        ),
+        "explosion": (
+            "state",
+            "scheduleAt",
+            "timezone",
+            "lastWindowEnd",
+            "lastStartedAt",
+            "lastCompletedAt",
+            "generationId",
+            "windowState",
+            "coverageState",
+            "exactCount",
+            "pendingCount",
+            "conflictCount",
+            "lastErrorCode",
+            "nextRunAt",
+        ),
+    }
+
+    def public_scalar(item: object) -> object | None:
+        if item is None or isinstance(item, (bool, int, float)):
+            return item
+        if isinstance(item, str) and len(item) <= 256 and "\n" not in item and "\r" not in item:
+            return item
+        return None
+
+    projected = {
+        name: public_scalar(value.get(name))
+        for name in root_fields
+        if name in value
+    }
+    for section_name, fields in section_fields.items():
+        section = value.get(section_name)
+        if isinstance(section, dict):
+            projected[section_name] = {
+                name: public_scalar(section.get(name))
+                for name in fields
+                if name in section
+            }
+    return projected
+
+
 def _scheduler_details(
     settings: RuntimeSettings | None = None,
     expected_process_id: int | None | object = _UNBOUND_SCHEDULER_PROCESS,
@@ -1339,6 +1420,7 @@ def _scheduler_details(
         "generationErrorCode": status.get("generationErrorCode"),
         "retryable": status.get("retryable", True),
         "remoteAnalysisErrorCode": status.get("remoteAnalysisErrorCode"),
+        "producer": _public_producer_telemetry(status.get("producer")),
         "telemetryTrusted": telemetry_trusted,
         "reportedProcessId": reported_process_id,
     }

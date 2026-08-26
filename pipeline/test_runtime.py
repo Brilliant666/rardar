@@ -20,10 +20,12 @@ from pipeline.runtime import (
     WebsiteHealth,
     _manager_status_matches_control,
     _run_manager,
+    _runtime_child_environment,
     _scheduler_details,
     _stop_recorded_processes,
     _stopped_status,
     _terminate_windows_process_tree,
+    _website_child_environment,
     _windows_taskkill,
     acquire_manager_lock,
     default_runtime_dir,
@@ -282,6 +284,56 @@ class RuntimeTests(unittest.TestCase):
             details["remoteAnalysisErrorCode"],
             "remote_clone_process_tree_cleanup_failed",
         )
+
+    def test_scheduler_details_exposes_only_path_free_producer_telemetry(self) -> None:
+        status = {
+            "producer": {
+                "enabled": True,
+                "state": "warming_up",
+                "nextObservationAt": "2026-08-26T08:00:00+00:00",
+                "secret": "must-not-pass",
+                "observation": {
+                    "state": "healthy",
+                    "lastCaptureId": "trending-v1-20260826T060000Z",
+                    "capturePath": "/var/lib/rardar/data/observations/private.json",
+                    "authorization": "Bearer must-not-pass",
+                },
+                "explosion": {
+                    "state": "warming_up",
+                    "candidatePath": "/var/lib/rardar/data/generations/candidate",
+                },
+            }
+        }
+        with patch("pipeline.runtime._read_json", return_value=status):
+            details = _scheduler_details()
+
+        producer = details["producer"]
+        self.assertTrue(producer["enabled"])
+        self.assertEqual(producer["observation"]["state"], "healthy")
+        serialized = json.dumps(producer)
+        self.assertNotIn("capturePath", serialized)
+        self.assertNotIn("candidatePath", serialized)
+        self.assertNotIn("must-not-pass", serialized)
+
+    def test_producer_flag_and_token_only_reach_scheduler_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            layout = isolated_layout(Path(directory).resolve())
+            settings = RuntimeSettings("08:00", "Asia/Shanghai", 36, True)
+            with patch.dict(os.environ, {"GITHUB_TOKEN": "scheduler-only-secret"}):
+                scheduler = _runtime_child_environment(
+                    layout,
+                    settings,
+                    Path(directory) / "node" / "node.exe",
+                )
+                website = _website_child_environment(scheduler)
+
+        self.assertEqual(
+            scheduler["RARDAR_TRENDING_PRODUCER_ENABLED"],
+            "true",
+        )
+        self.assertEqual(scheduler["GITHUB_TOKEN"], "scheduler-only-secret")
+        self.assertNotIn("RARDAR_TRENDING_PRODUCER_ENABLED", website)
+        self.assertNotIn("GITHUB_TOKEN", website)
 
     def test_scheduler_details_rejects_telemetry_from_another_process(self) -> None:
         status = {
@@ -961,6 +1013,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("Europe/Berlin", scheduler.command)
         self.assertEqual(scheduler.environment["RARDAR_SCHEDULE_AT"], "06:45")
         self.assertEqual(scheduler.environment["RARDAR_STALE_AFTER_HOURS"], "48")
+        self.assertEqual(scheduler.environment["RARDAR_TRENDING_PRODUCER_ENABLED"], "false")
         self.assertEqual(website.environment["RARDAR_DATA_DIR"], str(layout.data_dir))
         self.assertEqual(scheduler.environment["RARDAR_DATA_DIR"], str(layout.data_dir))
         self.assertEqual(website.environment["RARDAR_VINEXT_PORT"], "43121")
@@ -978,6 +1031,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("UNREVIEWED_SERVICE_TOKEN", website.environment)
         self.assertNotIn("INTERNAL_CLIENT_SECRET", website.environment)
         self.assertNotIn("DATABASE_URL", website.environment)
+        self.assertNotIn("RARDAR_TRENDING_PRODUCER_ENABLED", website.environment)
         self.assertEqual(website.environment["CLOUDFLARE_VITE_FORCE_LOCAL"], "true")
         self.assertEqual(website.environment["HOME"], persistent["HOME"])
         self.assertEqual(website.environment["TEMP"], persistent["TEMP"])

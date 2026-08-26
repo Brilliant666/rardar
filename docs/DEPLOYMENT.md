@@ -148,6 +148,7 @@ RARDAR_RUNTIME_STATUS_PORT=3002
 RARDAR_SCHEDULE_AT=08:00
 RARDAR_SCHEDULE_TIMEZONE=Asia/Shanghai
 RARDAR_STALE_AFTER_HOURS=36
+RARDAR_TRENDING_PRODUCER_ENABLED=false
 
 WRANGLER_LOG_PATH=/var/log/rardar/wrangler
 WRANGLER_REGISTRY_PATH=/var/lib/rardar/runtime/wrangler-registry
@@ -158,7 +159,9 @@ MINIFLARE_REGISTRY_PATH=/var/lib/rardar/runtime/miniflare-registry
 
 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 是可选的 Website Host 合同，不属于所有部署的必填变量。未配置时保持现有 loopback / tunnel 行为；配置时，Managed Runtime 和 offline/online checker 都只接受最多 8 个逗号分隔、无空白、无重复的 canonical lowercase ASCII FQDN，并把经过验证的 hostname 列表报告为 `websiteAllowedHosts`。URL、端口、路径、IP、`localhost`、leading-dot suffix、通配符和 `true` 都会在任何 child 启动前 fail closed。合法原始值只通过 Website 的正向环境 allowlist 传给 Vite 官方 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 机制；不会启用 `allowedHosts: true`，也不会把完整 systemd environment 或 secret 暴露给 Website。
 
-真实 GitHub 或 remote-analysis credential 只能写入 `/etc/rardar/rardar.secret` 或等价受限 EnvironmentFile。不得：
+`RARDAR_TRENDING_PRODUCER_ENABLED` 是严格的非敏感布尔合同，只接受小写 `true` 或 `false`，未配置时为 `false`。`false` 保持既有 daily-refresh-only 行为；只有通过独立 Production 门禁把它设为 `true`，唯一 Managed Scheduler 才会同时拥有固定两小时 Observation 和每日 Explosion derive。启用时仍固定使用 `08:00 Asia/Shanghai` 产品调度，不能通过自定义 cadence 或第二套 profile 改写相位。
+
+真实 GitHub 或 remote-analysis credential 只能写入 `/etc/rardar/rardar.secret` 或等价受限 EnvironmentFile。Producer 启用时 `GITHUB_TOKEN` 必须存在且非空；Manager 仅把完整受限环境交给 Scheduler child，Website 继续使用正向 allowlist，因此不会获得 `GITHUB_TOKEN` 或 Producer flag。不得：
 
 - 把真实值写入 `.env.production.example` 或 `rardar.env.example`；
 - 将 secret 放入 systemd unit、命令行参数、Git、PR 或诊断 JSON；
@@ -435,16 +438,35 @@ npm run data:generation:rollback -- <retained-generation-id>
 
 不能从不同时间点拼接 data 与 D1，也不能只恢复 `current.json` 或单个猜测的 SQLite 文件。恢复不得补造 Event、State、反馈、身份 mapping 或时间。
 
-## 14. Scheduler 与 catch-up 副作用
+## 14. Scheduler、Producer 与 catch-up 副作用
 
-Always-on v1 不改变 PR #14 已有 Scheduler 语义：
+Producer flag 默认关闭，因此 Always-on v1 继续保持 PR #14 已有 Scheduler 语义：
 
 - 默认每天 `08:00 Asia/Shanghai`；
 - 单周期临时故障每 5 分钟重试，最多 3 次；
 - Manager/Scheduler 重启仍保留既有 12 小时 restart catch-up；
 - `nextRunAt` 只能由 Scheduler 计算，status JSON 不是控制面。
 
-因此真实部署或升级造成的停机可能在启动后自然触发 catch-up refresh。该 refresh 可能访问 GitHub、运行只读静态分析、创建 candidate 并在全部门禁通过后推进 current。这是 Scheduler 行为，不是 release 安装器修改数据。
+当 `RARDAR_TRENDING_PRODUCER_ENABLED=true` 时，调度所有权仍只有：
+
+```text
+systemd
+└─ Manager
+   └─ Scheduler
+      ├─ Observation  每个 Asia/Shanghai 偶数整点
+      ├─ Refresh      每日 08:00
+      └─ Explosion    每日 08:00
+```
+
+不得新增 cron、timer、第二个 service、daemon 或长期后台调度线程。08:00 的顺序严格为 Observation → 原有 Refresh → Explosion，三项串行；Observation 失败不阻止 Refresh，Refresh 最终失败不阻止基于仍可信 current 的 Explosion 尝试，Explosion 失败只进入嵌套 Producer telemetry，不使 Manager 把一个 heartbeat 新鲜的 Scheduler 判为 stale。
+
+Observation 收到的是固定相位的 intended `scheduledAt`，而不是实际启动时间。正常相位执行一次；只有明确的全源网络/HTTP 408、429 或 5xx 失败可在同一 10 分钟 eligibility 窗口内短重试一次。Scheduler 启动时只允许补最近一个且延迟不超过 10 分钟的 observation slot；超过窗口或错过多个 slot 时不回填。observer lock 冲突记录 `skipped_overlap`，不会启动第二个 observer。
+
+既有 daily 12 小时 catch-up、最多三次尝试、五分钟间隔和 remote-clone non-retryable 分类保持不变。restart 后先处理合法 daily catch-up；当天 08:00 capture 已存在且 eligible 时，Explosion 可幂等 catch-up。capture 缺失或不 eligible 时只记录 `not_ready`，不得制造 capture。首次合法 08:00 capture 后的 `firstExactEligibleAt` 机械等于该 endpoint +24 小时；到时是否为 exact 仍取决于两个 endpoint 都 eligible。
+
+Scheduler status 保留既有 top-level Refresh 字段，并增加 path-free `producer.observation` 与 `producer.explosion` telemetry。统一的进程内 status store 串行化 heartbeat 和事件更新；Manager 只转发来自当前受管 Scheduler PID 的 reviewed fields。token、Authorization、absolute capture/candidate path 和 stack trace 都不得进入 status 或日志。
+
+因此真实部署或升级造成的停机可能在启动后自然触发合法 catch-up。daily refresh 可能访问 GitHub、运行只读静态分析、创建 candidate 并在全部门禁通过后推进 current；Producer 也可能只在上述窄窗口执行一个 observation 或幂等 Explosion。这是 Scheduler 行为，不是 release 安装器修改数据。部署应避开 07:30–08:30 和距下一两小时相位不足 15 分钟的窗口；不要用 restart 制造验收事件。
 
 操作要求：
 
@@ -518,4 +540,4 @@ restart → old children 0 / new Manager 1 / Website 1 / Scheduler 1
 stop    → all owned processes 0
 ```
 
-仓库文档或代码迭代本身不授权真实部署。任何 Production 激活、重启、回滚或 Public Edge 变更仍需单独、明确的操作授权。本轮不执行真实部署。
+仓库文档或代码迭代本身不授权真实部署。任何 Production 激活、重启、回滚或 Public Edge 变更仍需单独、明确的操作授权；代码合并不能被描述为已经部署。

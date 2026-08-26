@@ -13,6 +13,7 @@ from pipeline.runtime_settings import (
     load_runtime_layout,
     load_runtime_settings,
     validate_vite_additional_allowed_hosts,
+    validate_trending_producer_enabled,
 )
 
 
@@ -23,6 +24,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.schedule_timezone, "Asia/Shanghai")
         self.assertEqual(settings.stale_after_hours, 36)
         self.assertEqual(settings.stale_after_seconds, 129600)
+        self.assertFalse(settings.trending_producer_enabled)
 
     def test_version_controlled_defaults_do_not_require_timezone_data(self) -> None:
         with patch(
@@ -34,6 +36,31 @@ class RuntimeSettingsTests(unittest.TestCase):
             (settings.schedule_at, settings.schedule_timezone, settings.stale_after_hours),
             ("08:00", "Asia/Shanghai", 36),
         )
+        self.assertFalse(settings.trending_producer_enabled)
+
+    def test_trending_producer_flag_is_exact_and_fail_closed(self) -> None:
+        self.assertTrue(validate_trending_producer_enabled("true"))
+        self.assertFalse(validate_trending_producer_enabled("false"))
+        for invalid in (None, "", "TRUE", "False", "1", True, " true"):
+            with self.subTest(invalid=invalid), self.assertRaises(RuntimeSettingsError):
+                validate_trending_producer_enabled(invalid)
+
+        enabled = load_runtime_settings({"RARDAR_TRENDING_PRODUCER_ENABLED": "true"})
+        self.assertTrue(enabled.trending_producer_enabled)
+
+    def test_enabled_producer_requires_the_fixed_product_schedule(self) -> None:
+        for environment in (
+            {
+                "RARDAR_TRENDING_PRODUCER_ENABLED": "true",
+                "RARDAR_SCHEDULE_AT": "09:00",
+            },
+            {
+                "RARDAR_TRENDING_PRODUCER_ENABLED": "true",
+                "RARDAR_SCHEDULE_TIMEZONE": "UTC",
+            },
+        ):
+            with self.subTest(environment=environment), self.assertRaises(RuntimeSettingsError):
+                load_runtime_settings(environment)
 
     def test_timezone_database_failure_has_a_distinct_error_type(self) -> None:
         with (
