@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 DEFAULT_SCHEDULE_AT = "08:00"
 DEFAULT_SCHEDULE_TIMEZONE = "Asia/Shanghai"
 DEFAULT_STALE_AFTER_HOURS = 36
+DEFAULT_TRENDING_PRODUCER_ENABLED = False
+TRENDING_PRODUCER_ENABLED_ENV = "RARDAR_TRENDING_PRODUCER_ENABLED"
 MAX_STALE_AFTER_HOURS = 24 * 365
 SCHEDULER_ALREADY_RUNNING_EXIT_CODE = 3
 MANAGER_ALREADY_RUNNING_EXIT_CODE = 4
@@ -54,6 +56,7 @@ class RuntimeSettings:
     schedule_at: str
     schedule_timezone: str
     stale_after_hours: int
+    trending_producer_enabled: bool = DEFAULT_TRENDING_PRODUCER_ENABLED
 
     @property
     def stale_after_seconds(self) -> int:
@@ -102,6 +105,7 @@ def default_runtime_settings() -> RuntimeSettings:
         schedule_at=DEFAULT_SCHEDULE_AT,
         schedule_timezone=DEFAULT_SCHEDULE_TIMEZONE,
         stale_after_hours=DEFAULT_STALE_AFTER_HOURS,
+        trending_producer_enabled=DEFAULT_TRENDING_PRODUCER_ENABLED,
     )
 
 
@@ -224,6 +228,16 @@ def validate_stale_after_hours(value: object) -> int:
     return parsed
 
 
+def validate_trending_producer_enabled(value: object) -> bool:
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise RuntimeSettingsError(
+        f"{TRENDING_PRODUCER_ENABLED_ENV} must be exactly true or false"
+    )
+
+
 def validate_vite_additional_allowed_hosts(value: object | None) -> tuple[str, ...]:
     """Validate Vite's optional exact-host environment contract.
 
@@ -311,8 +325,25 @@ def load_runtime_settings(
         "RARDAR_SCHEDULE_TIMEZONE", DEFAULT_SCHEDULE_TIMEZONE
     )
     stale_hours = source.get("RARDAR_STALE_AFTER_HOURS", str(DEFAULT_STALE_AFTER_HOURS))
+    producer_enabled = validate_trending_producer_enabled(
+        source.get(
+            TRENDING_PRODUCER_ENABLED_ENV,
+            "true" if DEFAULT_TRENDING_PRODUCER_ENABLED else "false",
+        )
+    )
+    validated_at = validate_schedule_at(effective_at)
+    validated_timezone = validate_schedule_timezone(effective_timezone)
+    if producer_enabled and (
+        validated_at != DEFAULT_SCHEDULE_AT
+        or validated_timezone != DEFAULT_SCHEDULE_TIMEZONE
+    ):
+        raise RuntimeSettingsError(
+            f"{TRENDING_PRODUCER_ENABLED_ENV}=true requires the fixed "
+            f"{DEFAULT_SCHEDULE_AT} {DEFAULT_SCHEDULE_TIMEZONE} product schedule"
+        )
     return RuntimeSettings(
-        schedule_at=validate_schedule_at(effective_at),
-        schedule_timezone=validate_schedule_timezone(effective_timezone),
+        schedule_at=validated_at,
+        schedule_timezone=validated_timezone,
         stale_after_hours=validate_stale_after_hours(stale_hours),
+        trending_producer_enabled=producer_enabled,
     )

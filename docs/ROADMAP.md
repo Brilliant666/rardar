@@ -1,6 +1,6 @@
 # Rardar Roadmap
 
-> Last updated: **2026-08-25**
+> Last updated: **2026-08-26**
 >
 > 这是执行路线，不是承诺时间表。长期产品原则由 [`RARDAR_NORTH_STAR.md`](RARDAR_NORTH_STAR.md) 定义；当前完成度看 [`PROJECT_STATUS.md`](PROJECT_STATUS.md)。候选项的出现顺序不代表已经确定产品优先级。
 
@@ -88,19 +88,21 @@ Repository `main` 与 Production release 可以合法不同。只有完成 exact
 
 ---
 
-# Now — Rardar v2 implementation
+# Now — Rardar v2 fact producer Runtime integration
 
-状态：**RARDAR-V2-RFC ACCEPTED / TRENDING-EXPLOSION-ARTIFACT-01 IN DRAFT**
+状态：**RARDAR-V2-RFC ACCEPTED / RARDAR-PRODUCER-RUNTIME-INTEGRATION-01 IN DEVELOPMENT**
 
 - P0：今日爆发榜 v2，以 Rardar 自有连续 observation 形成可审计的精确 24h Star 增量榜；
 - P0：找项目 v2，以自然语言需求、可选公开 GitHub URL、动态召回、静态证据和同任务横向比较形成复用决策；
 - AI v1：通过自托管 Sub2API 调用 `gpt-5.6-sol`，由 Rardar 自有 durable queue 与独立 Worker 负责异步、幂等、重试和熔断；
 - 高价值资产库完整产品建设继续 Deferred，只积累最低限度历史事实；
 - `TRENDING-OBSERVATIONS-01` 已由 PR #26 合并；PR #27 已解决 Linux same-slot create-only settlement 竞态，observation Schema、immutable capture bundle、九查询召回、26 小时 carry-forward、numeric repository ID 连续性、create-only store、单实例锁和只读 audit 均已进入 `main`。
-- 当前 Draft 工程轮 `TRENDING-EXPLOSION-ARTIFACT-01` 从 eligible observation 机械生成 24h exact/pending/conflict 事实，冻结 byte-exact source copies，并通过 generation Schema、semantic Audit、幂等和 CAS 发布。只有本 Draft PR 合并到 `main` 后才视为完成。
-- 本轮不实现 UI、AI、Sub2API、D1、Scheduler/systemd、TopicEye 代码或 Production 部署。Draft PR 合并前不得开始下一阶段；合并后的下一独立目标是 `RARDAR-INTELLIGENCE-ADAPTER-01`。
+- `TRENDING-EXPLOSION-ARTIFACT-01` 已由 PR #28 合并；eligible endpoint 的 24h exact/pending/conflict、byte-exact generation source copies、Schema/Audit、幂等和 CAS publication 已进入 `main`。
+- 当前工程轮只把这两项事实能力接入既有唯一 Scheduler：每个偶数整点 Observation，08:00 严格 Observation → Refresh → Explosion，flag 默认 `false`，token 不进入 Website，子任务失败不杀死核心 Runtime。
+- Repository 实现不等于 Production ACTIVE。必须完成 exact-head Verify、squash merge、main Verify、新 CI Release Artifact、离线 Production 激活、一次受控 restart 和首个自然两小时 Observation 后，才能关闭本工程轮。
+- 本轮不实现 UI、AI、Sub2API、Find Project、D1 业务变更或 TopicEye。通过后下一运行验收是首个自然 08:00 Explosion derive；不得自动开始其他产品阶段。
 
-推荐实现顺序：observation contract/store（已完成）→ audited 24h artifact（当前 Draft）→ Rardar Intelligence Adapter（下一独立任务）→ AI Runtime foundation（默认 disabled）→ 今日爆发榜 UI → 中文画像与 AI 爆发原因判断 → RequirementProfile/Job → 动态 GitHub 召回 → Static Analysis v2 → Cross-project Matcher。每一步必须是独立、可审计、可回滚的 PR。
+推荐实现顺序：observation contract/store（已完成）→ audited 24h artifact（已完成）→ single-Scheduler Runtime integration（当前）→ 首个自然 08:00 Explosion 验收 → 后续产品切片由独立授权决定。Rardar Intelligence Adapter、AI Runtime、今日爆发榜 UI、中文画像、RequirementProfile/Job、动态召回、Static Analysis v2 与 Cross-project Matcher 仍必须分别经过独立、可审计、可回滚的 PR。
 
 ---
 

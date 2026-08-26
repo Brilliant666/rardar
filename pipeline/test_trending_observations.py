@@ -30,6 +30,7 @@ from pipeline.trending_observations import (
     compute_bundle_digest,
     load_capture,
     nearest_scheduled_phase,
+    observation_error_retryable,
     observer_instance_lock,
     parse_scheduled_at,
     run_observer,
@@ -355,7 +356,28 @@ class TrendingRecallAndMetadataTests(unittest.TestCase):
                     clock=lambda: CAPTURED,
                 )
             self.assertEqual(raised.exception.code, "all_candidate_queries_failed")
+            self.assertFalse(observation_error_retryable(raised.exception))
             self.assertFalse((data / "observations").exists())
+
+    def test_only_explicit_all_source_network_failures_are_retryable(self) -> None:
+        retryable = TrendingObservationError(
+            "all_candidate_queries_failed",
+            "all failed",
+            details={
+                "errorCodes": ["github_network_error", "github_http_503"],
+                "retryable": True,
+            },
+        )
+        nonretryable = TrendingObservationError(
+            "all_candidate_queries_failed",
+            "all failed",
+            details={
+                "errorCodes": ["github_http_401"],
+                "retryable": False,
+            },
+        )
+        self.assertTrue(observation_error_retryable(retryable))
+        self.assertFalse(observation_error_retryable(nonretryable))
 
     def test_partial_failure_and_incomplete_results_are_degraded(self) -> None:
         for client in (

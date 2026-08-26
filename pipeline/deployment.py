@@ -38,6 +38,7 @@ from pipeline.release_artifact import (
 from pipeline.runtime_settings import (
     PERSISTENT_PATH_VARIABLES,
     RuntimeSettingsError,
+    TRENDING_PRODUCER_ENABLED_ENV,
     VITE_ADDITIONAL_ALLOWED_HOSTS_ENV,
     load_runtime_layout,
     load_runtime_settings,
@@ -797,6 +798,7 @@ def _check_runtime_contract(
         "scheduleAt": settings.schedule_at,
         "scheduleTimezone": settings.schedule_timezone,
         "staleAfterHours": settings.stale_after_hours,
+        "trendingProducerEnabled": settings.trending_producer_enabled,
         "websiteAllowedHosts": list(website_allowed_hosts),
         "persistentPaths": {
             name: str(path) for name, path in persistent_paths.items()
@@ -1338,6 +1340,19 @@ def _check_runtime(
             "runtime_configuration_mismatch",
             "runtime schedule does not match the deployment environment",
         )
+    producer = scheduler.get("producer")
+    producer_enabled = expected_contract["trendingProducerEnabled"]
+    if producer_enabled:
+        if not isinstance(producer, dict) or producer.get("enabled") is not True:
+            _fail(
+                "runtime_configuration_mismatch",
+                f"{TRENDING_PRODUCER_ENABLED_ENV}=true but trusted Producer telemetry is not enabled",
+            )
+    elif isinstance(producer, dict) and producer.get("enabled") is not False:
+        _fail(
+            "runtime_configuration_mismatch",
+            f"{TRENDING_PRODUCER_ENABLED_ENV}=false but Producer telemetry is enabled",
+        )
     expected_stale_seconds = expected_contract["staleAfterHours"] * 60 * 60
     if data.get("staleAfterSeconds") != expected_stale_seconds:
         _fail(
@@ -1372,6 +1387,7 @@ def _check_runtime(
         "managerPid": manager_pid,
         "websitePid": website_pid,
         "schedulerPid": scheduler_pid,
+        "trendingProducerEnabled": producer_enabled,
         "listeners": {
             "website": _check_loopback_listener(website_port, website_pid),
             "status": _check_loopback_listener(status_port, manager_pid),

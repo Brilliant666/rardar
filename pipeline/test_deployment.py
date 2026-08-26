@@ -420,6 +420,7 @@ class OfflineDeploymentTests(DeploymentFixture):
             "RARDAR_SCHEDULE_AT": "6:45",
             "RARDAR_SCHEDULE_TIMEZONE": "Not/AZone",
             "RARDAR_STALE_AFTER_HOURS": "048",
+            "RARDAR_TRENDING_PRODUCER_ENABLED": "TRUE",
             "WRANGLER_LOG_PATH": "relative/wrangler",
         }
         for name, value in invalid.items():
@@ -921,6 +922,28 @@ class OnlineDeploymentTests(DeploymentFixture):
         self.assertEqual(report["locks"]["status"], "not_checked")
         self.assertEqual(report["http"]["generationId"], self.generation_id)
 
+    def test_online_binds_enabled_producer_to_trusted_scheduler_telemetry(self) -> None:
+        self.environment.update(
+            {
+                "RARDAR_SCHEDULE_AT": "08:00",
+                "RARDAR_SCHEDULE_TIMEZONE": "Asia/Shanghai",
+                "RARDAR_TRENDING_PRODUCER_ENABLED": "true",
+            }
+        )
+        status = self.healthy_status()
+        status["schedule"].update({"at": "08:00", "timezone": "Asia/Shanghai"})
+        status["services"]["scheduler"]["producer"] = {"enabled": True}
+        health = self.healthy_health()
+        health["schedule"].update({"at": "08:00", "timezone": "Asia/Shanghai"})
+
+        report = self.run_online(status, health)
+        self.assertTrue(report["runtime"]["trendingProducerEnabled"])
+
+        status["services"]["scheduler"]["producer"] = {"enabled": False}
+        with self.assertRaises(DeploymentCheckError) as raised:
+            self.run_online(status, health)
+        self.assertEqual(raised.exception.code, "runtime_configuration_mismatch")
+
     def test_online_binds_runtime_layout_schedule_and_stale_threshold_to_environment(self) -> None:
         mutations = (
             (("runtime", "home"), str(Path(self.temporary.name) / "other-home")),
@@ -1092,6 +1115,7 @@ class DeploymentCliAndUnitTests(unittest.TestCase):
             "RARDAR_PYTHON",
             "RARDAR_VINEXT_PORT=3000",
             "RARDAR_RUNTIME_STATUS_PORT=3002",
+            "RARDAR_TRENDING_PRODUCER_ENABLED=false",
         ):
             self.assertIn(variable, example)
         self.assertNotIn("ghp_", example)
