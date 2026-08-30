@@ -2,7 +2,7 @@
 
 This module deliberately knows nothing about refresh, GitHub, generations, or
 status persistence.  The managed Scheduler remains the sole owner of time and
-uses these pure helpers to order the three product events.
+uses these pure helpers to order the four product events.
 """
 
 from __future__ import annotations
@@ -18,11 +18,12 @@ OBSERVATION_PHASE_HOURS = tuple(range(0, 24, 2))
 OBSERVATION_STARTUP_TOLERANCE_MINUTES = 10
 EXPLOSION_SCHEDULE_AT = "08:00"
 
-EventKind = Literal["observation", "refresh", "explosion"]
+EventKind = Literal["observation", "refresh", "explosion", "discover"]
 EVENT_PRIORITY: dict[EventKind, int] = {
     "observation": 0,
     "refresh": 1,
     "explosion": 2,
+    "discover": 3,
 }
 
 
@@ -141,6 +142,7 @@ def scheduled_events_at(
     kinds: list[EventKind] = []
     if local.minute == 0 and local.second == 0 and local.microsecond == 0 and local.hour % 2 == 0:
         kinds.append("observation")
+        kinds.append("discover")
     if (
         local.hour == refresh_hour
         and local.minute == refresh_minute

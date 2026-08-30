@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/trending-discover-manifest.schema.json",
+  "title": "Rardar immutable trending discovery generation manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "policyVersion",
+    "generationId",
+    "createdAt",
+    "state",
+    "latestCaptureId",
+    "todayExplosionGenerationId",
+    "artifacts",
+    "audit"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "policyVersion": { "const": "trending-discover-v1" },
+    "generationId": { "$ref": "#/$defs/generationId" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "state": { "const": "ready" },
+    "latestCaptureId": { "type": "string", "pattern": "^trending-v1-[0-9]{8}T[0-9]{6}Z$" },
+    "todayExplosionGenerationId": { "$ref": "#/$defs/generationId" },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 4,
+      "maxProperties": 32,
+      "propertyNames": {
+        "pattern": "^(?:discover\\.json|sources/(?:today-(?:explosion|manifest)|capture-[0-9]{2})\\.json)$"
+      },
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "validatedSourceCount", "publishedCount", "conflictCount"],
+      "properties": {
+        "status": { "enum": ["healthy", "degraded"] },
+        "validatedSourceCount": { "type": "integer", "minimum": 2, "maximum": 15 },
+        "publishedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "conflictCount": { "type": "integer", "minimum": 0, "maximum": 500 }
+      }
+    }
+  },
+  "$defs": {
+    "generationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
+    }
+  }
+}

@@ -88,9 +88,9 @@ Repository `main` 与 Production release 可以合法不同。只有完成 exact
 
 ---
 
-# Now — Rardar v2 fact producer Runtime integration
+# Now — Near-real-time Discover fact contract
 
-状态：**RARDAR-V2-RFC ACCEPTED / RARDAR-PRODUCER-RUNTIME-INTEGRATION-01 IN DEVELOPMENT**
+状态：**RARDAR-V2-RFC ACCEPTED / RARDAR-DISCOVER-REALTIME-01 IN DEVELOPMENT**
 
 - P0：今日爆发榜 v2，以 Rardar 自有连续 observation 形成可审计的精确 24h Star 增量榜；
 - P0：找项目 v2，以自然语言需求、可选公开 GitHub URL、动态召回、静态证据和同任务横向比较形成复用决策；
@@ -98,11 +98,12 @@ Repository `main` 与 Production release 可以合法不同。只有完成 exact
 - 高价值资产库完整产品建设继续 Deferred，只积累最低限度历史事实；
 - `TRENDING-OBSERVATIONS-01` 已由 PR #26 合并；PR #27 已解决 Linux same-slot create-only settlement 竞态，observation Schema、immutable capture bundle、九查询召回、26 小时 carry-forward、numeric repository ID 连续性、create-only store、单实例锁和只读 audit 均已进入 `main`。
 - `TRENDING-EXPLOSION-ARTIFACT-01` 已由 PR #28 合并；eligible endpoint 的 24h exact/pending/conflict、byte-exact generation source copies、Schema/Audit、幂等和 CAS publication 已进入 `main`。
-- 当前工程轮只把这两项事实能力接入既有唯一 Scheduler：每个偶数整点 Observation，08:00 严格 Observation → Refresh → Explosion，flag 默认 `false`，token 不进入 Website，子任务失败不杀死核心 Runtime。
-- Repository 实现不等于 Production ACTIVE。必须完成 exact-head Verify、squash merge、main Verify、新 CI Release Artifact、离线 Production 激活、一次受控 restart 和首个自然两小时 Observation 后，才能关闭本工程轮。
-- 本轮不实现 UI、AI、Sub2API、Find Project、D1 业务变更或 TopicEye。通过后下一运行验收是首个自然 08:00 Explosion derive；不得自动开始其他产品阶段。
+- Production 已自然运行既有两小时 Observation 与每日 Explosion。本工程轮为尚未形成完整 24 小时事实的项目增加独立 `TrendingDiscoverArtifact v1`：最新 eligible capture + 最多 26 小时 source copies + 当前 Today exact 排除、确定性三阶段、manifest/hash/digest、Audit 与原子 pointer。
+- 同一唯一 Scheduler 在普通相位按 Observation → Discover，在 08:00 按 Observation → Refresh → Explosion → Discover；Discover 失败隔离，不新增 service/daemon，不修改 D1，也不让 AI 参与候选、阶段、增量或排序。
+- Repository 实现不等于 Production Discover ACTIVE。Rardar 合并后由 TopicEye vendoring 最终合同并完成本地真实数据产品闭环；Production 激活只能由后续 `RARDAR-DISCOVER-RUNTIME-ACTIVATION-01` 完成。
+- Today Artifact、精确排名、Stable Project ID、Action/Feedback、AI Provider 与 Find Project 均冻结；本轮不部署 Production。
 
-推荐实现顺序：observation contract/store（已完成）→ audited 24h artifact（已完成）→ single-Scheduler Runtime integration（当前）→ 首个自然 08:00 Explosion 验收 → 后续产品切片由独立授权决定。Rardar Intelligence Adapter、AI Runtime、今日爆发榜 UI、中文画像、RequirementProfile/Job、动态召回、Static Analysis v2 与 Cross-project Matcher 仍必须分别经过独立、可审计、可回滚的 PR。
+推荐实现顺序：observation contract/store（已完成）→ audited 24h artifact（已完成）→ Production producer（已激活）→ audited near-real-time Discover artifact（当前）→ TopicEye safe adapter/static serving/UI（同一跨仓产品任务）→ 独立 Production Discover activation。其他产品切片仍必须分别经过独立、可审计、可回滚的 PR。
 
 ---
 

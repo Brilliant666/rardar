@@ -50,6 +50,9 @@ class ArtifactKind(str, Enum):
     TRENDING_OBSERVATION = "trending-observation"
     TRENDING_CAPTURE_BUNDLE = "trending-capture-bundle"
     TRENDING_EXPLOSION = "trending-explosion"
+    TRENDING_DISCOVER = "trending-discover"
+    TRENDING_DISCOVER_MANIFEST = "trending-discover-manifest"
+    TRENDING_DISCOVER_CURRENT = "trending-discover-current"
 
 
 SCHEMA_FILES = {
@@ -65,6 +68,9 @@ SCHEMA_FILES = {
     ArtifactKind.TRENDING_OBSERVATION: "trending-observation.schema.json",
     ArtifactKind.TRENDING_CAPTURE_BUNDLE: "trending-capture-bundle.schema.json",
     ArtifactKind.TRENDING_EXPLOSION: "trending-explosion-artifact.schema.json",
+    ArtifactKind.TRENDING_DISCOVER: "trending-discover-artifact.schema.json",
+    ArtifactKind.TRENDING_DISCOVER_MANIFEST: "trending-discover-manifest.schema.json",
+    ArtifactKind.TRENDING_DISCOVER_CURRENT: "trending-discover-current.schema.json",
 }
 
 
@@ -760,6 +766,9 @@ def _artifact_timestamp(kind: ArtifactKind, payload: dict[str, Any]) -> datetime
         ArtifactKind.TRENDING_OBSERVATION: "capturedAt",
         ArtifactKind.TRENDING_CAPTURE_BUNDLE: "capturedAt",
         ArtifactKind.TRENDING_EXPLOSION: "generatedAt",
+        ArtifactKind.TRENDING_DISCOVER: "generatedAt",
+        ArtifactKind.TRENDING_DISCOVER_MANIFEST: "createdAt",
+        ArtifactKind.TRENDING_DISCOVER_CURRENT: "publishedAt",
     }[kind]
     value = payload.get(field)
     if not isinstance(value, str) or not _is_rfc3339(value):

@@ -454,17 +454,20 @@ systemd
 └─ Manager
    └─ Scheduler
       ├─ Observation  每个 Asia/Shanghai 偶数整点
+      ├─ Discover     每个成功 Observation 后
       ├─ Refresh      每日 08:00
       └─ Explosion    每日 08:00
 ```
 
-不得新增 cron、timer、第二个 service、daemon 或长期后台调度线程。08:00 的顺序严格为 Observation → 原有 Refresh → Explosion，三项串行；Observation 失败不阻止 Refresh，Refresh 最终失败不阻止基于仍可信 current 的 Explosion 尝试，Explosion 失败只进入嵌套 Producer telemetry，不使 Manager 把一个 heartbeat 新鲜的 Scheduler 判为 stale。
+不得新增 cron、timer、第二个 service、daemon 或长期后台调度线程。普通偶数相位按 Observation → Discover；08:00 的顺序严格为 Observation → 原有 Refresh → Explosion → Discover，四项串行，使 Discover 使用最新 Today exact 排除集合。Observation 失败不运行该相位 Discover，但不阻止 Refresh；Refresh 最终失败不阻止基于仍可信 current 的 Explosion 尝试；Explosion 或 Discover 失败只进入各自嵌套 Producer telemetry，不回滚已成功的核心阶段，也不使 Manager 把一个 heartbeat 新鲜的 Scheduler 判为 stale。
 
 Observation 收到的是固定相位的 intended `scheduledAt`，而不是实际启动时间。正常相位执行一次；只有明确的全源网络/HTTP 408、429 或 5xx 失败可在同一 10 分钟 eligibility 窗口内短重试一次。Scheduler 启动时只允许补最近一个且延迟不超过 10 分钟的 observation slot；超过窗口或错过多个 slot 时不回填。observer lock 冲突记录 `skipped_overlap`，不会启动第二个 observer。
 
 既有 daily 12 小时 catch-up、最多三次尝试、五分钟间隔和 remote-clone non-retryable 分类保持不变。restart 后先处理合法 daily catch-up；当天 08:00 capture 已存在且 eligible 时，Explosion 可幂等 catch-up。capture 缺失或不 eligible 时只记录 `not_ready`，不得制造 capture。首次合法 08:00 capture 后的 `firstExactEligibleAt` 机械等于该 endpoint +24 小时；到时是否为 exact 仍取决于两个 endpoint 都 eligible。
 
-Scheduler status 保留既有 top-level Refresh 字段，并增加 path-free `producer.observation` 与 `producer.explosion` telemetry。统一的进程内 status store 串行化 heartbeat 和事件更新；Manager 只转发来自当前受管 Scheduler PID 的 reviewed fields。token、Authorization、absolute capture/candidate path 和 stack trace 都不得进入 status 或日志。
+Scheduler status 保留既有 top-level Refresh 字段，并增加 path-free `producer.observation`、`producer.explosion` 与 `producer.discover` telemetry。Discover 只公开状态、时间、capture/generation ID、阶段/发布/冲突/排除计数、有限 coverage 和稳定错误码。统一的进程内 status store 串行化 heartbeat 和事件更新；Manager 只转发来自当前受管 Scheduler PID 的 reviewed fields。token、Authorization、absolute capture/candidate path、上游错误正文和 stack trace 都不得进入 status 或日志。
+
+Discover generation 位于 `data/artifacts/trending/discover/v1/`，与 `data/current.json` 和每日 retained generations 使用独立 pointer、manifest、lock 和 rollback。发布只依赖已验证 Observation source copies 与当前 Today Explosion exact exclusion；不会修改 D1。合并 Scheduler 集成不等于 Production Discover 激活，部署与首个自然 derive 必须由独立 `RARDAR-DISCOVER-RUNTIME-ACTIVATION-01` 完成。
 
 因此真实部署或升级造成的停机可能在启动后自然触发合法 catch-up。daily refresh 可能访问 GitHub、运行只读静态分析、创建 candidate 并在全部门禁通过后推进 current；Producer 也可能只在上述窄窗口执行一个 observation 或幂等 Explosion。这是 Scheduler 行为，不是 release 安装器修改数据。部署应避开 07:30–08:30 和距下一两小时相位不足 15 分钟的窗口；不要用 restart 制造验收事件。
 

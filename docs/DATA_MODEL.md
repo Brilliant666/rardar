@@ -17,6 +17,8 @@
 | Codex 队列 | `<generation>/queues/codex.json` | `codex-queue.schema.json` | `schemaVersion` |
 | GitHub 24h 爆发事实 | `<generation>/trending/explosion.json` | `trending-explosion-artifact.schema.json` | `schemaVersion` |
 | 爆发事实来源副本 | `<generation>/trending/sources/*.json` | `trending-capture-bundle.schema.json` | `schemaVersion` |
+| GitHub 近实时发现事实 | `data/artifacts/trending/discover/v1/generations/<id>/discover.json` | `trending-discover-artifact.schema.json` | `schemaVersion` |
+| 发现 generation manifest / current | `data/artifacts/trending/discover/v1/{generations/<id>/manifest.json,current.json}` | `trending-discover-{manifest,current}.schema.json` | `schemaVersion` |
 
 ## Trending Observation v1
 
@@ -77,6 +79,38 @@ python -m pipeline.collect_trending_observations `
 无关 refresh/derive 会 byte-exact 保留 source 副本和事实窗口，只机械把 `explosion.json.generationId` 重绑定到新 enclosing generation，然后重新执行 Schema/Audit。专用 Explosion derive 才能用新窗口替换该 namespace。历史 generation 没有 `trending/` 仍然合法；一旦出现任一 Explosion 文件，artifact 与完整 source inventory 必须同时通过审计。
 
 这里的 `<generation>` 表示 `data/current.json` 一次解析后得到的 `data/generations/<generationId>/`。页面、API、审计命令和下一轮增长基线不得分别重读指针或拼接 flat 路径。
+
+## Trending Discover Artifact v1
+
+`TrendingDiscoverArtifact v1` 是与每日 generation 分离的近实时事实产物。它在每个合法 Observation 完成后读取最新 eligible capture、向前最多 26 小时的 eligible captures，以及当前已验证 Today Explosion exact 集合，并发布到独立 immutable store：
+
+```text
+data/artifacts/trending/discover/v1/current.json
+data/artifacts/trending/discover/v1/generations/<discoverGenerationId>/
+├─ manifest.json
+├─ discover.json
+└─ sources/
+   ├─ capture-01.json ... capture-14.json
+   ├─ today-explosion.json
+   └─ today-manifest.json
+```
+
+合同固定为 `schemaVersion=1`、`policyVersion=trending-discover-v1`。每个 generation 复制 source 原始字节，manifest 绑定全部文件 SHA-256，artifact 另有 canonical payload digest；`current.json` 只通过独立 data lock、CAS 与原子替换推进。相同 latest capture、Today generation 和 Today digest 返回 `already_derived`；并发第二写者不得覆盖胜者。Discover 不读取或写入 D1，也不改写每日 generation。
+
+Today exact 排除只按 GitHub numeric repository ID。Today current、manifest、Explosion artifact 或 digest 不能安全验证时 derive fail closed；不得按 `owner/name` 猜测，也不得回退到旧或 flat 数据。rename/transfer 保持 numeric ID 连续，fork/mirror 保留为独立仓库事实；disabled、负 Star 增量、名称到 numeric ID 冲突进入 conflicts 或被排除。
+
+一个发布项目只属于一个透明阶段，优先级为 `near_validation` → `just_discovered` → `rising`：实际观察至少 20 小时为接近验证；首次出现在最近两个 eligible captures 或实际窗口不超过 4 小时为刚刚发现；至少两个观察点、窗口大于 0 且真实增量大于 0 为持续升温。页面分区顺序固定为刚刚发现、持续升温、接近验证；每个分区内部按 `observedStarDelta DESC`、`totalStars DESC`、`repository ASC`。所有时间窗和增量都来自 source bytes，禁止预计、折算或外推 24 小时事实。
+
+`python -m pipeline.audit_trending_discover --data-dir <path>` 只读验证 current、generation path、manifest/hash、Schema、payload digest、全部 source identity/hash/digest、Today exclusion source、numeric ID、阶段唯一性、阶段与排序重算、实际窗口、delta、conflicts、临时文件及 link/reparse/path escape。Audit 只使用 generation-local source copies 完整重算，不修复或覆盖数据。CLI：
+
+```powershell
+python -m pipeline.derive_trending_discover --data-dir data derive
+python -m pipeline.derive_trending_discover --data-dir data status
+python -m pipeline.derive_trending_discover --data-dir data rollback <generation-id>
+python -m pipeline.audit_trending_discover --data-dir data
+```
+
+Producer 启用时仍只有一个 Managed Scheduler。普通偶数整点严格执行 Observation → Discover；08:00 严格执行 Observation → Refresh → Explosion → Discover，使 Discover 使用最新 Today exact 排除集合。Discover 失败只降级 `producer.discover` telemetry，不回滚或终止 Observation、Refresh、Explosion，也不新增 timer、cron、service 或 daemon。Repository 合并只表示合同和编排可用；Production Discover 必须经过独立 Runtime activation 后才可称为 ACTIVE。
 
 Schema 使用 JSON Schema Draft 2020-12，并限制必填字段、对象额外字段、字段类型、数组成员、枚举、时间、HTTP(S) URL、`owner/name` 仓库身份、字符串长度和数值范围。Schema 只引用仓库内文件，验证过程不会联网获取契约。
 

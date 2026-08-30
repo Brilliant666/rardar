@@ -302,6 +302,23 @@ class RuntimeTests(unittest.TestCase):
                     "state": "warming_up",
                     "candidatePath": "/var/lib/rardar/data/generations/candidate",
                 },
+                "discover": {
+                    "state": "degraded",
+                    "generationId": "discover-generation",
+                    "stageCounts": {
+                        "just_discovered": 2,
+                        "rising": 3,
+                        "near_validation": 1,
+                        "candidatePath": "/var/lib/rardar/private/candidate",
+                    },
+                    "coverage": {
+                        "state": "degraded",
+                        "querySuccessCount": 5,
+                        "queryFailureCount": 1,
+                        "upstreamError": "Bearer must-not-pass",
+                    },
+                    "sourcePath": "/var/lib/rardar/data/artifacts/private.json",
+                },
             }
         }
         with patch("pipeline.runtime._read_json", return_value=status):
@@ -310,9 +327,13 @@ class RuntimeTests(unittest.TestCase):
         producer = details["producer"]
         self.assertTrue(producer["enabled"])
         self.assertEqual(producer["observation"]["state"], "healthy")
+        self.assertEqual(producer["discover"]["stageCounts"]["rising"], 3)
+        self.assertEqual(producer["discover"]["coverage"]["queryFailureCount"], 1)
         serialized = json.dumps(producer)
         self.assertNotIn("capturePath", serialized)
         self.assertNotIn("candidatePath", serialized)
+        self.assertNotIn("sourcePath", serialized)
+        self.assertNotIn("upstreamError", serialized)
         self.assertNotIn("must-not-pass", serialized)
 
     def test_producer_flag_and_token_only_reach_scheduler_environment(self) -> None:
