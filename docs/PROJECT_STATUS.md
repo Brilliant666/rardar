@@ -140,7 +140,8 @@ nextRunAt:       2026-08-24 08:00 Asia/Shanghai
 | Public Edge | ✅ ACTIVE | HTTPS + 整站 Basic Auth；3000/3002 继续 loopback-only |
 | Trending Observation v1 | ✅ MERGED | 固定两小时事实 capture、numeric GitHub identity、26h carry-forward、create-only store 与只读 Audit |
 | Trending Explosion Artifact v1 | ✅ MERGED | 08:00 exact/pending/conflict、byte-exact generation sources、Schema/Audit、幂等与 CAS publication |
-| Trending Producer Runtime | 🚧 IMPLEMENTED / NOT DEPLOYED | 单 Scheduler 集成在独立工程轮审查；flag 默认 `false`，须经 exact artifact Production 验收后才能称为 ACTIVE |
+| Trending Producer Runtime | ✅ ACTIVE | Production 已自然运行 Observation 与 Explosion；单 Scheduler、feature flag 与 Scheduler-only token 边界保持不变 |
+| Trending Discover Artifact v1 | 🚧 IMPLEMENTED / NOT DEPLOYED | 独立 immutable generations、Today exact 排除、三阶段事实、只读 Audit 与 Scheduler 编排；Production 激活另开任务 |
 | Legacy collision lifecycle | ⏸ Deferred | P1-6C2 尚未收口，不阻塞当前 Stable ID 主链 |
 
 ---
@@ -181,7 +182,7 @@ PR #22、PR #23、`PROD-PRODUCT-RELEASE-02`、`SERVER-NATURAL-RUN-03`、`OPS-RES
 
 ### Phase F — Rardar v2 fact producer
 
-PR #26、#27 与 #28 已把固定两小时 GitHub Observation 和 audited 24-hour Explosion Artifact 合入 Repository `main`，但合并的数据能力不等于 Production producer 已启用。`RARDAR-PRODUCER-RUNTIME-INTEGRATION-01` 只在唯一 Managed Scheduler 内编排 Observation、原有 08:00 Refresh 和 Explosion，并以默认关闭的 feature flag、Scheduler-only `GITHUB_TOKEN`、失败隔离与嵌套 telemetry 保持现有 Runtime 边界。只有新 exact main artifact 完成离线部署、一次受控 restart 和首个自然两小时 Observation 验收后，才能把该能力标为 Production ACTIVE。
+PR #26、#27 与 #28 已把固定两小时 GitHub Observation 和 audited 24-hour Explosion Artifact 合入 Repository `main`，后续 Runtime 集成与自然运行验收已使 Production producer ACTIVE。`RARDAR-DISCOVER-REALTIME-01` 在此基础上增加独立 Discover immutable store：每个成功 Observation 后按当前 Today exact 排除集合派生近实时三阶段事实，失败与核心 Scheduler 隔离。它的 Repository 合并和 TopicEye 本地闭环不代表 Production Discover 已激活；部署与自然 derive 属于后续独立任务。
 
 ---
 
@@ -200,7 +201,7 @@ PR #26、#27 与 #28 已把固定两小时 GitHub Observation 和 audited 24-hou
 
 ## 当前产品决策状态
 
-Rardar v2 RFC 已获批准，当前授权工程轮是 `RARDAR-PRODUCER-RUNTIME-INTEGRATION-01`：把已合并的 Observation 与 Explosion 接入唯一 Managed Scheduler，并通过 exact artifact 和自然运行完成 Production 验收。它不授权 TopicEye、Sub2API/AI Runtime、Find Project、P1-6C2 或其他候选方向。
+Rardar v2 RFC 已获批准，当前授权跨仓产品轮是 `RARDAR-DISCOVER-REALTIME-01`：Rardar 生产可审计 Discover 事实，TopicEye 安全消费并完成本地真实数据页面。它不授权 Production 部署、人工 Production derive、D1 变更、Today 重构、AI 排名或 `RARDAR-DISCOVER-RUNTIME-ACTIVATION-01`。
 
 Research Profile、Momentum Lifecycle、Alerts / Digest、MCP、Advanced Personalization 与 Watch Lifecycle 仍是候选方向；本状态文档不替用户选择顺序，也不把尚未通过 Production 门禁的 Producer 写成已部署。
 

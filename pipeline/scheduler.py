@@ -19,6 +19,7 @@ from pipeline.analyze_repository import RemoteCloneLifecycleError
 from pipeline.audit_data import audit_data
 from pipeline.data_lock import data_dir_lock, data_dir_lock_path
 from pipeline.derive_trending_explosion import derive_trending_explosion
+from pipeline.trending_discover import TrendingDiscoverError, derive_trending_discover
 from pipeline.generations import GenerationProtocolError, resolve_current_generation
 from pipeline.producer_schedule import (
     EXPLOSION_SCHEDULE_AT,
@@ -428,6 +429,22 @@ def _default_producer_status(
         "state": "warming_up" if enabled else "disabled",
         "nextObservationAt": _iso(next_observation) if next_observation else None,
         "nextExplosionAt": _iso(next_explosion) if next_explosion else None,
+        "discover": {
+            "enabled": enabled,
+            "state": "scheduled" if enabled else "disabled",
+            "lastScheduledAt": None,
+            "startedAt": None,
+            "completedAt": None,
+            "latestCaptureId": None,
+            "generationId": None,
+            "stageCounts": None,
+            "publishedCount": None,
+            "conflictCount": None,
+            "excludedExactCount": None,
+            "coverage": None,
+            "lastErrorCode": None,
+            "nextExpectedAt": _iso(next_observation) if next_observation else None,
+        },
         "first08CaptureAt": None,
         "firstExactEligibleAt": None,
         "observation": {
@@ -486,15 +503,17 @@ def _restore_producer_status(
         value = stored.get(key)
         if isinstance(value, scalar_types):
             status[key] = value
-    for section_name in ("observation", "explosion"):
+    for section_name in ("observation", "explosion", "discover"):
         section = stored.get(section_name)
         if not isinstance(section, dict):
             continue
         for key in tuple(status[section_name]):
-            if key in {"cadenceMinutes", "timezone", "scheduleAt", "nextRunAt"}:
+            if key in {"cadenceMinutes", "timezone", "scheduleAt", "nextRunAt", "enabled", "nextExpectedAt"}:
                 continue
             value = section.get(key)
-            if isinstance(value, scalar_types):
+            if isinstance(value, scalar_types) or (
+                section_name == "discover" and isinstance(value, dict)
+            ):
                 status[section_name][key] = value
     return status
 
@@ -504,9 +523,12 @@ def _producer_summary_state(producer: dict[str, Any]) -> str:
         return "disabled"
     observation_state = producer["observation"].get("state")
     explosion_state = producer["explosion"].get("state")
+    discover_state = producer["discover"].get("state")
     if observation_state in {"failed", "degraded", "skipped_overlap"}:
         return "degraded"
     if explosion_state in {"blocked", "degraded", "not_ready"}:
+        return "degraded"
+    if discover_state in {"failed", "degraded"}:
         return "degraded"
     if explosion_state in {"healthy", "already_derived"}:
         return "healthy"
@@ -800,6 +822,87 @@ def _run_explosion_phase(
     return result
 
 
+def _run_discover_phase(
+    data_dir: Path,
+    scheduled_at: datetime,
+    settings: RuntimeSettings,
+    store: SchedulerStatusStore,
+    producer: dict[str, Any],
+    *,
+    clock: Clock,
+) -> dict[str, Any] | None:
+    """Derive Discover after the phase's core producer work, without coupling failure."""
+
+    started = _utc_now(clock)
+    discover = producer["discover"]
+    discover.update(
+        {
+            "state": "running",
+            "lastScheduledAt": _iso(scheduled_at),
+            "startedAt": _iso(started),
+            "completedAt": None,
+            "lastErrorCode": None,
+        }
+    )
+    _publish_producer(store, producer)
+    try:
+        with _producer_heartbeat(store, clock):
+            result = derive_trending_discover(data_dir)
+    except (GenerationProtocolError, TrendingDiscoverError, OSError, ValueError) as error:
+        completed = _utc_now(clock)
+        code = str(getattr(error, "code", "discover_derivation_failed"))[:100]
+        discover.update(
+            {
+                "state": "failed",
+                "completedAt": _iso(completed),
+                "lastErrorCode": code,
+                "nextExpectedAt": _iso(
+                    next_observation_at(completed, settings.schedule_timezone)
+                ),
+            }
+        )
+        _publish_producer(store, producer)
+        print(f"Rardar Discover derive failed: {code}", flush=True)
+        return None
+    except Exception:
+        completed = _utc_now(clock)
+        discover.update(
+            {
+                "state": "failed",
+                "completedAt": _iso(completed),
+                "lastErrorCode": "discover_internal_error",
+                "nextExpectedAt": _iso(
+                    next_observation_at(completed, settings.schedule_timezone)
+                ),
+            }
+        )
+        _publish_producer(store, producer)
+        print("Rardar Discover derive failed: discover_internal_error", flush=True)
+        return None
+    completed = _utc_now(clock)
+    coverage = result.get("coverage")
+    state = "degraded" if result.get("coverageState") == "degraded" else "healthy"
+    discover.update(
+        {
+            "state": state,
+            "completedAt": _iso(completed),
+            "latestCaptureId": result.get("latestCaptureId"),
+            "generationId": result.get("generationId"),
+            "stageCounts": result.get("stageCounts"),
+            "publishedCount": result.get("publishedCount"),
+            "conflictCount": result.get("conflictCount"),
+            "excludedExactCount": result.get("excludedExactCount"),
+            "coverage": coverage if isinstance(coverage, dict) else None,
+            "lastErrorCode": None,
+            "nextExpectedAt": _iso(
+                next_observation_at(completed, settings.schedule_timezone)
+            ),
+        }
+    )
+    _publish_producer(store, producer)
+    return result
+
+
 def _run_refresh_sequence(
     arguments: argparse.Namespace,
     settings: RuntimeSettings,
@@ -911,9 +1014,12 @@ def _execute_scheduled_events(
     """Execute one fixed phase serially in its declared priority order."""
 
     refresh_result: dict[str, object] | None = None
+    observation_completed = False
+    explosion_required = any(event.kind == "explosion" for event in events)
+    explosion_completed = not explosion_required
     for event in events:
         if event.kind == "observation":
-            _run_observation_phase(
+            observation_completed = _run_observation_phase(
                 arguments.data_dir,
                 event.scheduled_at,
                 settings,
@@ -921,7 +1027,7 @@ def _execute_scheduled_events(
                 producer,
                 clock=clock,
                 sleeper=sleeper,
-            )
+            ) is not None
         elif event.kind == "refresh":
             refresh_result = _run_refresh_sequence(
                 arguments,
@@ -931,7 +1037,16 @@ def _execute_scheduled_events(
                 sleeper=sleeper,
             )
         elif event.kind == "explosion":
-            _run_explosion_phase(
+            explosion_completed = _run_explosion_phase(
+                arguments.data_dir,
+                event.scheduled_at,
+                settings,
+                store,
+                producer,
+                clock=clock,
+            ) is not None
+        elif event.kind == "discover" and observation_completed and explosion_completed:
+            _run_discover_phase(
                 arguments.data_dir,
                 event.scheduled_at,
                 settings,
@@ -981,6 +1096,28 @@ def _run_producer_scheduler(
         }
     )
 
+    startup_now = _utc_now(now_fn)
+    startup_phase = (
+        startup_observation_catch_up(startup_now, settings.schedule_timezone)
+        if arguments.skip_initial
+        else None
+    )
+    startup_observation_result: dict[str, Any] | None = None
+    startup_is_eight = bool(
+        startup_phase is not None
+        and startup_phase.astimezone(ZoneInfo(settings.schedule_timezone)).hour == 8
+    )
+    if startup_is_eight and startup_phase is not None:
+        startup_observation_result = _run_observation_phase(
+            arguments.data_dir,
+            startup_phase,
+            settings,
+            store,
+            producer,
+            clock=now_fn,
+            sleeper=sleep_fn,
+        )
+
     refresh_catch_up = arguments.skip_initial and should_catch_up(
         now,
         last_status.get("lastRunCompletedAt"),
@@ -999,14 +1136,8 @@ def _run_producer_scheduler(
             sleeper=sleep_fn,
         )
 
-    startup_now = _utc_now(now_fn)
-    startup_phase = (
-        startup_observation_catch_up(startup_now, settings.schedule_timezone)
-        if arguments.skip_initial
-        else None
-    )
-    if startup_phase is not None:
-        _run_observation_phase(
+    if startup_phase is not None and not startup_is_eight:
+        startup_observation_result = _run_observation_phase(
             arguments.data_dir,
             startup_phase,
             settings,
@@ -1015,12 +1146,21 @@ def _run_producer_scheduler(
             clock=now_fn,
             sleeper=sleep_fn,
         )
+        if startup_observation_result is not None:
+            _run_discover_phase(
+                arguments.data_dir,
+                startup_phase,
+                settings,
+                store,
+                producer,
+                clock=now_fn,
+            )
 
     explosion_window = _startup_explosion_window(_utc_now(now_fn), settings)
     if explosion_window is not None:
         eligible, error_code = _eligible_capture_exists(arguments.data_dir, explosion_window)
         if eligible:
-            _run_explosion_phase(
+            explosion_result = _run_explosion_phase(
                 arguments.data_dir,
                 explosion_window,
                 settings,
@@ -1028,6 +1168,15 @@ def _run_producer_scheduler(
                 producer,
                 clock=now_fn,
             )
+            if explosion_result is not None:
+                _run_discover_phase(
+                    arguments.data_dir,
+                    explosion_window,
+                    settings,
+                    store,
+                    producer,
+                    clock=now_fn,
+                )
         elif error_code is not None:
             _record_explosion_not_ready(
                 explosion_window,
@@ -1056,6 +1205,7 @@ def _run_producer_scheduler(
         producer["explosion"]["nextRunAt"] = _iso(next_explosion)
         producer["nextObservationAt"] = _iso(next_observation)
         producer["nextExplosionAt"] = _iso(next_explosion)
+        producer["discover"]["nextExpectedAt"] = _iso(next_observation)
         store.update(
             {
                 "processId": os.getpid(),

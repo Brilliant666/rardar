@@ -24,6 +24,7 @@ from pipeline.scheduler import (
     _execute_scheduled_events,
     _record_explosion_not_ready,
     _restore_producer_status,
+    _run_discover_phase,
     _run_explosion_phase,
     _run_observation_phase,
     _run_producer_scheduler,
@@ -254,7 +255,8 @@ class SchedulerTests(unittest.TestCase):
             with (
                 patch(
                     "pipeline.scheduler._run_observation_phase",
-                    side_effect=lambda *_args, **_kwargs: calls.append("observation"),
+                    side_effect=lambda *_args, **_kwargs: calls.append("observation")
+                    or {"state": "captured"},
                 ),
                 patch(
                     "pipeline.scheduler._run_refresh_sequence",
@@ -263,7 +265,12 @@ class SchedulerTests(unittest.TestCase):
                 ),
                 patch(
                     "pipeline.scheduler._run_explosion_phase",
-                    side_effect=lambda *_args, **_kwargs: calls.append("explosion"),
+                    side_effect=lambda *_args, **_kwargs: calls.append("explosion")
+                    or {"state": "published"},
+                ),
+                patch(
+                    "pipeline.scheduler._run_discover_phase",
+                    side_effect=lambda *_args, **_kwargs: calls.append("discover"),
                 ),
             ):
                 result = _execute_scheduled_events(
@@ -276,8 +283,48 @@ class SchedulerTests(unittest.TestCase):
                     sleeper=clock.sleep,
                 )
 
-        self.assertEqual(calls, ["observation", "refresh", "explosion"])
+        self.assertEqual(calls, ["observation", "refresh", "explosion", "discover"])
         self.assertEqual(result, {"state": "failed"})
+
+    def test_eight_o_clock_discover_requires_successful_explosion(self) -> None:
+        settings = RuntimeSettings("08:00", "Asia/Shanghai", 36, True)
+        phase = datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc)
+        clock = MutableClock(phase)
+        events = scheduled_events_at(
+            phase,
+            refresh_at="08:00",
+            timezone_name="Asia/Shanghai",
+        )
+        arguments = SimpleNamespace(data_dir=Path("unused"), analyze_top=0)
+        calls = []
+        with tempfile.TemporaryDirectory() as directory:
+            store = SchedulerStatusStore(Path(directory) / "scheduler.json")
+            producer = _default_producer_status(settings, clock())
+            with (
+                patch(
+                    "pipeline.scheduler._run_observation_phase",
+                    return_value={"state": "captured"},
+                ),
+                patch(
+                    "pipeline.scheduler._run_refresh_sequence",
+                    return_value={"state": "healthy"},
+                ),
+                patch("pipeline.scheduler._run_explosion_phase", return_value=None),
+                patch(
+                    "pipeline.scheduler._run_discover_phase",
+                    side_effect=lambda *_args, **_kwargs: calls.append("discover"),
+                ),
+            ):
+                _execute_scheduled_events(
+                    events,
+                    arguments,
+                    settings,
+                    store,
+                    producer,
+                    clock=clock,
+                    sleeper=clock.sleep,
+                )
+        self.assertEqual(calls, [])
 
     def test_observation_failure_does_not_block_refresh_or_explosion(self) -> None:
         settings = RuntimeSettings("08:00", "Asia/Shanghai", 36, True)
@@ -330,6 +377,34 @@ class SchedulerTests(unittest.TestCase):
             stored["producer"]["observation"]["lastErrorCode"],
             "github_token_required",
         )
+
+    def test_discover_failure_is_isolated_and_redacted_in_telemetry(self) -> None:
+        settings = RuntimeSettings("08:00", "Asia/Shanghai", 36, True)
+        phase = datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc)
+        clock = MutableClock(phase)
+        with tempfile.TemporaryDirectory() as directory:
+            store = SchedulerStatusStore(Path(directory) / "scheduler.json")
+            producer = _default_producer_status(settings, clock())
+            with (
+                patch(
+                    "pipeline.scheduler.derive_trending_discover",
+                    side_effect=RuntimeError("secret absolute path must not escape"),
+                ),
+                redirect_stdout(io.StringIO()) as output,
+            ):
+                result = _run_discover_phase(
+                    Path(directory) / "data",
+                    phase,
+                    settings,
+                    store,
+                    producer,
+                    clock=clock,
+                )
+            stored = store.snapshot()["producer"]["discover"]
+        self.assertIsNone(result)
+        self.assertEqual(stored["state"], "failed")
+        self.assertEqual(stored["lastErrorCode"], "discover_internal_error")
+        self.assertNotIn("secret absolute path", output.getvalue())
 
     def test_refresh_sequence_keeps_three_attempts_and_five_minute_delays(self) -> None:
         settings = RuntimeSettings("08:00", "Asia/Shanghai", 36, True)
@@ -516,6 +591,7 @@ class SchedulerTests(unittest.TestCase):
                     patch(
                         "pipeline.scheduler._run_observation_phase"
                     ) as observation,
+                    patch("pipeline.scheduler._run_discover_phase") as discover,
                     patch(
                         "pipeline.scheduler._eligible_capture_exists",
                         return_value=(False, "explosion_current_capture_missing"),
@@ -531,8 +607,64 @@ class SchedulerTests(unittest.TestCase):
                             sleeper=clock.sleep,
                         )
                 self.assertEqual(observation.call_count, expected_calls)
+                self.assertEqual(discover.call_count, expected_calls)
                 if expected_calls:
                     self.assertEqual(observation.call_args.args[1], phase)
+
+    def test_eight_o_clock_startup_catch_up_preserves_producer_order(self) -> None:
+        settings = RuntimeSettings("08:00", "Asia/Shanghai", 36, True)
+        phase = datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc)
+        clock = MutableClock(phase + timedelta(minutes=5))
+        arguments = SimpleNamespace(
+            data_dir=Path("unused"),
+            analyze_top=0,
+            once=False,
+            skip_initial=True,
+        )
+        calls: list[str] = []
+
+        class StopLoop(RuntimeError):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            status_path = Path(directory) / "scheduler.json"
+            with (
+                patch("pipeline.scheduler.should_catch_up", return_value=True),
+                patch(
+                    "pipeline.scheduler._run_observation_phase",
+                    side_effect=lambda *_args, **_kwargs: calls.append("observation")
+                    or {"state": "captured"},
+                ),
+                patch(
+                    "pipeline.scheduler._run_refresh_sequence",
+                    side_effect=lambda *_args, **_kwargs: calls.append("refresh")
+                    or {"state": "healthy"},
+                ),
+                patch(
+                    "pipeline.scheduler._eligible_capture_exists",
+                    return_value=(True, None),
+                ),
+                patch(
+                    "pipeline.scheduler._run_explosion_phase",
+                    side_effect=lambda *_args, **_kwargs: calls.append("explosion")
+                    or {"state": "published"},
+                ),
+                patch(
+                    "pipeline.scheduler._run_discover_phase",
+                    side_effect=lambda *_args, **_kwargs: calls.append("discover")
+                    or {"state": "published"},
+                ),
+                patch("pipeline.scheduler._wait_until", side_effect=StopLoop()),
+            ):
+                with self.assertRaises(StopLoop):
+                    _run_producer_scheduler(
+                        arguments,
+                        settings,
+                        status_path,
+                        clock=clock,
+                        sleeper=clock.sleep,
+                    )
+        self.assertEqual(calls, ["observation", "refresh", "explosion", "discover"])
 
     def test_cli_uses_external_data_directory_from_environment(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

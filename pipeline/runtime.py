@@ -1356,6 +1356,22 @@ def _public_producer_telemetry(value: object) -> dict[str, Any] | None:
             "lastErrorCode",
             "nextRunAt",
         ),
+        "discover": (
+            "enabled",
+            "state",
+            "lastScheduledAt",
+            "startedAt",
+            "completedAt",
+            "latestCaptureId",
+            "generationId",
+            "stageCounts",
+            "publishedCount",
+            "conflictCount",
+            "excludedExactCount",
+            "coverage",
+            "lastErrorCode",
+            "nextExpectedAt",
+        ),
     }
 
     def public_scalar(item: object) -> object | None:
@@ -1363,6 +1379,35 @@ def _public_producer_telemetry(value: object) -> dict[str, Any] | None:
             return item
         if isinstance(item, str) and len(item) <= 256 and "\n" not in item and "\r" not in item:
             return item
+        return None
+
+    nested_fields = {
+        "stageCounts": ("just_discovered", "rising", "near_validation"),
+        "coverage": (
+            "state",
+            "querySuccessCount",
+            "queryFailureCount",
+            "metadataFailureCount",
+            "sourceCaptureCount",
+            "candidateCount",
+            "publishedCount",
+            "conflictCount",
+            "excludedExactCount",
+        ),
+    }
+
+    def public_value(name: str, item: object) -> object | None:
+        scalar = public_scalar(item)
+        if scalar is not None or item is None:
+            return scalar
+        allowed = nested_fields.get(name)
+        if isinstance(item, dict) and allowed is not None:
+            projected = {
+                key: public_scalar(item.get(key))
+                for key in allowed
+                if key in item
+            }
+            return projected
         return None
 
     projected = {
@@ -1374,7 +1419,7 @@ def _public_producer_telemetry(value: object) -> dict[str, Any] | None:
         section = value.get(section_name)
         if isinstance(section, dict):
             projected[section_name] = {
-                name: public_scalar(section.get(name))
+                name: public_value(name, section.get(name))
                 for name in fields
                 if name in section
             }

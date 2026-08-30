@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/trending-discover-current.schema.json",
+  "title": "Rardar current trending discovery pointer v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "policyVersion",
+    "generationId",
+    "publishedAt",
+    "previousGenerationId",
+    "manifestSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "policyVersion": { "const": "trending-discover-v1" },
+    "generationId": { "$ref": "#/$defs/generationId" },
+    "publishedAt": { "type": "string", "format": "date-time" },
+    "previousGenerationId": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/generationId" }
+      ]
+    },
+    "manifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "$defs": {
+    "generationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
+    }
+  }
+}

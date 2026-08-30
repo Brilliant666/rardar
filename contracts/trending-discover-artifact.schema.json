@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rardar.local/contracts/trending-discover-artifact.schema.json",
+  "title": "Rardar audited near-real-time GitHub discovery artifact v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "policyVersion",
+    "discoverGenerationId",
+    "generatedAt",
+    "latestCaptureId",
+    "latestCaptureScheduledAt",
+    "latestCaptureCapturedAt",
+    "sourceWindowStart",
+    "sourceWindowEnd",
+    "sourceCaptureCount",
+    "todayExplosionGenerationId",
+    "todayExplosionDigest",
+    "updateCadenceMinutes",
+    "sortingPolicy",
+    "stages",
+    "coverage",
+    "conflicts",
+    "sourceInventory",
+    "todayExplosionSource",
+    "payloadDigest"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "policyVersion": { "const": "trending-discover-v1" },
+    "discoverGenerationId": { "$ref": "#/$defs/generationId" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "latestCaptureId": { "$ref": "#/$defs/captureId" },
+    "latestCaptureScheduledAt": { "type": "string", "format": "date-time" },
+    "latestCaptureCapturedAt": { "type": "string", "format": "date-time" },
+    "sourceWindowStart": { "type": "string", "format": "date-time" },
+    "sourceWindowEnd": { "type": "string", "format": "date-time" },
+    "sourceCaptureCount": { "type": "integer", "minimum": 1, "maximum": 14 },
+    "todayExplosionGenerationId": { "$ref": "#/$defs/generationId" },
+    "todayExplosionDigest": { "$ref": "#/$defs/sha256" },
+    "updateCadenceMinutes": { "const": 120 },
+    "sortingPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sections", "withinStage"],
+      "properties": {
+        "sections": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "just_discovered" },
+            { "const": "rising" },
+            { "const": "near_validation" }
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "withinStage": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "observedStarDelta DESC" },
+            { "const": "totalStars DESC" },
+            { "const": "repository ASC" }
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        }
+      }
+    },
+    "stages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["justDiscovered", "rising", "nearValidation"],
+      "properties": {
+        "justDiscovered": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/item" } },
+        "rising": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/item" } },
+        "nearValidation": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/item" } }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "querySuccessCount",
+        "queryFailureCount",
+        "metadataFailureCount",
+        "sourceCaptureCount",
+        "candidateCount",
+        "publishedCount",
+        "conflictCount",
+        "excludedExactCount"
+      ],
+      "properties": {
+        "state": { "enum": ["healthy", "degraded"] },
+        "querySuccessCount": { "type": "integer", "minimum": 1, "maximum": 9 },
+        "queryFailureCount": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "metadataFailureCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "sourceCaptureCount": { "type": "integer", "minimum": 1, "maximum": 14 },
+        "candidateCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "publishedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "conflictCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "excludedExactCount": { "type": "integer", "minimum": 0, "maximum": 500 }
+      }
+    },
+    "conflicts": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/conflict" } },
+    "sourceInventory": { "type": "array", "minItems": 1, "maxItems": 14, "items": { "$ref": "#/$defs/sourceCapture" } },
+    "todayExplosionSource": { "$ref": "#/$defs/todaySource" },
+    "payloadDigest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "generationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
+    },
+    "captureId": { "type": "string", "pattern": "^trending-v1-[0-9]{8}T[0-9]{6}Z$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "repository": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200,
+      "format": "repository",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "nullableString": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1, "maxLength": 2048 }
+      ]
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "value": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "sourceCapture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "captureId",
+        "scheduledAt",
+        "capturedAt",
+        "coverageState",
+        "generationRelativePath",
+        "originalObservationPath",
+        "payloadDigestSha256",
+        "fileSha256"
+      ],
+      "properties": {
+        "captureId": { "$ref": "#/$defs/captureId" },
+        "scheduledAt": { "type": "string", "format": "date-time" },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "coverageState": { "enum": ["healthy", "degraded"] },
+        "generationRelativePath": { "type": "string", "pattern": "^sources/capture-[0-9]{2}\\.json$" },
+        "originalObservationPath": { "type": "string", "pattern": "^observations/trending/v1/captures/[0-9]{4}/(?:0[1-9]|1[0-2])/(?:0[1-9]|[12][0-9]|3[01])/trending-v1-[0-9]{8}T[0-9]{6}Z\\.json$" },
+        "payloadDigestSha256": { "$ref": "#/$defs/sha256" },
+        "fileSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "todaySource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generationId",
+        "generationManifestSha256",
+        "generationManifestRelativePath",
+        "generationRelativePath",
+        "originalGenerationPath",
+        "fileSha256",
+        "windowEndedAt",
+        "exactCount"
+      ],
+      "properties": {
+        "generationId": { "$ref": "#/$defs/generationId" },
+        "generationManifestSha256": { "$ref": "#/$defs/sha256" },
+        "generationManifestRelativePath": { "const": "sources/today-manifest.json" },
+        "generationRelativePath": { "const": "sources/today-explosion.json" },
+        "originalGenerationPath": { "type": "string", "pattern": "^generations/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/trending/explosion\\.json$" },
+        "fileSha256": { "$ref": "#/$defs/sha256" },
+        "windowEndedAt": { "type": "string", "format": "date-time" },
+        "exactCount": { "type": "integer", "minimum": 0, "maximum": 500 }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "githubRepositoryId",
+        "repository",
+        "url",
+        "stage",
+        "firstSeenAt",
+        "lastObservedAt",
+        "observedWindowStart",
+        "observedWindowEnd",
+        "observedWindowHours",
+        "observedStarDelta",
+        "totalStars",
+        "captureCount",
+        "consecutiveCaptureCount",
+        "language",
+        "topics",
+        "license",
+        "isFork",
+        "isArchived",
+        "isDisabled",
+        "latestPushAt",
+        "sourceCaptureIds",
+        "sourceEvidenceDigest"
+      ],
+      "properties": {
+        "githubRepositoryId": { "type": "integer", "minimum": 1 },
+        "repository": { "$ref": "#/$defs/repository" },
+        "url": { "type": "string", "format": "http-url", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "stage": { "enum": ["just_discovered", "rising", "near_validation"] },
+        "firstSeenAt": { "type": "string", "format": "date-time" },
+        "lastObservedAt": { "type": "string", "format": "date-time" },
+        "observedWindowStart": { "type": "string", "format": "date-time" },
+        "observedWindowEnd": { "type": "string", "format": "date-time" },
+        "observedWindowHours": { "type": "number", "minimum": 0, "maximum": 27 },
+        "observedStarDelta": { "type": "integer", "minimum": 0 },
+        "totalStars": { "type": "integer", "minimum": 0 },
+        "captureCount": { "type": "integer", "minimum": 1, "maximum": 14 },
+        "consecutiveCaptureCount": { "type": "integer", "minimum": 1, "maximum": 14 },
+        "language": { "$ref": "#/$defs/nullableString" },
+        "topics": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+        "license": { "$ref": "#/$defs/nullableString" },
+        "isFork": { "type": "boolean" },
+        "isArchived": { "type": "boolean" },
+        "isDisabled": { "const": false },
+        "latestPushAt": { "type": "string", "format": "date-time" },
+        "sourceCaptureIds": { "type": "array", "minItems": 1, "maxItems": 14, "uniqueItems": true, "items": { "$ref": "#/$defs/captureId" } },
+        "sourceEvidenceDigest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "githubRepositoryId", "repository", "currentStars", "baselineStars", "sourceCaptureIds"],
+      "properties": {
+        "reason": { "enum": ["star_count_decreased", "current_disabled", "source_identity_conflict"] },
+        "githubRepositoryId": { "type": "integer", "minimum": 1 },
+        "repository": { "$ref": "#/$defs/repository" },
+        "currentStars": { "type": "integer", "minimum": 0 },
+        "baselineStars": { "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 0 }] },
+        "sourceCaptureIds": { "type": "array", "minItems": 1, "maxItems": 14, "uniqueItems": true, "items": { "$ref": "#/$defs/captureId" } }
+      }
+    }
+  }
+}
