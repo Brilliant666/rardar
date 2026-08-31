@@ -560,11 +560,10 @@ class RuntimeTests(unittest.TestCase):
             environment = {
                 **os.environ,
                 "RARDAR_HOME": str(ROOT),
-                "RARDAR_STRUCTURED_LOG_STDIO": "true",
             }
             try:
                 with redirect_stdout(output):
-                    service.start(environment)
+                    service.start(environment, structured_stdio=True)
                     service.process.wait(timeout=10)
                     service._close_log()
             finally:
@@ -1003,12 +1002,14 @@ class RuntimeTests(unittest.TestCase):
                 self.start_count = 0
                 self.stop_count = 0
                 self.environment = None
+                self.structured_stdio = None
                 services.append(self)
 
-            def start(self, environment) -> None:
+            def start(self, environment, *, structured_stdio=None) -> None:
                 self.start_count += 1
                 self.started_at = datetime.now(timezone.utc).isoformat()
                 self.environment = dict(environment)
+                self.structured_stdio = structured_stdio
 
             def poll(self) -> None:
                 return None
@@ -1050,6 +1051,7 @@ class RuntimeTests(unittest.TestCase):
                 "UNREVIEWED_SERVICE_TOKEN": "unknown-token",
                 "INTERNAL_CLIENT_SECRET": "unknown-secret",
                 "DATABASE_URL": "sqlite://must-not-reach-website",
+                "JOURNAL_STREAM": "8:12345",
             }
             with (
                 patch.dict("os.environ", persistent),
@@ -1104,6 +1106,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("UNREVIEWED_SERVICE_TOKEN", website.environment)
         self.assertNotIn("INTERNAL_CLIENT_SECRET", website.environment)
         self.assertNotIn("DATABASE_URL", website.environment)
+        self.assertNotIn("JOURNAL_STREAM", website.environment)
+        self.assertTrue(website.structured_stdio)
+        self.assertTrue(scheduler.structured_stdio)
         self.assertNotIn("RARDAR_TRENDING_PRODUCER_ENABLED", website.environment)
         self.assertEqual(website.environment["CLOUDFLARE_VITE_FORCE_LOCAL"], "true")
         self.assertEqual(website.environment["HOME"], persistent["HOME"])
@@ -1146,7 +1151,7 @@ class RuntimeTests(unittest.TestCase):
                 self.stop_count = 0
                 services.append(self)
 
-            def start(self, _environment) -> None:
+            def start(self, _environment, *, structured_stdio=None) -> None:
                 self.start_count += 1
                 self.started_at = datetime.now(timezone.utc).isoformat()
 
@@ -1348,7 +1353,7 @@ class RuntimeTests(unittest.TestCase):
                 self.stop_count = 0
                 services.append(self)
 
-            def start(self, _environment) -> None:
+            def start(self, _environment, *, structured_stdio=None) -> None:
                 self.started_at = datetime.now(timezone.utc).isoformat()
                 if self.name == "scheduler":
                     handlers[signal.SIGTERM](signal.SIGTERM, None)

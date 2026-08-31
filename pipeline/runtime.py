@@ -1229,14 +1229,21 @@ class ManagedService:
         finally:
             self._close_log()
 
-    def start(self, environment: dict[str, str]) -> None:
+    def start(
+        self,
+        environment: dict[str, str],
+        *,
+        structured_stdio: bool | None = None,
+    ) -> None:
         restarting = self.process is not None
         if restarting:
             self.cleanup_owned_process_tree()
             self.restart_count += 1
-        self._structured_stdio = bool(environment.get("JOURNAL_STREAM")) or (
-            environment.get("RARDAR_STRUCTURED_LOG_STDIO") == "true"
-        )
+        if structured_stdio is None:
+            structured_stdio = bool(environment.get("JOURNAL_STREAM")) or (
+                environment.get("RARDAR_STRUCTURED_LOG_STDIO") == "true"
+            )
+        self._structured_stdio = structured_stdio
         stdout: Any
         stderr: Any
         if self._structured_stdio and self.name == "website":
@@ -1740,6 +1747,13 @@ def _run_manager(
         "website": _website_child_environment(environment),
         "scheduler": environment,
     }
+    # Detect the journal from the manager's complete environment before the
+    # website allowlist intentionally removes service-only variables.  Passing
+    # this as process-control state keeps JOURNAL_STREAM out of Vinext while
+    # still routing its output through the manager's structured journal.
+    structured_stdio = bool(environment.get("JOURNAL_STREAM")) or (
+        environment.get("RARDAR_STRUCTURED_LOG_STDIO") == "true"
+    )
 
     website = ManagedService(
         "website",
@@ -1867,7 +1881,10 @@ def _run_manager(
         starting_status["services"]["scheduler"]["state"] = "starting"
         publish_status(starting_status)
         for service in services:
-            service.start(service_environments[service.name])
+            service.start(
+                service_environments[service.name],
+                structured_stdio=structured_stdio,
+            )
 
         while not should_stop:
             for service in services:
@@ -1882,7 +1899,10 @@ def _run_manager(
                         service.last_error = "another scheduler owns the managed data directory"
                         continue
                     time.sleep(2)
-                    service.start(service_environments[service.name])
+                    service.start(
+                        service_environments[service.name],
+                        structured_stdio=structured_stdio,
+                    )
 
             website_health = WebsiteHealth("starting")
             if website.poll() is None and port_is_open(RUNTIME_HOST, resolved_layout.vinext_port):
@@ -1928,7 +1948,10 @@ def _run_manager(
             if scheduler_state == "stale":
                 scheduler.last_error = "scheduler heartbeat became stale"
                 scheduler.stop()
-                scheduler.start(service_environments[scheduler.name])
+                scheduler.start(
+                    service_environments[scheduler.name],
+                    structured_stdio=structured_stdio,
+                )
                 scheduler_state = "restarting"
             data_freshness = website_health.data_freshness or "invalid"
             services_healthy = website_state == scheduler_state == "healthy"
