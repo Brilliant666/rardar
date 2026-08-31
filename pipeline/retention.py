@@ -1026,12 +1026,19 @@ def _recover_transaction(canonical: Path, runtime_dir: Path, digest: str) -> Non
                 relative = _safe_relative(raw)
                 staged = transaction / "staged" / relative
                 target = _contained(canonical, relative)
-                if staged.exists() and not target.exists():
+                staged_present = os.path.lexists(staged)
+                target_present = os.path.lexists(target)
+                if staged_present and target_present:
+                    raise RetentionError(
+                        "retention_recovery_conflict",
+                        "retention recovery found both staged and restored evidence",
+                    ) from None
+                if staged_present:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(staged, target)
                     _fsync_directory(staged.parent)
                     _fsync_directory(target.parent)
-                elif staged.exists() or target.exists():
+                elif target_present:
                     continue
                 else:
                     raise RetentionError(
@@ -1049,12 +1056,19 @@ def _recover_transaction(canonical: Path, runtime_dir: Path, digest: str) -> Non
         relative = _safe_relative(raw)
         staged = transaction / "staged" / relative
         target = _contained(canonical, relative)
-        if staged.exists() and not target.exists():
+        staged_present = os.path.lexists(staged)
+        target_present = os.path.lexists(target)
+        if staged_present and target_present:
+            raise RetentionError(
+                "retention_recovery_conflict",
+                "retention recovery found both staged and restored evidence",
+            )
+        if staged_present:
             target.parent.mkdir(parents=True, exist_ok=True)
             os.replace(staged, target)
             _fsync_directory(staged.parent)
             _fsync_directory(target.parent)
-        elif staged.exists() or target.exists():
+        elif target_present:
             continue
         else:
             raise RetentionError("retention_transaction_incomplete", "retention transaction lost a target")

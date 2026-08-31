@@ -319,6 +319,42 @@ class RetentionProtocolTests(unittest.TestCase):
         self.assertTrue(all(path.exists() for path in candidates))
         self.assertFalse(any(self.data.glob(".retention-transaction-*")))
 
+    def test_recovery_conflict_preserves_both_staged_and_recreated_evidence(self) -> None:
+        candidates = self._expired_candidates()
+        plan = create_retention_plan(self.data, self.settings, now=NOW)
+
+        def hard_interruption(source: Path, target: Path) -> None:
+            os.replace(source, target)
+            raise KeyboardInterrupt("fixture hard interruption after staging")
+
+        with self.assertRaises(KeyboardInterrupt):
+            apply_retention_plan(
+                self.data,
+                plan,
+                plan["planDigest"],
+                self.settings,
+                runtime_dir=self.runtime,
+                mover=hard_interruption,
+            )
+        transaction = next(self.data.glob(".retention-transaction-*"))
+        moved_source = next(path for path in candidates if not path.exists())
+        relative = moved_source.relative_to(self.data)
+        staged = transaction / "staged" / relative
+        shutil.copytree(staged, moved_source)
+        recreated_bytes = (moved_source / "diagnostic.json").read_bytes()
+        staged_bytes = (staged / "diagnostic.json").read_bytes()
+
+        with self.assertRaises(RetentionError) as raised:
+            recover_pending_retention_transactions(
+                self.data,
+                runtime_dir=self.runtime,
+            )
+
+        self.assertEqual(raised.exception.code, "retention_recovery_conflict")
+        self.assertEqual((moved_source / "diagnostic.json").read_bytes(), recreated_bytes)
+        self.assertEqual((staged / "diagnostic.json").read_bytes(), staged_bytes)
+        self.assertTrue(transaction.exists())
+
     def test_active_candidate_and_referenced_capture_are_protected(self) -> None:
         active = self._candidate(99, state="building")
         scheduled = datetime(2026, 5, 1, 0, 0, tzinfo=timezone.utc)
