@@ -335,6 +335,8 @@ npm run local:stop
 
 `RARDAR_TRENDING_PRODUCER_ENABLED` 默认且未配置时为 `false`，因此保持上面的 daily-refresh-only 行为。经过独立部署授权设为严格小写 `true` 后，唯一 Scheduler 才会增加 Asia/Shanghai 偶数整点 Observation → Discover 与每日 08:00 Explosion derive；`GITHUB_TOKEN` 只进入 Scheduler child，不进入 Website、状态 JSON、日志或浏览器。Discover Repository 能力合并不表示 Production Discover 已启用。
 
+Discover `trending-discover-v2` 只发布两类可解释信号：最近 4 小时首次进入候选池，或在实际观察窗口内达到 `+10 Star / +1%` 双通道之一且至少有 2 个连续正增长区间。观察满 20 小时的项目只有先通过同一质量门禁，才进入后端 `near_validation`（产品文案“待日榜验证”）。门禁不使用 AI、预测或综合评分，页面允许诚实空态；Artifact 同时冻结发布原因和聚合抑制原因供 Audit 重算。
+
 ### 常用数据命令
 
 ```bash

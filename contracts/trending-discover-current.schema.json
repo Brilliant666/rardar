@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rardar.local/contracts/trending-discover-current.schema.json",
-  "title": "Rardar current trending discovery pointer v1",
+  "title": "Rardar current trending discovery pointer v1/v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -13,8 +13,8 @@
     "manifestSha256"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
-    "policyVersion": { "const": "trending-discover-v1" },
+    "schemaVersion": { "enum": [1, 2] },
+    "policyVersion": { "enum": ["trending-discover-v1", "trending-discover-v2"] },
     "generationId": { "$ref": "#/$defs/generationId" },
     "publishedAt": { "type": "string", "format": "date-time" },
     "previousGenerationId": {
@@ -25,6 +25,13 @@
     },
     "manifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "policyVersion": { "const": "trending-discover-v1" } } },
+      "then": { "properties": { "schemaVersion": { "const": 1 } } },
+      "else": { "properties": { "schemaVersion": { "const": 2 } } }
+    }
+  ],
   "$defs": {
     "generationId": {
       "type": "string",

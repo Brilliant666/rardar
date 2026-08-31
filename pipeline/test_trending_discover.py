@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import os
 import subprocess
 import tempfile
@@ -14,7 +16,10 @@ from pipeline.collect_github import candidate_queries
 from pipeline.derive_trending_explosion import derive_trending_explosion
 from pipeline.schema_validation import ArtifactKind, validate_payload
 from pipeline.test_trending_explosion import _observation_at, _seed_generation, _write_capture
+from pipeline.trending_explosion import CaptureSource
 from pipeline.trending_discover import (
+    LEGACY_POLICY_VERSION,
+    POLICY_VERSION,
     DiscoverSources,
     TrendingDiscoverError,
     _attach_payload_digest,
@@ -123,6 +128,38 @@ def _seed_today(data_dir: Path) -> str:
     return str(result["generationId"])
 
 
+def _with_series(
+    sources: DiscoverSources,
+    definitions: list[tuple[int, str, list[int | None]]],
+) -> DiscoverSources:
+    captures: list[CaptureSource] = []
+    for index, source in enumerate(sources.captures):
+        payload = copy.deepcopy(source.payload)
+        scheduled = datetime.fromisoformat(
+            str(payload["scheduledAt"]).replace("Z", "+00:00")
+        )
+        for repository_id, repository, values in definitions:
+            stars = values[index]
+            if stars is not None:
+                payload["observations"].append(
+                    _observation_at(repository_id, repository, scheduled, stars=stars)
+                )
+        payload["observations"].sort(key=lambda item: int(item["githubRepositoryId"]))
+        payload["candidateCount"] = len(payload["observations"])
+        payload["observationCount"] = len(payload["observations"])
+        content = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        captures.append(
+            CaptureSource(
+                path=source.path,
+                original_observation_path=source.original_observation_path,
+                content=content,
+                file_sha256=hashlib.sha256(content).hexdigest(),
+                payload=payload,
+            )
+        )
+    return DiscoverSources(tuple(captures), sources.today)
+
+
 class TrendingDiscoverContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -140,6 +177,8 @@ class TrendingDiscoverContractTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_stage_model_today_exclusion_and_actual_windows(self) -> None:
+        self.assertEqual(self.artifact["schemaVersion"], 2)
+        self.assertEqual(self.artifact["policyVersion"], POLICY_VERSION)
         stages = self.artifact["stages"]
         self.assertEqual([item["githubRepositoryId"] for item in stages["nearValidation"]], [2])
         self.assertEqual(
@@ -157,6 +196,68 @@ class TrendingDiscoverContractTests(unittest.TestCase):
         self.assertEqual(self.artifact["coverage"]["excludedExactCount"], 1)
         self.assertTrue(all(item["observedWindowHours"] <= 26.5 for items in stages.values() for item in items))
         self.assertNotIn("expected24h", str(self.artifact))
+        near = stages["nearValidation"][0]
+        self.assertGreaterEqual(near["consecutivePositiveIntervalCount"], 2)
+        self.assertIn("awaiting_today_settlement", near["publishReasonCodes"])
+        self.assertEqual(near["publishReasonCodes"], near["signalFacts"])
+
+    def test_signal_quality_gates_preserve_recent_and_small_relative_growth(self) -> None:
+        length = len(self.sources.captures)
+        sources = _with_series(
+            self.sources,
+            [
+                (101, "d3/d3", [113_576, 113_578, 113_580] + [113_580] * (length - 3)),
+                (102, "omnivore-app/omnivore", [16_223, 16_224, 16_225] + [16_225] * (length - 3)),
+                (103, "kserve/kserve", [5_840, 5_841] + [5_841] * (length - 2)),
+                (104, "small/relative", [None] * (length - 6) + [100, 101, 102, 102, 102, 102]),
+                (105, "growth/intermittent", [1_000, 1_010] * 7),
+                (106, "growth/final-only", [2_000] * (length - 1) + [2_020]),
+                (107, "new/zero-growth", [None] * (length - 1) + [50]),
+                (108, "new/disappeared", [None] * (length - 2) + [50, None]),
+            ],
+        )
+        artifact = build_discover_artifact(
+            generation_id="policy-fixture",
+            generated_at=GENERATED_AT,
+            sources=sources,
+        )
+        published = {
+            item["repository"]: item
+            for values in artifact["stages"].values()
+            for item in values
+        }
+        for repository in ("d3/d3", "omnivore-app/omnivore", "kserve/kserve"):
+            self.assertNotIn(repository, published)
+        self.assertNotIn("growth/intermittent", published)
+        self.assertNotIn("growth/final-only", published)
+        self.assertNotIn("new/disappeared", published)
+        relative = published["small/relative"]
+        self.assertEqual(relative["stage"], "rising")
+        self.assertIn("relative_growth_gate", relative["publishReasonCodes"])
+        self.assertNotIn("absolute_growth_gate", relative["publishReasonCodes"])
+        recent = published["new/zero-growth"]
+        self.assertEqual(recent["stage"], "just_discovered")
+        self.assertEqual(recent["publishReasonCodes"], ["first_seen_recently"])
+        suppression = artifact["suppressionSummary"]
+        self.assertGreaterEqual(suppression["suppressedWeakSignalCount"], 5)
+        self.assertGreaterEqual(suppression["reasons"]["weak_absolute_growth"], 3)
+        self.assertGreaterEqual(suppression["reasons"]["no_continuous_growth"], 2)
+
+    def test_legacy_v1_replay_remains_auditable_while_v2_filters_weak_signals(self) -> None:
+        legacy = build_discover_artifact(
+            generation_id="legacy-policy-fixture",
+            generated_at=GENERATED_AT,
+            sources=self.sources,
+            policy_version=LEGACY_POLICY_VERSION,
+        )
+        self.assertEqual(legacy["schemaVersion"], 1)
+        self.assertEqual(legacy["policyVersion"], LEGACY_POLICY_VERSION)
+        self.assertNotIn("signalPolicy", legacy)
+        self.assertNotIn("suppressionSummary", legacy)
+        self.assertGreaterEqual(
+            sum(len(values) for values in legacy["stages"].values()),
+            sum(len(values) for values in self.artifact["stages"].values()),
+        )
 
     def test_rename_fork_archive_negative_disabled_and_identity_conflict(self) -> None:
         items = [item for values in self.artifact["stages"].values() for item in values]
@@ -209,11 +310,31 @@ class TrendingDiscoverContractTests(unittest.TestCase):
             validate_discover_artifact(invalid)
         self.assertEqual(context.exception.code, "discover_payload_digest_mismatch")
 
+        invalid = copy.deepcopy(self.artifact)
+        invalid["stages"]["nearValidation"][0]["publishReasonCodes"] = [
+            "continuous_positive_growth",
+            "absolute_growth_gate",
+        ]
+        invalid["stages"]["nearValidation"][0]["signalFacts"] = list(
+            invalid["stages"]["nearValidation"][0]["publishReasonCodes"]
+        )
+        invalid = _attach_payload_digest(invalid)
+        with self.assertRaises(TrendingDiscoverError) as context:
+            validate_discover_artifact(invalid)
+        self.assertEqual(context.exception.code, "discover_publish_reason_mismatch")
+
     def test_schema_rejects_ai_and_extrapolation_fields(self) -> None:
         for field in ("aiScore", "expected24hDelta"):
             invalid = copy.deepcopy(self.artifact)
             invalid[field] = 1
             self.assertFalse(validate_payload(ArtifactKind.TRENDING_DISCOVER, invalid).valid)
+        invalid = copy.deepcopy(self.artifact)
+        del invalid["suppressionSummary"]
+        self.assertFalse(validate_payload(ArtifactKind.TRENDING_DISCOVER, invalid).valid)
+        invalid = copy.deepcopy(self.artifact)
+        target = next(items[0] for items in invalid["stages"].values() if items)
+        del target["publishReasonCodes"]
+        self.assertFalse(validate_payload(ArtifactKind.TRENDING_DISCOVER, invalid).valid)
 
     def test_degraded_query_and_metadata_coverage_is_published_as_degraded(self) -> None:
         temporary = tempfile.TemporaryDirectory()
@@ -229,6 +350,10 @@ class TrendingDiscoverContractTests(unittest.TestCase):
             self.assertEqual(artifact["coverage"]["state"], "degraded")
             self.assertEqual(artifact["coverage"]["queryFailureCount"], 1)
             self.assertEqual(artifact["coverage"]["metadataFailureCount"], 1)
+            self.assertEqual(
+                artifact["suppressionSummary"]["reasons"]["metadata_incomplete"],
+                1,
+            )
         finally:
             temporary.cleanup()
 
