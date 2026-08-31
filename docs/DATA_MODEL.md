@@ -82,7 +82,7 @@ python -m pipeline.collect_trending_observations `
 
 ## Trending Discover Artifact v1
 
-`TrendingDiscoverArtifact v1` 是与每日 generation 分离的近实时事实产物。它在每个合法 Observation 完成后读取最新 eligible capture、向前最多 26 小时的 eligible captures，以及当前已验证 Today Explosion exact 集合，并发布到独立 immutable store：
+`TrendingDiscoverArtifact v1/v2` 是与每日 generation 分离的近实时事实产物。它在每个合法 Observation 完成后读取最新 eligible capture、向前最多 26 小时的 eligible captures，以及当前已验证 Today Explosion exact 集合，并发布到独立 immutable store。store 路径为了 retained generation 与消费者兼容保持不变：
 
 ```text
 data/artifacts/trending/discover/v1/current.json
@@ -95,13 +95,13 @@ data/artifacts/trending/discover/v1/generations/<discoverGenerationId>/
    └─ today-manifest.json
 ```
 
-合同固定为 `schemaVersion=1`、`policyVersion=trending-discover-v1`。每个 generation 复制 source 原始字节，manifest 绑定全部文件 SHA-256，artifact 另有 canonical payload digest；`current.json` 只通过独立 data lock、CAS 与原子替换推进。相同 latest capture、Today generation 和 Today digest 返回 `already_derived`；并发第二写者不得覆盖胜者。Discover 不读取或写入 D1，也不改写每日 generation。
+新发布合同为 `schemaVersion=2`、`policyVersion=trending-discover-v2`；retained v1 generation 仍按 v1 规则严格读取、重算和 rollback。每个 generation 复制 source 原始字节，manifest 绑定全部文件 SHA-256，artifact 另有 canonical payload digest；`current.json` 只通过独立 data lock、CAS 与原子替换推进。policy version 参与 generation identity；只有 policy、latest capture、Today generation 和 Today digest 都一致才返回 `already_derived`。并发第二写者不得覆盖胜者。Discover 不读取或写入 D1，也不改写每日 generation。
 
 Today exact 排除只按 GitHub numeric repository ID。Today current、manifest、Explosion artifact 或 digest 不能安全验证时 derive fail closed；不得按 `owner/name` 猜测，也不得回退到旧或 flat 数据。rename/transfer 保持 numeric ID 连续，fork/mirror 保留为独立仓库事实；disabled、负 Star 增量、名称到 numeric ID 冲突进入 conflicts 或被排除。
 
-一个发布项目只属于一个透明阶段，优先级为 `near_validation` → `just_discovered` → `rising`：实际观察至少 20 小时为接近验证；首次出现在最近两个 eligible captures 或实际窗口不超过 4 小时为刚刚发现；至少两个观察点、窗口大于 0 且真实增量大于 0 为持续升温。页面分区顺序固定为刚刚发现、持续升温、接近验证；每个分区内部按 `observedStarDelta DESC`、`totalStars DESC`、`repository ASC`。所有时间窗和增量都来自 source bytes，禁止预计、折算或外推 24 小时事实。
+一个 v2 发布项目只属于一个透明阶段：最近 4 个计划小时首次出现时进入 `just_discovered`，不强制增长；其他项目必须满足至少两个有效区间、正总增量、绝对增长 `>=10` 或相对增长 `>=1%`，并在窗口内形成至少 2 个连续正增长区间。通过门禁且连续观察不足 20 小时为 `rising`；连续观察至少 20 小时为 `near_validation`，产品文案为“待日榜验证”。页面分区顺序固定为刚刚发现、持续升温、待日榜验证；每个分区内部按 `observedStarDelta DESC`、`totalStars DESC`、`repository ASC`。每项冻结相对增长、正增长区间、最长连续正增长、最新区间增量与发布原因；聚合 suppression summary 冻结弱绝对/相对增长、缺少连续增长、Today exact、冲突和 metadata failure。所有事实均从 source bytes 重算，禁止 AI 排名以及预计、折算或外推 24 小时事实。
 
-`python -m pipeline.audit_trending_discover --data-dir <path>` 只读验证 current、generation path、manifest/hash、Schema、payload digest、全部 source identity/hash/digest、Today exclusion source、numeric ID、阶段唯一性、阶段与排序重算、实际窗口、delta、conflicts、临时文件及 link/reparse/path escape。Audit 只使用 generation-local source copies 完整重算，不修复或覆盖数据。CLI：
+`python -m pipeline.audit_trending_discover --data-dir <path>` 只读验证 current、generation path、manifest/hash、Schema、payload digest、全部 source identity/hash/digest、Today exclusion source、numeric ID、阶段唯一性、门禁/发布原因/抑制原因/阶段/排序重算、实际窗口、delta、conflicts、临时文件及 link/reparse/path escape。Audit 只使用 generation-local source copies 完整重算，不修复或覆盖数据。CLI：
 
 ```powershell
 python -m pipeline.derive_trending_discover --data-dir data derive

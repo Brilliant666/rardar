@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rardar.local/contracts/trending-discover-artifact.schema.json",
-  "title": "Rardar audited near-real-time GitHub discovery artifact v1",
+  "title": "Rardar audited near-real-time GitHub discovery artifact v1/v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,8 +27,8 @@
     "payloadDigest"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
-    "policyVersion": { "const": "trending-discover-v1" },
+    "schemaVersion": { "enum": [1, 2] },
+    "policyVersion": { "enum": ["trending-discover-v1", "trending-discover-v2"] },
     "discoverGenerationId": { "$ref": "#/$defs/generationId" },
     "generatedAt": { "type": "string", "format": "date-time" },
     "latestCaptureId": { "$ref": "#/$defs/captureId" },
@@ -108,8 +108,29 @@
     "conflicts": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/conflict" } },
     "sourceInventory": { "type": "array", "minItems": 1, "maxItems": 14, "items": { "$ref": "#/$defs/sourceCapture" } },
     "todayExplosionSource": { "$ref": "#/$defs/todaySource" },
+    "signalPolicy": { "$ref": "#/$defs/signalPolicy" },
+    "suppressionSummary": { "$ref": "#/$defs/suppressionSummary" },
     "payloadDigest": { "$ref": "#/$defs/digest" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "policyVersion": { "const": "trending-discover-v1" } } },
+      "then": { "properties": { "schemaVersion": { "const": 1 } } },
+      "else": {
+        "required": ["signalPolicy", "suppressionSummary"],
+        "properties": {
+          "schemaVersion": { "const": 2 },
+          "stages": {
+            "properties": {
+              "justDiscovered": { "items": { "$ref": "#/$defs/itemV2" } },
+              "rising": { "items": { "$ref": "#/$defs/itemV2" } },
+              "nearValidation": { "items": { "$ref": "#/$defs/itemV2" } }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "generationId": {
       "type": "string",
@@ -189,6 +210,69 @@
         "exactCount": { "type": "integer", "minimum": 0, "maximum": 500 }
       }
     },
+    "signalPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "absoluteGrowthGateStars",
+        "relativeGrowthGatePercent",
+        "consecutivePositiveIntervalGate",
+        "recentDiscoveryHours",
+        "nearValidationHours"
+      ],
+      "properties": {
+        "absoluteGrowthGateStars": { "const": 10 },
+        "relativeGrowthGatePercent": { "const": 1.0 },
+        "consecutivePositiveIntervalGate": { "const": 2 },
+        "recentDiscoveryHours": { "const": 4 },
+        "nearValidationHours": { "const": 20 }
+      }
+    },
+    "suppressionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateCount",
+        "stageEligibleCount",
+        "publishedCount",
+        "suppressedWeakSignalCount",
+        "suppressedExactCount",
+        "conflictCount",
+        "reasons"
+      ],
+      "properties": {
+        "candidateCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "stageEligibleCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "publishedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "suppressedWeakSignalCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "suppressedExactCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "conflictCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "reasons": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "weak_absolute_growth",
+            "weak_relative_growth",
+            "no_continuous_growth",
+            "already_in_today",
+            "identity_conflict",
+            "negative_growth",
+            "disabled",
+            "metadata_incomplete"
+          ],
+          "properties": {
+            "weak_absolute_growth": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "weak_relative_growth": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "no_continuous_growth": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "already_in_today": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "identity_conflict": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "negative_growth": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "disabled": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "metadata_incomplete": { "type": "integer", "minimum": 0, "maximum": 500 }
+          }
+        }
+      }
+    },
     "item": {
       "type": "object",
       "additionalProperties": false,
@@ -238,7 +322,53 @@
         "isDisabled": { "const": false },
         "latestPushAt": { "type": "string", "format": "date-time" },
         "sourceCaptureIds": { "type": "array", "minItems": 1, "maxItems": 14, "uniqueItems": true, "items": { "$ref": "#/$defs/captureId" } },
-        "sourceEvidenceDigest": { "$ref": "#/$defs/sha256" }
+        "sourceEvidenceDigest": { "$ref": "#/$defs/sha256" },
+        "relativeGrowthPercent": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "number", "minimum": 0 }
+          ]
+        },
+        "positiveIntervalCount": { "type": "integer", "minimum": 0, "maximum": 13 },
+        "consecutivePositiveIntervalCount": { "type": "integer", "minimum": 0, "maximum": 13 },
+        "latestIntervalDelta": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer" }
+          ]
+        },
+        "publishReasonCodes": { "$ref": "#/$defs/signalFacts" },
+        "signalFacts": { "$ref": "#/$defs/signalFacts" }
+      }
+    },
+    "itemV2": {
+      "allOf": [
+        { "$ref": "#/$defs/item" },
+        {
+          "required": [
+            "relativeGrowthPercent",
+            "positiveIntervalCount",
+            "consecutivePositiveIntervalCount",
+            "latestIntervalDelta",
+            "publishReasonCodes",
+            "signalFacts"
+          ]
+        }
+      ]
+    },
+    "signalFacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "first_seen_recently",
+          "continuous_positive_growth",
+          "absolute_growth_gate",
+          "relative_growth_gate",
+          "awaiting_today_settlement"
+        ]
       }
     },
     "conflict": {

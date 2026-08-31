@@ -48,8 +48,15 @@ from pipeline.trending_observations import (
 )
 
 
-SCHEMA_VERSION = 1
-POLICY_VERSION = "trending-discover-v1"
+SCHEMA_VERSION = 2
+POLICY_VERSION = "trending-discover-v2"
+LEGACY_SCHEMA_VERSION = 1
+LEGACY_POLICY_VERSION = "trending-discover-v1"
+ABSOLUTE_GROWTH_GATE_STARS = 10
+RELATIVE_GROWTH_GATE_PERCENT = 1.0
+CONSECUTIVE_POSITIVE_INTERVAL_GATE = 2
+RECENT_DISCOVERY_HOURS = 4
+NEAR_VALIDATION_HOURS = 20
 DISCOVER_RELATIVE_ROOT = Path("artifacts/trending/discover/v1")
 DISCOVER_FILE = "discover.json"
 TODAY_SOURCE_FILE = "sources/today-explosion.json"
@@ -65,6 +72,23 @@ STAGE_KEYS = {
     "near_validation": "nearValidation",
 }
 STAGE_ORDER = ("just_discovered", "rising", "near_validation")
+SIGNAL_FACT_ORDER = (
+    "first_seen_recently",
+    "continuous_positive_growth",
+    "absolute_growth_gate",
+    "relative_growth_gate",
+    "awaiting_today_settlement",
+)
+SUPPRESSION_REASONS = (
+    "weak_absolute_growth",
+    "weak_relative_growth",
+    "no_continuous_growth",
+    "already_in_today",
+    "identity_conflict",
+    "negative_growth",
+    "disabled",
+    "metadata_incomplete",
+)
 
 
 class TrendingDiscoverError(RuntimeError):
@@ -583,6 +607,46 @@ def _consecutive_count(
     return count
 
 
+def _positive_interval_facts(
+    observations: Sequence[tuple[CaptureSource, dict[str, Any]]],
+) -> tuple[int, int, int | None]:
+    """Return positive intervals, the longest positive run, and latest delta.
+
+    Only adjacent scheduled 2-hour slots form an interval. A gap resets the
+    run, so carry-forward membership cannot manufacture continuity.
+    """
+
+    positive_count = 0
+    longest_run = 0
+    current_run = 0
+    latest_delta: int | None = None
+    pairs = list(zip(observations, observations[1:], strict=False))
+    for index, ((previous_source, previous), (current_source, current)) in enumerate(
+        pairs
+    ):
+        if current_source.scheduled_at - previous_source.scheduled_at != timedelta(
+            minutes=CADENCE_MINUTES
+        ):
+            current_run = 0
+            if index == len(pairs) - 1:
+                latest_delta = None
+            continue
+        interval_delta = int(current["totalStars"]) - int(previous["totalStars"])
+        if index == len(pairs) - 1:
+            latest_delta = interval_delta
+        if interval_delta > 0:
+            positive_count += 1
+            current_run += 1
+            longest_run = max(longest_run, current_run)
+        else:
+            current_run = 0
+    return positive_count, longest_run, latest_delta
+
+
+def _ordered_signal_facts(values: set[str]) -> list[str]:
+    return [value for value in SIGNAL_FACT_ORDER if value in values]
+
+
 def validate_discover_artifact(payload: object) -> dict[str, Any]:
     try:
         artifact = require_valid(ArtifactKind.TRENDING_DISCOVER, payload)
@@ -594,6 +658,42 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
     if digest["value"] != _payload_digest(artifact):
         raise TrendingDiscoverError(
             "discover_payload_digest_mismatch", "Discover payload digest does not match", stage="audit"
+        )
+    policy_version = artifact["policyVersion"]
+    if policy_version == LEGACY_POLICY_VERSION:
+        if artifact["schemaVersion"] != LEGACY_SCHEMA_VERSION or any(
+            field in artifact for field in ("signalPolicy", "suppressionSummary")
+        ):
+            raise TrendingDiscoverError(
+                "discover_policy_contract_mismatch",
+                "legacy Discover policy contains v2-only contract fields",
+                stage="audit",
+            )
+    elif policy_version == POLICY_VERSION:
+        if artifact["schemaVersion"] != SCHEMA_VERSION:
+            raise TrendingDiscoverError(
+                "discover_policy_contract_mismatch",
+                "Discover v2 policy requires Artifact schema v2",
+                stage="audit",
+            )
+        expected_policy = {
+            "absoluteGrowthGateStars": ABSOLUTE_GROWTH_GATE_STARS,
+            "relativeGrowthGatePercent": RELATIVE_GROWTH_GATE_PERCENT,
+            "consecutivePositiveIntervalGate": CONSECUTIVE_POSITIVE_INTERVAL_GATE,
+            "recentDiscoveryHours": RECENT_DISCOVERY_HOURS,
+            "nearValidationHours": NEAR_VALIDATION_HOURS,
+        }
+        if artifact["signalPolicy"] != expected_policy:
+            raise TrendingDiscoverError(
+                "discover_signal_policy_mismatch",
+                "Discover v2 signal policy constants differ from the audited implementation",
+                stage="audit",
+            )
+    else:
+        raise TrendingDiscoverError(
+            "discover_policy_contract_mismatch",
+            "unsupported Discover policy version",
+            stage="audit",
         )
     stage_ids: list[int] = []
     for stage, key in STAGE_KEYS.items():
@@ -622,6 +722,95 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
             "Discover stage and conflict partitions must be disjoint",
             stage="audit",
         )
+
+    for stage, key in STAGE_KEYS.items():
+        items = artifact["stages"][key]
+        if policy_version == LEGACY_POLICY_VERSION and any(
+            field in item
+            for item in items
+            for field in (
+                "relativeGrowthPercent",
+                "positiveIntervalCount",
+                "consecutivePositiveIntervalCount",
+                "latestIntervalDelta",
+                "publishReasonCodes",
+                "signalFacts",
+            )
+        ):
+            raise TrendingDiscoverError(
+                "discover_policy_contract_mismatch",
+                "legacy Discover items contain v2-only signal facts",
+                stage="audit",
+            )
+        if policy_version == POLICY_VERSION:
+            for item in items:
+                reasons = item["publishReasonCodes"]
+                facts = item["signalFacts"]
+                if reasons != _ordered_signal_facts(set(reasons)) or facts != _ordered_signal_facts(
+                    set(facts)
+                ):
+                    raise TrendingDiscoverError(
+                        "discover_signal_fact_order_invalid",
+                        "Discover signal facts must be unique and deterministically ordered",
+                        stage="audit",
+                    )
+                if reasons != facts:
+                    raise TrendingDiscoverError(
+                        "discover_publish_reason_mismatch",
+                        "published signal facts must exactly explain publication",
+                        stage="audit",
+                    )
+                reason_set = set(reasons)
+                gate_reasons = {"absolute_growth_gate", "relative_growth_gate"}
+                if stage == "just_discovered":
+                    valid = reason_set == {"first_seen_recently"}
+                elif stage == "rising":
+                    valid = (
+                        "continuous_positive_growth" in reason_set
+                        and bool(gate_reasons & reason_set)
+                        and reason_set.isdisjoint(
+                            {"first_seen_recently", "awaiting_today_settlement"}
+                        )
+                    )
+                else:
+                    valid = (
+                        "continuous_positive_growth" in reason_set
+                        and bool(gate_reasons & reason_set)
+                        and "awaiting_today_settlement" in reason_set
+                        and "first_seen_recently" not in reason_set
+                    )
+                if not valid:
+                    raise TrendingDiscoverError(
+                        "discover_publish_reason_mismatch",
+                        f"{stage} publish reasons do not match the policy",
+                        stage="audit",
+                    )
+    if policy_version == POLICY_VERSION:
+        summary = artifact["suppressionSummary"]
+        coverage = artifact["coverage"]
+        reasons = summary["reasons"]
+        if (
+            summary["candidateCount"] != coverage["candidateCount"]
+            or summary["publishedCount"] != coverage["publishedCount"]
+            or summary["publishedCount"] != len(stage_ids)
+            or summary["suppressedExactCount"] != coverage["excludedExactCount"]
+            or summary["suppressedExactCount"] != reasons["already_in_today"]
+            or summary["conflictCount"] != coverage["conflictCount"]
+            or summary["conflictCount"] != len(conflict_ids)
+            or summary["conflictCount"]
+            != reasons["identity_conflict"]
+            + reasons["negative_growth"]
+            + reasons["disabled"]
+            or reasons["metadata_incomplete"] != coverage["metadataFailureCount"]
+            or summary["stageEligibleCount"] < summary["publishedCount"]
+            or summary["stageEligibleCount"]
+            < summary["publishedCount"] + summary["suppressedWeakSignalCount"]
+        ):
+            raise TrendingDiscoverError(
+                "discover_suppression_summary_mismatch",
+                "Discover suppression summary does not reconcile with published facts",
+                stage="audit",
+            )
     inventory_paths = [item["generationRelativePath"] for item in artifact["sourceInventory"]]
     if len(inventory_paths) != len(set(inventory_paths)):
         raise TrendingDiscoverError(
@@ -635,6 +824,7 @@ def build_discover_artifact(
     generation_id: str,
     generated_at: datetime,
     sources: DiscoverSources,
+    policy_version: str = POLICY_VERSION,
 ) -> dict[str, Any]:
     """Pure deterministic Discover derivation from verified source bytes."""
 
@@ -664,9 +854,19 @@ def build_discover_artifact(
         for repository_id, item in index.items():
             name_ids.setdefault(str(item["repository"]).casefold(), set()).add(repository_id)
 
+    if policy_version not in {LEGACY_POLICY_VERSION, POLICY_VERSION}:
+        raise TrendingDiscoverError(
+            "discover_policy_contract_mismatch",
+            f"unsupported Discover policy version: {policy_version}",
+            stage="contract",
+        )
+    schema_version = SCHEMA_VERSION if policy_version == POLICY_VERSION else LEGACY_SCHEMA_VERSION
     stages: dict[str, list[dict[str, Any]]] = {key: [] for key in STAGE_KEYS.values()}
     conflicts: list[dict[str, Any]] = []
     excluded_exact = 0
+    stage_eligible_count = 0
+    suppressed_weak_ids: set[int] = set()
+    suppression_counts = {reason: 0 for reason in SUPPRESSION_REASONS}
     for repository_id, current in latest_index.items():
         observations = [
             (source, index[repository_id])
@@ -680,6 +880,7 @@ def build_discover_artifact(
             for _, item in observations
         )
         if identity_conflict:
+            suppression_counts["identity_conflict"] += 1
             conflicts.append(
                 {
                     "reason": "source_identity_conflict",
@@ -692,6 +893,7 @@ def build_discover_artifact(
             )
             continue
         if current["disabled"] is True:
+            suppression_counts["disabled"] += 1
             conflicts.append(
                 {
                     "reason": "current_disabled",
@@ -705,9 +907,11 @@ def build_discover_artifact(
             continue
         if repository_id in exact_ids:
             excluded_exact += 1
+            suppression_counts["already_in_today"] += 1
             continue
         delta = int(current["totalStars"]) - int(first["totalStars"])
         if delta < 0:
+            suppression_counts["negative_growth"] += 1
             conflicts.append(
                 {
                     "reason": "star_count_decreased",
@@ -731,18 +935,75 @@ def build_discover_artifact(
         consecutive_hours = (
             latest.captured_at - consecutive_start.captured_at
         ).total_seconds() / 3600
-        near_validation = consecutive_hours >= 20
-        just_discovered = first_index >= max(0, len(sources.captures) - 2) or hours <= 4
-        rising = len(observations) >= 2 and hours > 0 and delta > 0
-        stage = (
-            "near_validation"
-            if near_validation
-            else "just_discovered"
-            if just_discovered
-            else "rising"
-            if rising
-            else None
+        positive_intervals, consecutive_positive_intervals, latest_interval_delta = (
+            _positive_interval_facts(observations)
         )
+        near_validation = consecutive_hours >= NEAR_VALIDATION_HOURS
+        just_discovered = (
+            latest.scheduled_at - first_source.scheduled_at
+            <= timedelta(hours=RECENT_DISCOVERY_HOURS)
+        )
+        rising = len(observations) >= 3 and hours > 0 and delta > 0
+        relative_growth_percent: float | None = None
+        signal_facts: list[str] = []
+        if policy_version == LEGACY_POLICY_VERSION:
+            legacy_rising = len(observations) >= 2 and hours > 0 and delta > 0
+            stage = (
+                "near_validation"
+                if near_validation
+                else "just_discovered"
+                if first_index >= max(0, len(sources.captures) - 2) or hours <= 4
+                else "rising"
+                if legacy_rising
+                else None
+            )
+        else:
+            relative_growth_percent = (
+                round(delta / int(first["totalStars"]) * 100, 6)
+                if int(first["totalStars"]) > 0
+                else None
+            )
+            absolute_gate = delta >= ABSOLUTE_GROWTH_GATE_STARS
+            relative_gate = (
+                relative_growth_percent is not None
+                and relative_growth_percent >= RELATIVE_GROWTH_GATE_PERCENT
+            )
+            continuous_gate = (
+                consecutive_positive_intervals >= CONSECUTIVE_POSITIVE_INTERVAL_GATE
+            )
+            quality_gate = (absolute_gate or relative_gate) and continuous_gate
+            base_stage_eligible = just_discovered or near_validation or rising
+            if base_stage_eligible:
+                stage_eligible_count += 1
+            if just_discovered:
+                stage = "just_discovered"
+                signal_facts = ["first_seen_recently"]
+            elif near_validation and quality_gate:
+                stage = "near_validation"
+                facts = {"continuous_positive_growth", "awaiting_today_settlement"}
+                if absolute_gate:
+                    facts.add("absolute_growth_gate")
+                if relative_gate:
+                    facts.add("relative_growth_gate")
+                signal_facts = _ordered_signal_facts(facts)
+            elif rising and quality_gate:
+                stage = "rising"
+                facts = {"continuous_positive_growth"}
+                if absolute_gate:
+                    facts.add("absolute_growth_gate")
+                if relative_gate:
+                    facts.add("relative_growth_gate")
+                signal_facts = _ordered_signal_facts(facts)
+            else:
+                stage = None
+                if base_stage_eligible:
+                    suppressed_weak_ids.add(repository_id)
+                    if not absolute_gate:
+                        suppression_counts["weak_absolute_growth"] += 1
+                    if not relative_gate:
+                        suppression_counts["weak_relative_growth"] += 1
+                    if not continuous_gate:
+                        suppression_counts["no_continuous_growth"] += 1
         if stage is None:
             continue
         item = {
@@ -769,6 +1030,17 @@ def build_discover_artifact(
             "sourceCaptureIds": capture_ids,
             "sourceEvidenceDigest": _evidence_digest(observations),
         }
+        if policy_version == POLICY_VERSION:
+            item.update(
+                {
+                    "relativeGrowthPercent": relative_growth_percent,
+                    "positiveIntervalCount": positive_intervals,
+                    "consecutivePositiveIntervalCount": consecutive_positive_intervals,
+                    "latestIntervalDelta": latest_interval_delta,
+                    "publishReasonCodes": signal_facts,
+                    "signalFacts": signal_facts,
+                }
+            )
         stages[STAGE_KEYS[stage]].append(item)
 
     for items in stages.values():
@@ -789,8 +1061,8 @@ def build_discover_artifact(
     published_count = sum(len(items) for items in stages.values())
     degraded = any(source.payload["coverageState"] == "degraded" for source in sources.captures)
     artifact = {
-        "schemaVersion": SCHEMA_VERSION,
-        "policyVersion": POLICY_VERSION,
+        "schemaVersion": schema_version,
+        "policyVersion": policy_version,
         "discoverGenerationId": generation_id,
         "generatedAt": _timestamp(generated),
         "latestCaptureId": latest.payload["captureId"],
@@ -825,6 +1097,26 @@ def build_discover_artifact(
         ],
         "todayExplosionSource": _today_reference(sources.today),
     }
+    if policy_version == POLICY_VERSION:
+        suppression_counts["metadata_incomplete"] = int(
+            latest.payload["metadataFailureCount"]
+        )
+        artifact["signalPolicy"] = {
+            "absoluteGrowthGateStars": ABSOLUTE_GROWTH_GATE_STARS,
+            "relativeGrowthGatePercent": RELATIVE_GROWTH_GATE_PERCENT,
+            "consecutivePositiveIntervalGate": CONSECUTIVE_POSITIVE_INTERVAL_GATE,
+            "recentDiscoveryHours": RECENT_DISCOVERY_HOURS,
+            "nearValidationHours": NEAR_VALIDATION_HOURS,
+        }
+        artifact["suppressionSummary"] = {
+            "candidateCount": len(latest_index),
+            "stageEligibleCount": stage_eligible_count,
+            "publishedCount": published_count,
+            "suppressedWeakSignalCount": len(suppressed_weak_ids),
+            "suppressedExactCount": excluded_exact,
+            "conflictCount": len(conflicts),
+            "reasons": suppression_counts,
+        }
     return validate_discover_artifact(_attach_payload_digest(artifact))
 
 
@@ -870,9 +1162,9 @@ def _generation_artifacts(root: Path) -> dict[str, str]:
 
 
 def _manifest_payload(generation_id: str, artifact: dict[str, Any], artifacts: dict[str, str]) -> dict[str, Any]:
-    return {
-        "schemaVersion": SCHEMA_VERSION,
-        "policyVersion": POLICY_VERSION,
+    payload = {
+        "schemaVersion": artifact["schemaVersion"],
+        "policyVersion": artifact["policyVersion"],
         "generationId": generation_id,
         "createdAt": artifact["generatedAt"],
         "state": "ready",
@@ -886,6 +1178,11 @@ def _manifest_payload(generation_id: str, artifact: dict[str, Any], artifacts: d
             "conflictCount": artifact["coverage"]["conflictCount"],
         },
     }
+    if artifact["policyVersion"] == POLICY_VERSION:
+        payload["audit"]["suppressedWeakSignalCount"] = artifact[
+            "suppressionSummary"
+        ]["suppressedWeakSignalCount"]
+    return payload
 
 
 def _load_generation_sources(root: Path, artifact: dict[str, Any]) -> DiscoverSources:
@@ -989,6 +1286,7 @@ def audit_discover_generation(root: Path) -> dict[str, Any]:
             generation_id=generation_id,
             generated_at=parse_timestamp(artifact["generatedAt"], field="generatedAt"),
             sources=sources,
+            policy_version=artifact["policyVersion"],
         )
         if rebuilt != artifact:
             raise TrendingDiscoverError(
@@ -999,8 +1297,10 @@ def audit_discover_generation(root: Path) -> dict[str, Any]:
             raise TrendingDiscoverError(
                 "discover_manifest_semantics_mismatch", "manifest summary does not match Discover facts", stage="audit"
             )
-        return {
+        report = {
             "status": artifact["coverage"]["state"],
+            "schemaVersion": artifact["schemaVersion"],
+            "policyVersion": artifact["policyVersion"],
             "generationId": generation_id,
             "manifestSha256": manifest_sha,
             "latestCaptureId": artifact["latestCaptureId"],
@@ -1008,6 +1308,9 @@ def audit_discover_generation(root: Path) -> dict[str, Any]:
             "conflictCount": artifact["coverage"]["conflictCount"],
             "stageCounts": {key: len(artifact["stages"][value]) for key, value in STAGE_KEYS.items()},
         }
+        if artifact["policyVersion"] == POLICY_VERSION:
+            report["suppressionSummary"] = copy.deepcopy(artifact["suppressionSummary"])
+        return report
     except TrendingDiscoverError:
         raise
     except Exception as error:
@@ -1038,6 +1341,17 @@ def resolve_current_discover(data_dir: Path) -> ResolvedDiscoverGeneration:
         )
     manifest, _, _ = _read_json(target / "manifest.json", target, ArtifactKind.TRENDING_DISCOVER_MANIFEST)
     artifact, _, _ = _read_json(target / DISCOVER_FILE, target, ArtifactKind.TRENDING_DISCOVER)
+    if (
+        pointer["schemaVersion"] != manifest["schemaVersion"]
+        or pointer["schemaVersion"] != artifact["schemaVersion"]
+        or pointer["policyVersion"] != manifest["policyVersion"]
+        or pointer["policyVersion"] != artifact["policyVersion"]
+    ):
+        raise TrendingDiscoverError(
+            "discover_policy_contract_mismatch",
+            "Discover pointer, manifest, and artifact contract versions differ",
+            stage="pointer",
+        )
     return ResolvedDiscoverGeneration(data_dir.resolve(), generation_id, target, pointer, manifest, artifact)
 
 
@@ -1057,7 +1371,8 @@ def audit_discover_store(data_dir: Path) -> dict[str, Any]:
 
 def _new_generation_id(generated_at: datetime, sources: DiscoverSources) -> str:
     signature = (
-        sources.latest.payload["captureId"]
+        POLICY_VERSION
+        + sources.latest.payload["captureId"]
         + sources.latest.file_sha256
         + sources.today.generation_id
         + sources.today.file_sha256
@@ -1068,7 +1383,8 @@ def _new_generation_id(generated_at: datetime, sources: DiscoverSources) -> str:
 
 def _same_sources(artifact: dict[str, Any], sources: DiscoverSources) -> bool:
     return (
-        artifact.get("latestCaptureId") == sources.latest.payload["captureId"]
+        artifact.get("policyVersion") == POLICY_VERSION
+        and artifact.get("latestCaptureId") == sources.latest.payload["captureId"]
         and artifact.get("todayExplosionGenerationId") == sources.today.generation_id
         and artifact.get("todayExplosionDigest") == sources.today.file_sha256
     )
@@ -1089,7 +1405,7 @@ def _require_today_source_current(data_dir: Path, expected: TodayExplosionSource
 
 
 def _summary(state: str, artifact: dict[str, Any]) -> dict[str, Any]:
-    return {
+    summary = {
         "state": state,
         "generationId": artifact["discoverGenerationId"],
         "latestCaptureId": artifact["latestCaptureId"],
@@ -1101,6 +1417,9 @@ def _summary(state: str, artifact: dict[str, Any]) -> dict[str, Any]:
         "excludedExactCount": artifact["coverage"]["excludedExactCount"],
         "coverage": copy.deepcopy(artifact["coverage"]),
     }
+    if artifact.get("policyVersion") == POLICY_VERSION:
+        summary["suppressionSummary"] = copy.deepcopy(artifact["suppressionSummary"])
+    return summary
 
 
 def derive_trending_discover(
@@ -1187,8 +1506,8 @@ def derive_trending_discover(
                 os.replace(candidate, final)
                 manifest_snapshot = stable_read(final / "manifest.json")
                 pointer = {
-                    "schemaVersion": SCHEMA_VERSION,
-                    "policyVersion": POLICY_VERSION,
+                    "schemaVersion": artifact["schemaVersion"],
+                    "policyVersion": artifact["policyVersion"],
                     "generationId": generation_id,
                     "publishedAt": _timestamp(max(generated, datetime.now(timezone.utc))),
                     "previousGenerationId": base_id,
@@ -1220,8 +1539,8 @@ def rollback_discover(data_dir: Path, generation_id: str) -> dict[str, Any]:
             # through a link and therefore contributes no previous ID.
             previous = None
         pointer = {
-            "schemaVersion": SCHEMA_VERSION,
-            "policyVersion": POLICY_VERSION,
+            "schemaVersion": report["schemaVersion"],
+            "policyVersion": report["policyVersion"],
             "generationId": generation_id,
             "publishedAt": _timestamp(datetime.now(timezone.utc)),
             "previousGenerationId": previous,
