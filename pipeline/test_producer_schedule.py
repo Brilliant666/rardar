@@ -36,7 +36,7 @@ class ProducerScheduleTests(unittest.TestCase):
             datetime(2026, 8, 26, 18, 0, tzinfo=timezone.utc),
         )
 
-    def test_eight_o_clock_order_is_observation_refresh_explosion_discover(self) -> None:
+    def test_eight_o_clock_order_includes_bounded_maintenance_last(self) -> None:
         phase = datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc)
         events = scheduled_events_at(
             phase,
@@ -45,9 +45,9 @@ class ProducerScheduleTests(unittest.TestCase):
         )
         self.assertEqual(
             [event.kind for event in events],
-            ["observation", "refresh", "explosion", "discover"],
+            ["observation", "refresh", "explosion", "discover", "retention"],
         )
-        self.assertEqual(len({(event.scheduled_at, event.kind) for event in events}), 4)
+        self.assertEqual(len({(event.scheduled_at, event.kind) for event in events}), 5)
 
     def test_next_events_never_mix_future_and_past_phases(self) -> None:
         now = datetime(2026, 8, 26, 23, 59, 59, tzinfo=timezone.utc)
@@ -58,7 +58,7 @@ class ProducerScheduleTests(unittest.TestCase):
         )
         self.assertEqual(
             [event.kind for event in events],
-            ["observation", "refresh", "explosion", "discover"],
+            ["observation", "refresh", "explosion", "discover", "retention"],
         )
         self.assertTrue(all(event.scheduled_at > now for event in events))
         self.assertEqual(len({event.scheduled_at for event in events}), 1)

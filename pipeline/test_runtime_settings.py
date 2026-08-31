@@ -13,6 +13,7 @@ from pipeline.runtime_settings import (
     load_runtime_layout,
     load_runtime_settings,
     validate_vite_additional_allowed_hosts,
+    validate_trending_discover_enabled,
     validate_trending_producer_enabled,
 )
 
@@ -25,6 +26,13 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.stale_after_hours, 36)
         self.assertEqual(settings.stale_after_seconds, 129600)
         self.assertFalse(settings.trending_producer_enabled)
+        self.assertFalse(settings.trending_discover_enabled)
+        self.assertFalse(settings.retention_enabled)
+        self.assertEqual(settings.retention_capture_days, 90)
+        self.assertEqual(settings.retention_generation_days, 30)
+        self.assertEqual(settings.storage_warning_percent, 85)
+        self.assertEqual(settings.storage_hard_percent, 90)
+        self.assertEqual(settings.storage_minimum_free_bytes, 8 * 1024**3)
 
     def test_version_controlled_defaults_do_not_require_timezone_data(self) -> None:
         with patch(
@@ -37,6 +45,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             ("08:00", "Asia/Shanghai", 36),
         )
         self.assertFalse(settings.trending_producer_enabled)
+        self.assertFalse(settings.trending_discover_enabled)
 
     def test_trending_producer_flag_is_exact_and_fail_closed(self) -> None:
         self.assertTrue(validate_trending_producer_enabled("true"))
@@ -59,6 +68,48 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "RARDAR_SCHEDULE_TIMEZONE": "UTC",
             },
         ):
+            with self.subTest(environment=environment), self.assertRaises(RuntimeSettingsError):
+                load_runtime_settings(environment)
+
+    def test_discover_is_an_independent_default_off_fail_closed_flag(self) -> None:
+        for value in (None, "", "false"):
+            with self.subTest(value=value):
+                self.assertFalse(validate_trending_discover_enabled(value))
+        self.assertTrue(validate_trending_discover_enabled("true"))
+        for invalid in ("TRUE", "False", "1", " true", True):
+            with self.subTest(invalid=invalid), self.assertRaises(RuntimeSettingsError):
+                validate_trending_discover_enabled(invalid)
+        enabled = load_runtime_settings(
+            {
+                "RARDAR_TRENDING_PRODUCER_ENABLED": "true",
+                "RARDAR_TRENDING_DISCOVER_ENABLED": "true",
+            }
+        )
+        self.assertTrue(enabled.trending_discover_enabled)
+        with self.assertRaises(RuntimeSettingsError):
+            load_runtime_settings({"RARDAR_TRENDING_DISCOVER_ENABLED": "true"})
+
+    def test_retention_and_storage_contracts_fail_closed_before_start(self) -> None:
+        configured = load_runtime_settings(
+            {
+                "RARDAR_TRENDING_PRODUCER_ENABLED": "true",
+                "RARDAR_RETENTION_ENABLED": "true",
+                "RARDAR_RETENTION_CAPTURE_DAYS": "120",
+                "RARDAR_STORAGE_WARNING_PERCENT": "80",
+                "RARDAR_STORAGE_HARD_PERCENT": "92",
+                "RARDAR_STORAGE_MINIMUM_FREE_BYTES": "1024",
+            }
+        )
+        self.assertTrue(configured.retention_enabled)
+        self.assertEqual(configured.retention_capture_days, 120)
+        invalid = (
+            {"RARDAR_RETENTION_ENABLED": "true"},
+            {"RARDAR_RETENTION_ENABLED": "yes"},
+            {"RARDAR_RETENTION_CAPTURE_DAYS": "0"},
+            {"RARDAR_STORAGE_WARNING_PERCENT": "90", "RARDAR_STORAGE_HARD_PERCENT": "90"},
+            {"RARDAR_STORAGE_MINIMUM_FREE_BYTES": "-1"},
+        )
+        for environment in invalid:
             with self.subTest(environment=environment), self.assertRaises(RuntimeSettingsError):
                 load_runtime_settings(environment)
 

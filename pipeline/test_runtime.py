@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -13,6 +14,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPConnection
 from pathlib import Path
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from pipeline.runtime import (
@@ -540,6 +542,41 @@ class RuntimeTests(unittest.TestCase):
             rotate_log(log_path, max_bytes=5, backup_count=2)
             self.assertEqual((Path(temporary) / "website.log.1").read_bytes(), b"second-version")
             self.assertEqual((Path(temporary) / "website.log.2").read_bytes(), b"first-version")
+
+    def test_service_journal_mode_wraps_website_output_without_file_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            log_path = root / "website.log"
+            service = ManagedService(
+                "website",
+                [
+                    sys.executable,
+                    "-c",
+                    "print('Authorization: Bearer fixture-secret', flush=True)",
+                ],
+                log_path,
+            )
+            output = io.StringIO()
+            environment = {
+                **os.environ,
+                "RARDAR_HOME": str(ROOT),
+                "RARDAR_STRUCTURED_LOG_STDIO": "true",
+            }
+            try:
+                with redirect_stdout(output):
+                    service.start(environment)
+                    service.process.wait(timeout=10)
+                    service._close_log()
+            finally:
+                if service.process is not None and service.process.poll() is None:
+                    service.cleanup_owned_process_tree()
+                else:
+                    service.process = None
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            forwarded = [item for item in records if item.get("event") == "process_output"]
+            self.assertEqual(len(forwarded), 1)
+            self.assertNotIn("fixture-secret", json.dumps(forwarded))
+            self.assertFalse(log_path.exists())
 
     def test_manager_lock_allows_only_one_owner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

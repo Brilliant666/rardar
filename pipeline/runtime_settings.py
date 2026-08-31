@@ -16,6 +16,19 @@ DEFAULT_SCHEDULE_TIMEZONE = "Asia/Shanghai"
 DEFAULT_STALE_AFTER_HOURS = 36
 DEFAULT_TRENDING_PRODUCER_ENABLED = False
 TRENDING_PRODUCER_ENABLED_ENV = "RARDAR_TRENDING_PRODUCER_ENABLED"
+DEFAULT_TRENDING_DISCOVER_ENABLED = False
+TRENDING_DISCOVER_ENABLED_ENV = "RARDAR_TRENDING_DISCOVER_ENABLED"
+DEFAULT_RETENTION_ENABLED = False
+RETENTION_ENABLED_ENV = "RARDAR_RETENTION_ENABLED"
+DEFAULT_RETENTION_CAPTURE_DAYS = 90
+DEFAULT_RETENTION_GENERATION_DAYS = 30
+DEFAULT_RETENTION_CANDIDATE_DAYS = 7
+DEFAULT_RETENTION_TEMP_HOURS = 24
+DEFAULT_STORAGE_WARNING_PERCENT = 85
+DEFAULT_STORAGE_HARD_PERCENT = 90
+DEFAULT_STORAGE_MINIMUM_FREE_BYTES = 8 * 1024 * 1024 * 1024
+MAX_RETENTION_DAYS = 3650
+MAX_STORAGE_MINIMUM_FREE_BYTES = 1024 * 1024 * 1024 * 1024
 MAX_STALE_AFTER_HOURS = 24 * 365
 SCHEDULER_ALREADY_RUNNING_EXIT_CODE = 3
 MANAGER_ALREADY_RUNNING_EXIT_CODE = 4
@@ -57,6 +70,15 @@ class RuntimeSettings:
     schedule_timezone: str
     stale_after_hours: int
     trending_producer_enabled: bool = DEFAULT_TRENDING_PRODUCER_ENABLED
+    trending_discover_enabled: bool = DEFAULT_TRENDING_DISCOVER_ENABLED
+    retention_enabled: bool = DEFAULT_RETENTION_ENABLED
+    retention_capture_days: int = DEFAULT_RETENTION_CAPTURE_DAYS
+    retention_generation_days: int = DEFAULT_RETENTION_GENERATION_DAYS
+    retention_candidate_days: int = DEFAULT_RETENTION_CANDIDATE_DAYS
+    retention_temp_hours: int = DEFAULT_RETENTION_TEMP_HOURS
+    storage_warning_percent: int = DEFAULT_STORAGE_WARNING_PERCENT
+    storage_hard_percent: int = DEFAULT_STORAGE_HARD_PERCENT
+    storage_minimum_free_bytes: int = DEFAULT_STORAGE_MINIMUM_FREE_BYTES
 
     @property
     def stale_after_seconds(self) -> int:
@@ -106,6 +128,15 @@ def default_runtime_settings() -> RuntimeSettings:
         schedule_timezone=DEFAULT_SCHEDULE_TIMEZONE,
         stale_after_hours=DEFAULT_STALE_AFTER_HOURS,
         trending_producer_enabled=DEFAULT_TRENDING_PRODUCER_ENABLED,
+        trending_discover_enabled=DEFAULT_TRENDING_DISCOVER_ENABLED,
+        retention_enabled=DEFAULT_RETENTION_ENABLED,
+        retention_capture_days=DEFAULT_RETENTION_CAPTURE_DAYS,
+        retention_generation_days=DEFAULT_RETENTION_GENERATION_DAYS,
+        retention_candidate_days=DEFAULT_RETENTION_CANDIDATE_DAYS,
+        retention_temp_hours=DEFAULT_RETENTION_TEMP_HOURS,
+        storage_warning_percent=DEFAULT_STORAGE_WARNING_PERCENT,
+        storage_hard_percent=DEFAULT_STORAGE_HARD_PERCENT,
+        storage_minimum_free_bytes=DEFAULT_STORAGE_MINIMUM_FREE_BYTES,
     )
 
 
@@ -238,6 +269,45 @@ def validate_trending_producer_enabled(value: object) -> bool:
     )
 
 
+def validate_trending_discover_enabled(value: object | None) -> bool:
+    """Discover is an independent, fail-closed opt-in feature flag."""
+
+    if value is None or value == "" or value == "false":
+        return False
+    if value == "true":
+        return True
+    raise RuntimeSettingsError(
+        f"{TRENDING_DISCOVER_ENABLED_ENV} must be empty or exactly true or false"
+    )
+
+
+def _validate_exact_boolean(name: str, value: object) -> bool:
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise RuntimeSettingsError(f"{name} must be exactly true or false")
+
+
+def _validate_bounded_integer(
+    name: str,
+    value: object,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    if not isinstance(value, str) or not value.isascii() or not value.isdigit():
+        raise RuntimeSettingsError(
+            f"{name} must be an integer from {minimum} to {maximum}"
+        )
+    parsed = int(value)
+    if not minimum <= parsed <= maximum:
+        raise RuntimeSettingsError(
+            f"{name} must be an integer from {minimum} to {maximum}"
+        )
+    return parsed
+
+
 def validate_vite_additional_allowed_hosts(value: object | None) -> tuple[str, ...]:
     """Validate Vite's optional exact-host environment contract.
 
@@ -331,6 +401,75 @@ def load_runtime_settings(
             "true" if DEFAULT_TRENDING_PRODUCER_ENABLED else "false",
         )
     )
+    discover_enabled = validate_trending_discover_enabled(
+        source.get(TRENDING_DISCOVER_ENABLED_ENV)
+    )
+    retention_enabled = _validate_exact_boolean(
+        RETENTION_ENABLED_ENV,
+        source.get(
+            RETENTION_ENABLED_ENV,
+            "true" if DEFAULT_RETENTION_ENABLED else "false",
+        ),
+    )
+    capture_days = _validate_bounded_integer(
+        "RARDAR_RETENTION_CAPTURE_DAYS",
+        source.get("RARDAR_RETENTION_CAPTURE_DAYS", str(DEFAULT_RETENTION_CAPTURE_DAYS)),
+        minimum=1,
+        maximum=MAX_RETENTION_DAYS,
+    )
+    generation_days = _validate_bounded_integer(
+        "RARDAR_RETENTION_GENERATION_DAYS",
+        source.get(
+            "RARDAR_RETENTION_GENERATION_DAYS",
+            str(DEFAULT_RETENTION_GENERATION_DAYS),
+        ),
+        minimum=1,
+        maximum=MAX_RETENTION_DAYS,
+    )
+    candidate_days = _validate_bounded_integer(
+        "RARDAR_RETENTION_CANDIDATE_DAYS",
+        source.get(
+            "RARDAR_RETENTION_CANDIDATE_DAYS",
+            str(DEFAULT_RETENTION_CANDIDATE_DAYS),
+        ),
+        minimum=1,
+        maximum=MAX_RETENTION_DAYS,
+    )
+    temp_hours = _validate_bounded_integer(
+        "RARDAR_RETENTION_TEMP_HOURS",
+        source.get("RARDAR_RETENTION_TEMP_HOURS", str(DEFAULT_RETENTION_TEMP_HOURS)),
+        minimum=1,
+        maximum=24 * MAX_RETENTION_DAYS,
+    )
+    warning_percent = _validate_bounded_integer(
+        "RARDAR_STORAGE_WARNING_PERCENT",
+        source.get(
+            "RARDAR_STORAGE_WARNING_PERCENT",
+            str(DEFAULT_STORAGE_WARNING_PERCENT),
+        ),
+        minimum=1,
+        maximum=99,
+    )
+    hard_percent = _validate_bounded_integer(
+        "RARDAR_STORAGE_HARD_PERCENT",
+        source.get("RARDAR_STORAGE_HARD_PERCENT", str(DEFAULT_STORAGE_HARD_PERCENT)),
+        minimum=2,
+        maximum=100,
+    )
+    minimum_free_bytes = _validate_bounded_integer(
+        "RARDAR_STORAGE_MINIMUM_FREE_BYTES",
+        source.get(
+            "RARDAR_STORAGE_MINIMUM_FREE_BYTES",
+            str(DEFAULT_STORAGE_MINIMUM_FREE_BYTES),
+        ),
+        minimum=0,
+        maximum=MAX_STORAGE_MINIMUM_FREE_BYTES,
+    )
+    if warning_percent >= hard_percent:
+        raise RuntimeSettingsError(
+            "RARDAR_STORAGE_WARNING_PERCENT must be lower than "
+            "RARDAR_STORAGE_HARD_PERCENT"
+        )
     validated_at = validate_schedule_at(effective_at)
     validated_timezone = validate_schedule_timezone(effective_timezone)
     if producer_enabled and (
@@ -341,9 +480,28 @@ def load_runtime_settings(
             f"{TRENDING_PRODUCER_ENABLED_ENV}=true requires the fixed "
             f"{DEFAULT_SCHEDULE_AT} {DEFAULT_SCHEDULE_TIMEZONE} product schedule"
         )
+    if discover_enabled and not producer_enabled:
+        raise RuntimeSettingsError(
+            f"{TRENDING_DISCOVER_ENABLED_ENV}=true requires "
+            f"{TRENDING_PRODUCER_ENABLED_ENV}=true"
+        )
+    if retention_enabled and not producer_enabled:
+        raise RuntimeSettingsError(
+            f"{RETENTION_ENABLED_ENV}=true requires "
+            f"{TRENDING_PRODUCER_ENABLED_ENV}=true"
+        )
     return RuntimeSettings(
         schedule_at=validated_at,
         schedule_timezone=validated_timezone,
         stale_after_hours=validate_stale_after_hours(stale_hours),
         trending_producer_enabled=producer_enabled,
+        trending_discover_enabled=discover_enabled,
+        retention_enabled=retention_enabled,
+        retention_capture_days=capture_days,
+        retention_generation_days=generation_days,
+        retention_candidate_days=candidate_days,
+        retention_temp_hours=temp_hours,
+        storage_warning_percent=warning_percent,
+        storage_hard_percent=hard_percent,
+        storage_minimum_free_bytes=minimum_free_bytes,
     )

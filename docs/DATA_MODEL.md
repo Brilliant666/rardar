@@ -52,7 +52,7 @@ python -m pipeline.collect_trending_observations `
 
 `python -m pipeline.audit_trending_observations --data-dir <isolated-data>` 是只读 store audit：验证目录与文件名、no-follow regular-file 边界、严格 JSON、Schema、phase/时间/窗口、digest、slot 唯一性、身份、计数、26 小时 carry-forward 完整性及仍在 retention store 内的跨 capture rank 引用、90 天 retention metadata 以及残留临时文件。无结构错误但含失败 query、incomplete Search 或 metadata failure 的历史返回 `degraded`；任何不可信字节或路径返回 `failed`，audit 不修复、删除或重写文件。
 
-原始 capture 的 retention class 固定为 `raw_2h_observation`，`retainUntil` 必须机械等于 `capturedAt + 90 days`。本轮只记录保留元数据，不实现自动清理。历史事实只能通过后续 capture 补充，不能反向修改。
+原始 capture 的 retention class 固定为 `raw_2h_observation`，`retainUntil` 必须机械等于 `capturedAt + 90 days`。统一 Retention 只能在超过 90 天且没有任何 retained Refresh / Explosion / Discover generation 引用时，把 capture 纳入 digest-bound 删除计划；历史事实只能通过后续 capture 补充，不能反向修改。
 
 ## Trending Explosion Artifact v1
 
@@ -114,6 +114,10 @@ python -m pipeline.audit_trending_discover --data-dir data
 ```
 
 Producer 启用时仍只有一个 Managed Scheduler。普通偶数整点严格执行 Observation → Discover；08:00 严格执行 Observation → Refresh → Explosion → Discover，使 Discover 使用最新 Today exact 事实与其中 rank 1～20 的 published set。Discover 失败只降级 `producer.discover` telemetry，不回滚或终止 Observation、Refresh、Explosion，也不新增 timer、cron、service 或 daemon。Repository 合并只表示合同和编排可用；Production Discover 必须经过独立 Runtime activation 后才可称为 ACTIVE。
+
+Discover 是否参与这些相位由独立的 `RARDAR_TRENDING_DISCOVER_ENABLED` 控制，默认关闭。关闭时普通相位只运行 Observation，08:00 运行 Observation → Refresh → Explosion → Retention；telemetry 使用 `disabled`，不把未运行误报为失败。Retention 与 Producer 同属唯一 Scheduler：Capture 保留 90 天，Refresh / Explosion / Discover generation 保留 30 天，failed/ready candidate 超过 7 天且不属于各状态最新 10 个时才可删除，inactive temporary 超过 24 小时才可删除。
+
+Retention 的 protected set 至少包含所有 current、pointer 声明的 previous healthy、每类最新 3 个 ready generation、active candidate、retained generation 引用的 canonical Capture 以及 keep/protected 标记。`plan` 在 data lock 下以路径、manifest、numeric identity、内容 digest 和文件身份形成确定性清单；`apply` 绑定 exact plan digest，重新构建 protected set并复核目标 identity/content，先事务性移动全部目标，再写 receipt，失败时整体恢复；`audit` 重新验证 current、Discover（存在时）、引用与 retained 数据。Symlink、junction、hardlink、路径逃逸和变化目标全部 fail closed。release 与 Operator backup 只进入外部审计计数，永不自动删除。
 
 Schema 使用 JSON Schema Draft 2020-12，并限制必填字段、对象额外字段、字段类型、数组成员、枚举、时间、HTTP(S) URL、`owner/name` 仓库身份、字符串长度和数值范围。Schema 只引用仓库内文件，验证过程不会联网获取契约。
 

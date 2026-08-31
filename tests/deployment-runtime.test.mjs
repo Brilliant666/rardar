@@ -518,8 +518,9 @@ async function postJson(url, path, body, timeout = 60_000) {
 }
 
 test("Always-on deployment keeps one foreground manager behind loopback", async () => {
-  const [unit, runtime, example, systemdExample, layout, packageJson, verify] = await Promise.all([
+  const [unit, journal, runtime, example, systemdExample, layout, packageJson, verify] = await Promise.all([
     source("deploy/systemd/rardar.service"),
+    source("deploy/systemd/60-rardar-journal.conf"),
     source("pipeline/runtime.py"),
     source(".env.production.example"),
     source("deploy/systemd/rardar.env.example"),
@@ -533,6 +534,13 @@ test("Always-on deployment keeps one foreground manager behind loopback", async 
   assert.match(unit, /^ExecStart=.*-m pipeline\.runtime service$/m);
   assert.match(unit, /^ExecStartPre=.*-m pipeline\.deployment check --offline$/m);
   assert.match(unit, /^KillMode=control-group$/m);
+  assert.match(unit, /^StandardOutput=journal$/m);
+  assert.match(unit, /^StandardError=journal$/m);
+  assert.match(unit, /^SyslogIdentifier=rardar$/m);
+  assert.match(journal, /^Storage=persistent$/m);
+  assert.match(journal, /^MaxRetentionSec=14day$/m);
+  assert.match(journal, /^SystemMaxUse=3G$/m);
+  assert.match(journal, /^SystemKeepFree=8G$/m);
   assert.match(unit, /^Restart=on-failure$/m);
   assert.match(unit, /^StartLimitIntervalSec=300$/m);
   assert.match(unit, /^StartLimitBurst=5$/m);
@@ -570,6 +578,11 @@ test("Always-on deployment keeps one foreground manager behind loopback", async 
   );
   assert.doesNotMatch(systemdExample, /^__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=/m);
   assert.match(runtime, /VITE_ADDITIONAL_ALLOWED_HOSTS_ENV/);
+  assert.match(systemdExample, /^RARDAR_TRENDING_DISCOVER_ENABLED=false$/m);
+  assert.match(systemdExample, /^RARDAR_RETENTION_ENABLED=false$/m);
+  assert.match(systemdExample, /^RARDAR_STORAGE_WARNING_PERCENT=85$/m);
+  assert.match(systemdExample, /^RARDAR_STORAGE_HARD_PERCENT=90$/m);
+  assert.match(systemdExample, /^RARDAR_STORAGE_MINIMUM_FREE_BYTES=8589934592$/m);
 });
 
 test("systemd sandbox grants exactly the address families required by the runtime", async () => {
