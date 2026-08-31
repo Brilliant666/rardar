@@ -73,7 +73,7 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 | Signal → Project audited association | ✅ 已实现 | 仅以同一 generation 的 `signal.repo` 精确验证 Stable ID；证据不足时继续 signal-only |
 | Trending fact foundation | ✅ 已合并 | 两小时 append-only Observation 与 audited 24h Explosion Artifact 已进入 `main` |
 | Trending Producer Runtime | ✅ ACTIVE | Production 已自然运行两小时 Observation 与每日 Explosion；feature flag 与 Scheduler-only token 边界保持不变 |
-| Near-real-time Discover Artifact | 🚧 本轮实现 / 未部署 | 独立 immutable store、Today exact 排除、确定性阶段和只读 Audit；Production 激活另行验收 |
+| Near-real-time Discover Artifact | 🚧 Repository v3 / 未部署 | 独立 immutable store、Today Top 20 发布集合排除、榜外异动与 pre-exact 确定性阶段、只读 Audit；Production 激活另行验收 |
 | P1-6C2 legacy collision history | ⏸ Deferred | 不影响当前 Stable ID 主链，但历史 collision 生命周期尚未收口 |
 | TrendRadar/P2 能力 | 🧭 Backlog | Research Profile、Momentum Lifecycle、Alerts/Digest、MCP 等尚未进入当前主线 |
 
@@ -335,7 +335,7 @@ npm run local:stop
 
 `RARDAR_TRENDING_PRODUCER_ENABLED` 默认且未配置时为 `false`，因此保持上面的 daily-refresh-only 行为。经过独立部署授权设为严格小写 `true` 后，唯一 Scheduler 才会增加 Asia/Shanghai 偶数整点 Observation → Discover 与每日 08:00 Explosion derive；`GITHUB_TOKEN` 只进入 Scheduler child，不进入 Website、状态 JSON、日志或浏览器。Discover Repository 能力合并不表示 Production Discover 已启用。
 
-Discover `trending-discover-v2` 只发布两类可解释信号：最近 4 小时首次进入候选池，或在实际观察窗口内达到 `+10 Star / +1%` 双通道之一且至少有 2 个连续正增长区间。观察满 20 小时的项目只有先通过同一质量门禁，才进入后端 `near_validation`（产品文案“待日榜验证”）。门禁不使用 AI、预测或综合评分，页面允许诚实空态；Artifact 同时冻结发布原因和聚合抑制原因供 Audit 重算。
+Discover `trending-discover-v3` 将 Today 的完整 24 小时事实集与实际发布 Top 20 分开：只排除 exact rank 1～20，rank 21+ 继续接受短窗口信号判断。`pre_exact` 沿用“刚刚发现 / 持续升温 / 待日榜验证”；`exact_outside_published` 只有最近 4 小时达到 `+10 Star / +1%` 双通道之一、连续两个区间增长且高于此前可比 4 小时，才进入“榜外异动”。门禁不使用 AI、预测或综合评分，页面允许诚实空态；Artifact 冻结 published-set digest、资格分层、窗口事实、发布原因和聚合抑制原因供 Audit 重算。retained v1/v2 generation 继续严格读取与审计。
 
 ### 常用数据命令
 

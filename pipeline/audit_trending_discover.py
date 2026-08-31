@@ -1,4 +1,4 @@
-"""Read-only CLI audit for TrendingDiscoverArtifact v1."""
+"""Read-only CLI audit for versioned TrendingDiscoverArtifact generations."""
 
 from __future__ import annotations
 

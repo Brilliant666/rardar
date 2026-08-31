@@ -48,8 +48,10 @@ from pipeline.trending_observations import (
 )
 
 
-SCHEMA_VERSION = 2
-POLICY_VERSION = "trending-discover-v2"
+SCHEMA_VERSION = 3
+POLICY_VERSION = "trending-discover-v3"
+V2_SCHEMA_VERSION = 2
+V2_POLICY_VERSION = "trending-discover-v2"
 LEGACY_SCHEMA_VERSION = 1
 LEGACY_POLICY_VERSION = "trending-discover-v1"
 ABSOLUTE_GROWTH_GATE_STARS = 10
@@ -57,6 +59,8 @@ RELATIVE_GROWTH_GATE_PERCENT = 1.0
 CONSECUTIVE_POSITIVE_INTERVAL_GATE = 2
 RECENT_DISCOVERY_HOURS = 4
 NEAR_VALIDATION_HOURS = 20
+TODAY_PUBLISHED_TOP_COUNT = 20
+OUTSIDE_RECENT_WINDOW_HOURS = 4
 DISCOVER_RELATIVE_ROOT = Path("artifacts/trending/discover/v1")
 DISCOVER_FILE = "discover.json"
 TODAY_SOURCE_FILE = "sources/today-explosion.json"
@@ -66,20 +70,38 @@ GENERATION_ID_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$"
 )
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-STAGE_KEYS = {
+LEGACY_STAGE_KEYS = {
     "just_discovered": "justDiscovered",
     "rising": "rising",
     "near_validation": "nearValidation",
 }
-STAGE_ORDER = ("just_discovered", "rising", "near_validation")
+STAGE_KEYS = {
+    "just_discovered": "justDiscovered",
+    "outside_today_momentum": "outsideTodayMomentum",
+    "rising": "rising",
+    "near_validation": "nearValidation",
+}
+LEGACY_STAGE_ORDER = ("just_discovered", "rising", "near_validation")
+STAGE_ORDER = (
+    "just_discovered",
+    "outside_today_momentum",
+    "rising",
+    "near_validation",
+)
 SIGNAL_FACT_ORDER = (
     "first_seen_recently",
+    "outside_today_top20",
+    "exact_rank_available",
+    "recent_absolute_growth",
+    "recent_relative_growth",
+    "continuous_recent_growth",
+    "recent_acceleration",
     "continuous_positive_growth",
     "absolute_growth_gate",
     "relative_growth_gate",
     "awaiting_today_settlement",
 )
-SUPPRESSION_REASONS = (
+V2_SUPPRESSION_REASONS = (
     "weak_absolute_growth",
     "weak_relative_growth",
     "no_continuous_growth",
@@ -88,6 +110,47 @@ SUPPRESSION_REASONS = (
     "negative_growth",
     "disabled",
     "metadata_incomplete",
+)
+SUPPRESSION_REASONS = (
+    "today_published",
+    "weak_recent_absolute_growth",
+    "weak_recent_relative_growth",
+    "no_recent_continuous_growth",
+    "no_recent_acceleration",
+    "weak_pre_exact_growth",
+    "already_exact_without_momentum",
+    "identity_conflict",
+    "negative_growth",
+    "disabled",
+    "metadata_incomplete",
+)
+V3_ROOT_FIELDS = (
+    "todayExactCount",
+    "todayPublishedTopCount",
+    "todayPublishedCount",
+    "todayPublishedSetDigest",
+    "excludedPublishedCount",
+    "exactOutsidePublishedEvaluatedCount",
+    "preExactEvaluatedCount",
+    "eligibilityCounts",
+)
+V3_COVERAGE_FIELDS = (
+    "todayExactCount",
+    "todayPublishedCount",
+    "excludedPublishedCount",
+    "exactOutsidePublishedEvaluatedCount",
+    "preExactEvaluatedCount",
+    "invalidCount",
+)
+V3_ITEM_FIELDS = (
+    "eligibilityClass",
+    "todayExactRank",
+    "todayExact24hDelta",
+    "recentWindowHours",
+    "recentObservedStarDelta",
+    "priorComparableWindowDelta",
+    "accelerationDelta",
+    "recentRelativeGrowthPercent",
 )
 
 
@@ -551,17 +614,21 @@ def _observation_index(source: CaptureSource) -> dict[int, dict[str, Any]]:
     return result
 
 
-def _source_reference(source: CaptureSource, index: int) -> dict[str, Any]:
-    return {
+def _source_reference(
+    source: CaptureSource, index: int, *, policy_version: str
+) -> dict[str, Any]:
+    reference = {
         "captureId": source.payload["captureId"],
         "scheduledAt": source.payload["scheduledAt"],
         "capturedAt": source.payload["capturedAt"],
         "coverageState": source.payload["coverageState"],
-        "generationRelativePath": f"sources/capture-{index:02d}.json",
         "originalObservationPath": source.original_observation_path,
         "payloadDigestSha256": source.payload["digest"]["value"],
         "fileSha256": source.file_sha256,
     }
+    if policy_version != POLICY_VERSION:
+        reference["generationRelativePath"] = f"sources/capture-{index:02d}.json"
+    return reference
 
 
 def _today_reference(today: TodayExplosionSource) -> dict[str, Any]:
@@ -647,6 +714,94 @@ def _ordered_signal_facts(values: set[str]) -> list[str]:
     return [value for value in SIGNAL_FACT_ORDER if value in values]
 
 
+def _stage_keys(policy_version: str) -> dict[str, str]:
+    return STAGE_KEYS if policy_version == POLICY_VERSION else LEGACY_STAGE_KEYS
+
+
+def _stage_order(policy_version: str) -> tuple[str, ...]:
+    return STAGE_ORDER if policy_version == POLICY_VERSION else LEGACY_STAGE_ORDER
+
+
+def _today_sets(
+    exact_ranked: Sequence[dict[str, Any]],
+) -> tuple[dict[int, dict[str, Any]], set[int], str]:
+    exact_by_id = {
+        int(item["githubRepositoryId"]): item for item in exact_ranked
+    }
+    published = {
+        repository_id
+        for repository_id, item in exact_by_id.items()
+        if int(item["rank"]) <= TODAY_PUBLISHED_TOP_COUNT
+    }
+    digest = _sha256(_canonical_bytes(sorted(published)))
+    return exact_by_id, published, digest
+
+
+def _bounded_window(
+    observations: Sequence[tuple[CaptureSource, dict[str, Any]]],
+    *,
+    start: datetime,
+    end: datetime,
+) -> list[tuple[CaptureSource, dict[str, Any]]]:
+    return [
+        observation
+        for observation in observations
+        if start <= observation[0].scheduled_at <= end
+    ]
+
+
+def _comparable_window_facts(
+    observations: Sequence[tuple[CaptureSource, dict[str, Any]]],
+    *,
+    latest_scheduled_at: datetime,
+) -> tuple[int | None, int | None, int | None, float | None, int]:
+    """Return audited recent/prior four-hour facts without extrapolation."""
+
+    recent_start = latest_scheduled_at - timedelta(hours=OUTSIDE_RECENT_WINDOW_HOURS)
+    prior_start = recent_start - timedelta(hours=OUTSIDE_RECENT_WINDOW_HOURS)
+    recent = _bounded_window(
+        observations, start=recent_start, end=latest_scheduled_at
+    )
+    prior = _bounded_window(observations, start=prior_start, end=recent_start)
+
+    def complete_delta(
+        values: Sequence[tuple[CaptureSource, dict[str, Any]]],
+    ) -> int | None:
+        expected_intervals = OUTSIDE_RECENT_WINDOW_HOURS * 60 // CADENCE_MINUTES
+        if len(values) != expected_intervals + 1:
+            return None
+        if any(
+            current[0].scheduled_at - previous[0].scheduled_at
+            != timedelta(minutes=CADENCE_MINUTES)
+            for previous, current in zip(values, values[1:], strict=False)
+        ):
+            return None
+        return int(values[-1][1]["totalStars"]) - int(values[0][1]["totalStars"])
+
+    recent_delta = complete_delta(recent)
+    prior_delta = complete_delta(prior)
+    acceleration = (
+        recent_delta - prior_delta
+        if recent_delta is not None and prior_delta is not None
+        else None
+    )
+    recent_relative = (
+        round(recent_delta / int(recent[0][1]["totalStars"]) * 100, 6)
+        if recent_delta is not None
+        and recent
+        and int(recent[0][1]["totalStars"]) > 0
+        else None
+    )
+    _, recent_consecutive_positive, _ = _positive_interval_facts(recent)
+    return (
+        recent_delta,
+        prior_delta,
+        acceleration,
+        recent_relative,
+        recent_consecutive_positive,
+    )
+
+
 def validate_discover_artifact(payload: object) -> dict[str, Any]:
     try:
         artifact = require_valid(ArtifactKind.TRENDING_DISCOVER, payload)
@@ -660,6 +815,21 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
             "discover_payload_digest_mismatch", "Discover payload digest does not match", stage="audit"
         )
     policy_version = artifact["policyVersion"]
+    if policy_version != POLICY_VERSION and (
+        any(field in artifact for field in V3_ROOT_FIELDS)
+        or any(field in artifact["coverage"] for field in V3_COVERAGE_FIELDS)
+        or any(
+            field in item
+            for items in artifact["stages"].values()
+            for item in items
+            for field in V3_ITEM_FIELDS
+        )
+    ):
+        raise TrendingDiscoverError(
+            "discover_policy_contract_mismatch",
+            "retained Discover generations may not contain v3-only fields",
+            stage="audit",
+        )
     if policy_version == LEGACY_POLICY_VERSION:
         if artifact["schemaVersion"] != LEGACY_SCHEMA_VERSION or any(
             field in artifact for field in ("signalPolicy", "suppressionSummary")
@@ -669,11 +839,14 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
                 "legacy Discover policy contains v2-only contract fields",
                 stage="audit",
             )
-    elif policy_version == POLICY_VERSION:
-        if artifact["schemaVersion"] != SCHEMA_VERSION:
+    elif policy_version in {V2_POLICY_VERSION, POLICY_VERSION}:
+        expected_schema = (
+            SCHEMA_VERSION if policy_version == POLICY_VERSION else V2_SCHEMA_VERSION
+        )
+        if artifact["schemaVersion"] != expected_schema:
             raise TrendingDiscoverError(
                 "discover_policy_contract_mismatch",
-                "Discover v2 policy requires Artifact schema v2",
+                "Discover policy and Artifact schema versions differ",
                 stage="audit",
             )
         expected_policy = {
@@ -683,10 +856,18 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
             "recentDiscoveryHours": RECENT_DISCOVERY_HOURS,
             "nearValidationHours": NEAR_VALIDATION_HOURS,
         }
+        if policy_version == POLICY_VERSION:
+            expected_policy.update(
+                {
+                    "todayPublishedTopCount": TODAY_PUBLISHED_TOP_COUNT,
+                    "outsideRecentWindowHours": OUTSIDE_RECENT_WINDOW_HOURS,
+                    "outsideRequiresAcceleration": True,
+                }
+            )
         if artifact["signalPolicy"] != expected_policy:
             raise TrendingDiscoverError(
                 "discover_signal_policy_mismatch",
-                "Discover v2 signal policy constants differ from the audited implementation",
+                "Discover signal policy constants differ from the audited implementation",
                 stage="audit",
             )
     else:
@@ -696,7 +877,14 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
             stage="audit",
         )
     stage_ids: list[int] = []
-    for stage, key in STAGE_KEYS.items():
+    stage_keys = _stage_keys(policy_version)
+    if artifact["sortingPolicy"]["sections"] != list(_stage_order(policy_version)):
+        raise TrendingDiscoverError(
+            "discover_stage_order_invalid",
+            "Discover stage order differs from its versioned policy",
+            stage="audit",
+        )
+    for stage, key in stage_keys.items():
         items = artifact["stages"][key]
         if any(item["stage"] != stage for item in items):
             raise TrendingDiscoverError(
@@ -723,7 +911,7 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
             stage="audit",
         )
 
-    for stage, key in STAGE_KEYS.items():
+    for stage, key in stage_keys.items():
         items = artifact["stages"][key]
         if policy_version == LEGACY_POLICY_VERSION and any(
             field in item
@@ -742,7 +930,7 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
                 "legacy Discover items contain v2-only signal facts",
                 stage="audit",
             )
-        if policy_version == POLICY_VERSION:
+        if policy_version in {V2_POLICY_VERSION, POLICY_VERSION}:
             for item in items:
                 reasons = item["publishReasonCodes"]
                 facts = item["signalFacts"]
@@ -764,6 +952,20 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
                 gate_reasons = {"absolute_growth_gate", "relative_growth_gate"}
                 if stage == "just_discovered":
                     valid = reason_set == {"first_seen_recently"}
+                elif stage == "outside_today_momentum":
+                    valid = (
+                        policy_version == POLICY_VERSION
+                        and {
+                            "outside_today_top20",
+                            "exact_rank_available",
+                            "continuous_recent_growth",
+                            "recent_acceleration",
+                        }.issubset(reason_set)
+                        and bool(
+                            {"recent_absolute_growth", "recent_relative_growth"}
+                            & reason_set
+                        )
+                    )
                 elif stage == "rising":
                     valid = (
                         "continuous_positive_growth" in reason_set
@@ -785,7 +987,31 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
                         f"{stage} publish reasons do not match the policy",
                         stage="audit",
                     )
-    if policy_version == POLICY_VERSION:
+                if policy_version == POLICY_VERSION:
+                    eligibility = item["eligibilityClass"]
+                    if stage == "outside_today_momentum":
+                        valid_eligibility = (
+                            eligibility == "exact_outside_published"
+                            and item["todayExactRank"] > TODAY_PUBLISHED_TOP_COUNT
+                            and item["todayExact24hDelta"] is not None
+                            and item["recentObservedStarDelta"] is not None
+                            and item["priorComparableWindowDelta"] is not None
+                            and item["accelerationDelta"] is not None
+                            and item["accelerationDelta"] > 0
+                        )
+                    else:
+                        valid_eligibility = (
+                            eligibility == "pre_exact"
+                            and item["todayExactRank"] is None
+                            and item["todayExact24hDelta"] is None
+                        )
+                    if not valid_eligibility:
+                        raise TrendingDiscoverError(
+                            "discover_eligibility_class_mismatch",
+                            "Discover stage and eligibility facts are inconsistent",
+                            stage="audit",
+                        )
+    if policy_version == V2_POLICY_VERSION:
         summary = artifact["suppressionSummary"]
         coverage = artifact["coverage"]
         reasons = summary["reasons"]
@@ -811,7 +1037,59 @@ def validate_discover_artifact(payload: object) -> dict[str, Any]:
                 "Discover suppression summary does not reconcile with published facts",
                 stage="audit",
             )
-    inventory_paths = [item["generationRelativePath"] for item in artifact["sourceInventory"]]
+    if policy_version == POLICY_VERSION:
+        summary = artifact["suppressionSummary"]
+        coverage = artifact["coverage"]
+        reasons = summary["reasons"]
+        eligibility = artifact["eligibilityCounts"]
+        outside_published = len(artifact["stages"]["outsideTodayMomentum"])
+        if (
+            artifact["todayPublishedTopCount"] != TODAY_PUBLISHED_TOP_COUNT
+            or artifact["todayExactCount"]
+            != artifact["todayExplosionSource"]["exactCount"]
+            or artifact["todayPublishedCount"]
+            != min(artifact["todayExactCount"], TODAY_PUBLISHED_TOP_COUNT)
+            or artifact["excludedPublishedCount"]
+            != eligibility["todayPublished"]
+            or artifact["excludedPublishedCount"] != reasons["today_published"]
+            or artifact["exactOutsidePublishedEvaluatedCount"]
+            != eligibility["exactOutsidePublished"]
+            or artifact["preExactEvaluatedCount"] != eligibility["preExact"]
+            or eligibility["invalid"] != coverage["invalidCount"]
+            or sum(eligibility.values()) != coverage["candidateCount"]
+            or coverage["publishedCount"] != len(stage_ids)
+            or coverage["publishedCount"] != summary["publishedCount"]
+            or coverage["conflictCount"] != len(conflict_ids)
+            or coverage["conflictCount"] != eligibility["invalid"]
+            or coverage["conflictCount"]
+            != reasons["identity_conflict"]
+            + reasons["negative_growth"]
+            + reasons["disabled"]
+            or reasons["metadata_incomplete"] != coverage["metadataFailureCount"]
+            or reasons["already_exact_without_momentum"]
+            != artifact["exactOutsidePublishedEvaluatedCount"] - outside_published
+            or summary["candidateCount"] != coverage["candidateCount"]
+            or summary["excludedPublishedCount"]
+            != artifact["excludedPublishedCount"]
+            or summary["suppressedSignalCount"]
+            != summary["candidateCount"]
+            - summary["excludedPublishedCount"]
+            - summary["conflictCount"]
+            - summary["publishedCount"]
+        ):
+            raise TrendingDiscoverError(
+                "discover_suppression_summary_mismatch",
+                "Discover v3 eligibility and suppression facts do not reconcile",
+                stage="audit",
+            )
+    inventory_path_field = (
+        "originalObservationPath"
+        if policy_version == POLICY_VERSION
+        else "generationRelativePath"
+    )
+    inventory_paths = [
+        item[inventory_path_field] for item in artifact["sourceInventory"]
+    ]
     if len(inventory_paths) != len(set(inventory_paths)):
         raise TrendingDiscoverError(
             "discover_duplicate_source_path", "Discover source inventory paths must be unique", stage="audit"
@@ -848,25 +1126,49 @@ def build_discover_artifact(
         )
     indexes = [_observation_index(source) for source in sources.captures]
     latest_index = indexes[-1]
-    exact_ids = {int(item["githubRepositoryId"]) for item in sources.today.payload["exactRanked"]}
+    exact_by_id, published_ids, published_set_digest = _today_sets(
+        sources.today.payload["exactRanked"]
+    )
+    exact_ids = set(exact_by_id)
     name_ids: dict[str, set[int]] = {}
     for index in indexes:
         for repository_id, item in index.items():
             name_ids.setdefault(str(item["repository"]).casefold(), set()).add(repository_id)
 
-    if policy_version not in {LEGACY_POLICY_VERSION, POLICY_VERSION}:
+    if policy_version not in {
+        LEGACY_POLICY_VERSION,
+        V2_POLICY_VERSION,
+        POLICY_VERSION,
+    }:
         raise TrendingDiscoverError(
             "discover_policy_contract_mismatch",
             f"unsupported Discover policy version: {policy_version}",
             stage="contract",
         )
-    schema_version = SCHEMA_VERSION if policy_version == POLICY_VERSION else LEGACY_SCHEMA_VERSION
-    stages: dict[str, list[dict[str, Any]]] = {key: [] for key in STAGE_KEYS.values()}
+    schema_version = {
+        LEGACY_POLICY_VERSION: LEGACY_SCHEMA_VERSION,
+        V2_POLICY_VERSION: V2_SCHEMA_VERSION,
+        POLICY_VERSION: SCHEMA_VERSION,
+    }[policy_version]
+    stage_keys = _stage_keys(policy_version)
+    stages: dict[str, list[dict[str, Any]]] = {
+        key: [] for key in stage_keys.values()
+    }
     conflicts: list[dict[str, Any]] = []
     excluded_exact = 0
+    excluded_published = 0
+    exact_outside_evaluated = 0
+    pre_exact_evaluated = 0
     stage_eligible_count = 0
     suppressed_weak_ids: set[int] = set()
-    suppression_counts = {reason: 0 for reason in SUPPRESSION_REASONS}
+    suppression_counts = {
+        reason: 0
+        for reason in (
+            SUPPRESSION_REASONS
+            if policy_version == POLICY_VERSION
+            else V2_SUPPRESSION_REASONS
+        )
+    }
     for repository_id, current in latest_index.items():
         observations = [
             (source, index[repository_id])
@@ -905,7 +1207,7 @@ def build_discover_artifact(
                 }
             )
             continue
-        if repository_id in exact_ids:
+        if policy_version != POLICY_VERSION and repository_id in exact_ids:
             excluded_exact += 1
             suppression_counts["already_in_today"] += 1
             continue
@@ -923,6 +1225,19 @@ def build_discover_artifact(
                 }
             )
             continue
+        eligibility_class: str | None = None
+        today_exact = exact_by_id.get(repository_id)
+        if policy_version == POLICY_VERSION:
+            if repository_id in published_ids:
+                excluded_published += 1
+                suppression_counts["today_published"] += 1
+                continue
+            if today_exact is not None:
+                eligibility_class = "exact_outside_published"
+                exact_outside_evaluated += 1
+            else:
+                eligibility_class = "pre_exact"
+                pre_exact_evaluated += 1
         seconds = (latest.captured_at - first_source.captured_at).total_seconds()
         if seconds < 0 or seconds > 27 * 3600:
             raise TrendingDiscoverError(
@@ -957,7 +1272,7 @@ def build_discover_artifact(
                 if legacy_rising
                 else None
             )
-        else:
+        elif policy_version == V2_POLICY_VERSION:
             relative_growth_percent = (
                 round(delta / int(first["totalStars"]) * 100, 6)
                 if int(first["totalStars"]) > 0
@@ -1004,6 +1319,108 @@ def build_discover_artifact(
                         suppression_counts["weak_relative_growth"] += 1
                     if not continuous_gate:
                         suppression_counts["no_continuous_growth"] += 1
+        else:
+            relative_growth_percent = (
+                round(delta / int(first["totalStars"]) * 100, 6)
+                if int(first["totalStars"]) > 0
+                else None
+            )
+            (
+                recent_delta,
+                prior_delta,
+                acceleration_delta,
+                recent_relative_growth,
+                recent_consecutive_positive,
+            ) = _comparable_window_facts(
+                observations, latest_scheduled_at=latest.scheduled_at
+            )
+            if eligibility_class == "exact_outside_published":
+                recent_absolute_gate = (
+                    recent_delta is not None
+                    and recent_delta >= ABSOLUTE_GROWTH_GATE_STARS
+                )
+                recent_relative_gate = (
+                    recent_relative_growth is not None
+                    and recent_relative_growth >= RELATIVE_GROWTH_GATE_PERCENT
+                )
+                recent_continuous_gate = (
+                    recent_consecutive_positive
+                    >= CONSECUTIVE_POSITIVE_INTERVAL_GATE
+                )
+                acceleration_gate = (
+                    acceleration_delta is not None and acceleration_delta > 0
+                )
+                outside_gate = (
+                    (recent_absolute_gate or recent_relative_gate)
+                    and recent_continuous_gate
+                    and acceleration_gate
+                )
+                stage_eligible_count += 1
+                if outside_gate:
+                    stage = "outside_today_momentum"
+                    facts = {
+                        "outside_today_top20",
+                        "exact_rank_available",
+                        "continuous_recent_growth",
+                        "recent_acceleration",
+                    }
+                    if recent_absolute_gate:
+                        facts.add("recent_absolute_growth")
+                    if recent_relative_gate:
+                        facts.add("recent_relative_growth")
+                    signal_facts = _ordered_signal_facts(facts)
+                else:
+                    stage = None
+                    suppressed_weak_ids.add(repository_id)
+                    suppression_counts["already_exact_without_momentum"] += 1
+                    if not recent_absolute_gate:
+                        suppression_counts["weak_recent_absolute_growth"] += 1
+                    if not recent_relative_gate:
+                        suppression_counts["weak_recent_relative_growth"] += 1
+                    if not recent_continuous_gate:
+                        suppression_counts["no_recent_continuous_growth"] += 1
+                    if not acceleration_gate:
+                        suppression_counts["no_recent_acceleration"] += 1
+            else:
+                absolute_gate = delta >= ABSOLUTE_GROWTH_GATE_STARS
+                relative_gate = (
+                    relative_growth_percent is not None
+                    and relative_growth_percent >= RELATIVE_GROWTH_GATE_PERCENT
+                )
+                continuous_gate = (
+                    consecutive_positive_intervals
+                    >= CONSECUTIVE_POSITIVE_INTERVAL_GATE
+                )
+                quality_gate = (absolute_gate or relative_gate) and continuous_gate
+                base_stage_eligible = just_discovered or near_validation or rising
+                if base_stage_eligible:
+                    stage_eligible_count += 1
+                if just_discovered:
+                    stage = "just_discovered"
+                    signal_facts = ["first_seen_recently"]
+                elif near_validation and quality_gate:
+                    stage = "near_validation"
+                    facts = {
+                        "continuous_positive_growth",
+                        "awaiting_today_settlement",
+                    }
+                    if absolute_gate:
+                        facts.add("absolute_growth_gate")
+                    if relative_gate:
+                        facts.add("relative_growth_gate")
+                    signal_facts = _ordered_signal_facts(facts)
+                elif rising and quality_gate:
+                    stage = "rising"
+                    facts = {"continuous_positive_growth"}
+                    if absolute_gate:
+                        facts.add("absolute_growth_gate")
+                    if relative_gate:
+                        facts.add("relative_growth_gate")
+                    signal_facts = _ordered_signal_facts(facts)
+                else:
+                    stage = None
+                    suppressed_weak_ids.add(repository_id)
+                    suppression_counts["weak_pre_exact_growth"] += 1
         if stage is None:
             continue
         item = {
@@ -1030,7 +1447,7 @@ def build_discover_artifact(
             "sourceCaptureIds": capture_ids,
             "sourceEvidenceDigest": _evidence_digest(observations),
         }
-        if policy_version == POLICY_VERSION:
+        if policy_version in {V2_POLICY_VERSION, POLICY_VERSION}:
             item.update(
                 {
                     "relativeGrowthPercent": relative_growth_percent,
@@ -1041,7 +1458,26 @@ def build_discover_artifact(
                     "signalFacts": signal_facts,
                 }
             )
-        stages[STAGE_KEYS[stage]].append(item)
+        if policy_version == POLICY_VERSION:
+            item.update(
+                {
+                    "eligibilityClass": eligibility_class,
+                    "todayExactRank": (
+                        int(today_exact["rank"]) if today_exact is not None else None
+                    ),
+                    "todayExact24hDelta": (
+                        int(today_exact["observedStarDelta"])
+                        if today_exact is not None
+                        else None
+                    ),
+                    "recentWindowHours": min(OUTSIDE_RECENT_WINDOW_HOURS, hours),
+                    "recentObservedStarDelta": recent_delta,
+                    "priorComparableWindowDelta": prior_delta,
+                    "accelerationDelta": acceleration_delta,
+                    "recentRelativeGrowthPercent": recent_relative_growth,
+                }
+            )
+        stages[stage_keys[stage]].append(item)
 
     for items in stages.values():
         items.sort(
@@ -1075,7 +1511,7 @@ def build_discover_artifact(
         "todayExplosionDigest": sources.today.file_sha256,
         "updateCadenceMinutes": CADENCE_MINUTES,
         "sortingPolicy": {
-            "sections": list(STAGE_ORDER),
+            "sections": list(_stage_order(policy_version)),
             "withinStage": ["observedStarDelta DESC", "totalStars DESC", "repository ASC"],
         },
         "stages": stages,
@@ -1088,16 +1524,45 @@ def build_discover_artifact(
             "candidateCount": len(latest_index),
             "publishedCount": published_count,
             "conflictCount": len(conflicts),
-            "excludedExactCount": excluded_exact,
         },
         "conflicts": conflicts,
         "sourceInventory": [
-            _source_reference(source, index)
+            _source_reference(source, index, policy_version=policy_version)
             for index, source in enumerate(sources.captures, start=1)
         ],
         "todayExplosionSource": _today_reference(sources.today),
     }
-    if policy_version == POLICY_VERSION:
+    if policy_version != POLICY_VERSION:
+        artifact["coverage"]["excludedExactCount"] = excluded_exact
+    else:
+        artifact.update(
+            {
+                "todayExactCount": len(exact_ids),
+                "todayPublishedTopCount": TODAY_PUBLISHED_TOP_COUNT,
+                "todayPublishedSetDigest": published_set_digest,
+                "todayPublishedCount": len(published_ids),
+                "excludedPublishedCount": excluded_published,
+                "exactOutsidePublishedEvaluatedCount": exact_outside_evaluated,
+                "preExactEvaluatedCount": pre_exact_evaluated,
+                "eligibilityCounts": {
+                    "todayPublished": excluded_published,
+                    "exactOutsidePublished": exact_outside_evaluated,
+                    "preExact": pre_exact_evaluated,
+                    "invalid": len(conflicts),
+                },
+            }
+        )
+        artifact["coverage"].update(
+            {
+                "todayExactCount": len(exact_ids),
+                "todayPublishedCount": len(published_ids),
+                "excludedPublishedCount": excluded_published,
+                "exactOutsidePublishedEvaluatedCount": exact_outside_evaluated,
+                "preExactEvaluatedCount": pre_exact_evaluated,
+                "invalidCount": len(conflicts),
+            }
+        )
+    if policy_version in {V2_POLICY_VERSION, POLICY_VERSION}:
         suppression_counts["metadata_incomplete"] = int(
             latest.payload["metadataFailureCount"]
         )
@@ -1108,15 +1573,32 @@ def build_discover_artifact(
             "recentDiscoveryHours": RECENT_DISCOVERY_HOURS,
             "nearValidationHours": NEAR_VALIDATION_HOURS,
         }
-        artifact["suppressionSummary"] = {
-            "candidateCount": len(latest_index),
-            "stageEligibleCount": stage_eligible_count,
-            "publishedCount": published_count,
-            "suppressedWeakSignalCount": len(suppressed_weak_ids),
-            "suppressedExactCount": excluded_exact,
-            "conflictCount": len(conflicts),
-            "reasons": suppression_counts,
-        }
+        if policy_version == POLICY_VERSION:
+            artifact["signalPolicy"].update(
+                {
+                    "todayPublishedTopCount": TODAY_PUBLISHED_TOP_COUNT,
+                    "outsideRecentWindowHours": OUTSIDE_RECENT_WINDOW_HOURS,
+                    "outsideRequiresAcceleration": True,
+                }
+            )
+            artifact["suppressionSummary"] = {
+                "candidateCount": len(latest_index),
+                "publishedCount": published_count,
+                "suppressedSignalCount": len(suppressed_weak_ids),
+                "excludedPublishedCount": excluded_published,
+                "conflictCount": len(conflicts),
+                "reasons": suppression_counts,
+            }
+        else:
+            artifact["suppressionSummary"] = {
+                "candidateCount": len(latest_index),
+                "stageEligibleCount": stage_eligible_count,
+                "publishedCount": published_count,
+                "suppressedWeakSignalCount": len(suppressed_weak_ids),
+                "suppressedExactCount": excluded_exact,
+                "conflictCount": len(conflicts),
+                "reasons": suppression_counts,
+            }
     return validate_discover_artifact(_attach_payload_digest(artifact))
 
 
@@ -1178,42 +1660,106 @@ def _manifest_payload(generation_id: str, artifact: dict[str, Any], artifacts: d
             "conflictCount": artifact["coverage"]["conflictCount"],
         },
     }
-    if artifact["policyVersion"] == POLICY_VERSION:
+    if artifact["policyVersion"] == V2_POLICY_VERSION:
         payload["audit"]["suppressedWeakSignalCount"] = artifact[
             "suppressionSummary"
         ]["suppressedWeakSignalCount"]
+    elif artifact["policyVersion"] == POLICY_VERSION:
+        payload["audit"].update(
+            {
+                "suppressedSignalCount": artifact["suppressionSummary"][
+                    "suppressedSignalCount"
+                ],
+                "excludedPublishedCount": artifact["excludedPublishedCount"],
+                "exactOutsidePublishedEvaluatedCount": artifact[
+                    "exactOutsidePublishedEvaluatedCount"
+                ],
+                "outsideTodayMomentumCount": len(
+                    artifact["stages"]["outsideTodayMomentum"]
+                ),
+            }
+        )
     return payload
 
 
 def _load_generation_sources(root: Path, artifact: dict[str, Any]) -> DiscoverSources:
     captures: list[CaptureSource] = []
-    for reference in artifact["sourceInventory"]:
-        path = root / reference["generationRelativePath"]
-        payload, content, file_sha = _read_json(path, root, ArtifactKind.TRENDING_CAPTURE_BUNDLE)
-        try:
-            payload = validate_capture_bundle(payload, expected_capture_id=reference["captureId"])
-        except TrendingObservationError as error:
+    if artifact["policyVersion"] == POLICY_VERSION:
+        data_candidates: list[Path] = []
+        for candidate in root.parents:
+            generation_store = candidate / DISCOVER_RELATIVE_ROOT / "generations"
+            try:
+                root.relative_to(generation_store)
+            except ValueError:
+                continue
+            data_candidates.append(candidate)
+        if len(data_candidates) != 1:
             raise TrendingDiscoverError(
-                "discover_source_capture_invalid", str(error), stage="audit"
-            ) from None
-        if (
-            file_sha != reference["fileSha256"]
-            or payload["digest"]["value"] != reference["payloadDigestSha256"]
-            or payload["scheduledAt"] != reference["scheduledAt"]
-            or payload["capturedAt"] != reference["capturedAt"]
-        ):
-            raise TrendingDiscoverError(
-                "discover_source_reference_mismatch", "source capture no longer matches its reference", stage="audit"
+                "discover_unsafe_path",
+                "v3 generation is not rooted in the canonical Discover store",
+                stage="audit",
             )
-        captures.append(
-            CaptureSource(
-                path=path,
-                original_observation_path=reference["originalObservationPath"],
-                content=content,
-                file_sha256=file_sha,
-                payload=payload,
+        data_dir = data_candidates[0]
+        for index, reference in enumerate(artifact["sourceInventory"], start=1):
+            scheduled_at = parse_timestamp(
+                reference["scheduledAt"], field="scheduledAt"
             )
-        )
+            try:
+                source = _load_source_capture(data_dir, scheduled_at)
+            except TrendingExplosionError as error:
+                raise TrendingDiscoverError(
+                    "discover_source_capture_invalid", str(error), stage="audit"
+                ) from None
+            if source is None:
+                raise TrendingDiscoverError(
+                    "discover_source_capture_missing",
+                    f"canonical capture is missing: {reference['captureId']}",
+                    stage="audit",
+                )
+            expected = _source_reference(
+                source, index, policy_version=artifact["policyVersion"]
+            )
+            if reference != expected:
+                raise TrendingDiscoverError(
+                    "discover_source_reference_mismatch",
+                    "canonical source capture no longer matches its descriptor",
+                    stage="audit",
+                )
+            captures.append(source)
+    else:
+        for reference in artifact["sourceInventory"]:
+            path = root / reference["generationRelativePath"]
+            payload, content, file_sha = _read_json(
+                path, root, ArtifactKind.TRENDING_CAPTURE_BUNDLE
+            )
+            try:
+                payload = validate_capture_bundle(
+                    payload, expected_capture_id=reference["captureId"]
+                )
+            except TrendingObservationError as error:
+                raise TrendingDiscoverError(
+                    "discover_source_capture_invalid", str(error), stage="audit"
+                ) from None
+            if (
+                file_sha != reference["fileSha256"]
+                or payload["digest"]["value"] != reference["payloadDigestSha256"]
+                or payload["scheduledAt"] != reference["scheduledAt"]
+                or payload["capturedAt"] != reference["capturedAt"]
+            ):
+                raise TrendingDiscoverError(
+                    "discover_source_reference_mismatch",
+                    "source capture no longer matches its reference",
+                    stage="audit",
+                )
+            captures.append(
+                CaptureSource(
+                    path=path,
+                    original_observation_path=reference["originalObservationPath"],
+                    content=content,
+                    file_sha256=file_sha,
+                    payload=payload,
+                )
+            )
     today_ref = artifact["todayExplosionSource"]
     manifest_path = root / today_ref["generationManifestRelativePath"]
     manifest_payload, manifest_content, manifest_sha = _read_json(
@@ -1306,10 +1852,17 @@ def audit_discover_generation(root: Path) -> dict[str, Any]:
             "latestCaptureId": artifact["latestCaptureId"],
             "publishedCount": artifact["coverage"]["publishedCount"],
             "conflictCount": artifact["coverage"]["conflictCount"],
-            "stageCounts": {key: len(artifact["stages"][value]) for key, value in STAGE_KEYS.items()},
+            "stageCounts": {
+                key: len(artifact["stages"][value])
+                for key, value in _stage_keys(artifact["policyVersion"]).items()
+            },
         }
-        if artifact["policyVersion"] == POLICY_VERSION:
+        if artifact["policyVersion"] in {V2_POLICY_VERSION, POLICY_VERSION}:
             report["suppressionSummary"] = copy.deepcopy(artifact["suppressionSummary"])
+        if artifact["policyVersion"] == POLICY_VERSION:
+            report["eligibilityCounts"] = copy.deepcopy(
+                artifact["eligibilityCounts"]
+            )
         return report
     except TrendingDiscoverError:
         raise
@@ -1411,13 +1964,29 @@ def _summary(state: str, artifact: dict[str, Any]) -> dict[str, Any]:
         "latestCaptureId": artifact["latestCaptureId"],
         "todayExplosionGenerationId": artifact["todayExplosionGenerationId"],
         "coverageState": artifact["coverage"]["state"],
-        "stageCounts": {stage: len(artifact["stages"][key]) for stage, key in STAGE_KEYS.items()},
+        "stageCounts": {
+            stage: len(artifact["stages"][key])
+            for stage, key in _stage_keys(artifact["policyVersion"]).items()
+        },
         "publishedCount": artifact["coverage"]["publishedCount"],
         "conflictCount": artifact["coverage"]["conflictCount"],
-        "excludedExactCount": artifact["coverage"]["excludedExactCount"],
         "coverage": copy.deepcopy(artifact["coverage"]),
     }
-    if artifact.get("policyVersion") == POLICY_VERSION:
+    if artifact.get("policyVersion") != POLICY_VERSION:
+        summary["excludedExactCount"] = artifact["coverage"]["excludedExactCount"]
+    else:
+        summary.update(
+            {
+                "todayExactCount": artifact["todayExactCount"],
+                "todayPublishedCount": artifact["todayPublishedCount"],
+                "excludedPublishedCount": artifact["excludedPublishedCount"],
+                "exactOutsidePublishedEvaluatedCount": artifact[
+                    "exactOutsidePublishedEvaluatedCount"
+                ],
+                "preExactEvaluatedCount": artifact["preExactEvaluatedCount"],
+            }
+        )
+    if artifact.get("policyVersion") in {V2_POLICY_VERSION, POLICY_VERSION}:
         summary["suppressionSummary"] = copy.deepcopy(artifact["suppressionSummary"])
     return summary
 
@@ -1462,8 +2031,11 @@ def derive_trending_discover(
     try:
         (candidate / "sources").mkdir(parents=True, exist_ok=False)
         _atomic_write(candidate / DISCOVER_FILE, _canonical_bytes(artifact))
-        for index, source in enumerate(sources.captures, start=1):
-            _atomic_write(candidate / f"sources/capture-{index:02d}.json", source.content)
+        if artifact["policyVersion"] != POLICY_VERSION:
+            for index, source in enumerate(sources.captures, start=1):
+                _atomic_write(
+                    candidate / f"sources/capture-{index:02d}.json", source.content
+                )
         _atomic_write(candidate / TODAY_SOURCE_FILE, sources.today.content)
         _atomic_write(
             candidate / TODAY_MANIFEST_FILE,

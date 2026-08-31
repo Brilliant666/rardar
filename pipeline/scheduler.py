@@ -441,6 +441,13 @@ def _default_producer_status(
             "publishedCount": None,
             "conflictCount": None,
             "excludedExactCount": None,
+            "todayExactCount": None,
+            "todayPublishedCount": None,
+            "excludedPublishedCount": None,
+            "exactOutsidePublishedEvaluatedCount": None,
+            "preExactEvaluatedCount": None,
+            "suppressedSignalCount": None,
+            "suppressionCounts": None,
             "coverage": None,
             "lastErrorCode": None,
             "nextExpectedAt": _iso(next_observation) if next_observation else None,
@@ -881,6 +888,10 @@ def _run_discover_phase(
         return None
     completed = _utc_now(clock)
     coverage = result.get("coverage")
+    suppression = result.get("suppressionSummary")
+    suppression_reasons = (
+        suppression.get("reasons") if isinstance(suppression, dict) else None
+    )
     state = "degraded" if result.get("coverageState") == "degraded" else "healthy"
     discover.update(
         {
@@ -892,6 +903,21 @@ def _run_discover_phase(
             "publishedCount": result.get("publishedCount"),
             "conflictCount": result.get("conflictCount"),
             "excludedExactCount": result.get("excludedExactCount"),
+            "todayExactCount": result.get("todayExactCount"),
+            "todayPublishedCount": result.get("todayPublishedCount"),
+            "excludedPublishedCount": result.get("excludedPublishedCount"),
+            "exactOutsidePublishedEvaluatedCount": result.get(
+                "exactOutsidePublishedEvaluatedCount"
+            ),
+            "preExactEvaluatedCount": result.get("preExactEvaluatedCount"),
+            "suppressedSignalCount": (
+                suppression.get("suppressedSignalCount")
+                if isinstance(suppression, dict)
+                else None
+            ),
+            "suppressionCounts": (
+                suppression_reasons if isinstance(suppression_reasons, dict) else None
+            ),
             "coverage": coverage if isinstance(coverage, dict) else None,
             "lastErrorCode": None,
             "nextExpectedAt": _iso(

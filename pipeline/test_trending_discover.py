@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -20,6 +21,8 @@ from pipeline.trending_explosion import CaptureSource
 from pipeline.trending_discover import (
     LEGACY_POLICY_VERSION,
     POLICY_VERSION,
+    TODAY_PUBLISHED_TOP_COUNT,
+    V2_POLICY_VERSION,
     DiscoverSources,
     TrendingDiscoverError,
     _attach_payload_digest,
@@ -160,6 +163,43 @@ def _with_series(
     return DiscoverSources(tuple(captures), sources.today)
 
 
+def _with_today_ranks(
+    sources: DiscoverSources,
+    ranked_projects: dict[int, tuple[int, str, int]],
+    *,
+    exact_count: int,
+) -> DiscoverSources:
+    template = copy.deepcopy(sources.today.payload["exactRanked"][0])
+    ranked: list[dict[str, object]] = []
+    used_ids = {repository_id for repository_id, _, _ in ranked_projects.values()}
+    for rank in range(1, exact_count + 1):
+        repository_id, repository, delta = ranked_projects.get(
+            rank,
+            (900_000 + rank, f"fixture/repository-{rank}", exact_count - rank),
+        )
+        while repository_id in used_ids and rank not in ranked_projects:
+            repository_id += exact_count
+        item = copy.deepcopy(template)
+        item.update(
+            {
+                "rank": rank,
+                "githubRepositoryId": repository_id,
+                "repository": repository,
+                "htmlUrl": f"https://github.com/{repository}",
+                "observedStarDelta": max(0, delta),
+                "totalStars": 10_000 + max(0, delta),
+                "baselineStars": 10_000,
+            }
+        )
+        ranked.append(item)
+    payload = copy.deepcopy(sources.today.payload)
+    payload["exactRanked"] = ranked
+    return DiscoverSources(
+        sources.captures,
+        replace(sources.today, payload=payload),
+    )
+
+
 class TrendingDiscoverContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -177,7 +217,7 @@ class TrendingDiscoverContractTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_stage_model_today_exclusion_and_actual_windows(self) -> None:
-        self.assertEqual(self.artifact["schemaVersion"], 2)
+        self.assertEqual(self.artifact["schemaVersion"], 3)
         self.assertEqual(self.artifact["policyVersion"], POLICY_VERSION)
         stages = self.artifact["stages"]
         self.assertEqual([item["githubRepositoryId"] for item in stages["nearValidation"]], [2])
@@ -193,7 +233,10 @@ class TrendingDiscoverContractTests(unittest.TestCase):
             for item in items
         }
         self.assertNotIn(1, all_ids)
-        self.assertEqual(self.artifact["coverage"]["excludedExactCount"], 1)
+        self.assertEqual(self.artifact["todayPublishedTopCount"], TODAY_PUBLISHED_TOP_COUNT)
+        self.assertEqual(self.artifact["excludedPublishedCount"], 1)
+        self.assertEqual(self.artifact["todayExactCount"], 1)
+        self.assertEqual(self.artifact["stages"]["outsideTodayMomentum"], [])
         self.assertTrue(all(item["observedWindowHours"] <= 26.5 for items in stages.values() for item in items))
         self.assertNotIn("expected24h", str(self.artifact))
         near = stages["nearValidation"][0]
@@ -239,11 +282,72 @@ class TrendingDiscoverContractTests(unittest.TestCase):
         self.assertEqual(recent["stage"], "just_discovered")
         self.assertEqual(recent["publishReasonCodes"], ["first_seen_recently"])
         suppression = artifact["suppressionSummary"]
-        self.assertGreaterEqual(suppression["suppressedWeakSignalCount"], 5)
-        self.assertGreaterEqual(suppression["reasons"]["weak_absolute_growth"], 3)
-        self.assertGreaterEqual(suppression["reasons"]["no_continuous_growth"], 2)
+        self.assertGreaterEqual(suppression["suppressedSignalCount"], 5)
+        self.assertGreaterEqual(suppression["reasons"]["weak_pre_exact_growth"], 5)
 
-    def test_legacy_v1_replay_remains_auditable_while_v2_filters_weak_signals(self) -> None:
+    def test_today_top20_boundary_and_outside_momentum_are_separate(self) -> None:
+        length = len(self.sources.captures)
+        accelerating = [100] * (length - 5) + [100, 101, 102, 108, 114]
+        sources = _with_series(
+            self.sources,
+            [
+                (101, "outside/accelerating", accelerating),
+                (102, "outside/flat", [500] * length),
+                (103, "today/rank-20", accelerating),
+            ],
+        )
+        sources = _with_today_ranks(
+            sources,
+            {
+                1: (1, "today/exact", 1_000),
+                20: (103, "today/rank-20", 100),
+                21: (101, "outside/accelerating", 9),
+                485: (102, "outside/flat", 0),
+            },
+            exact_count=485,
+        )
+        artifact = build_discover_artifact(
+            generation_id="top20-boundary-fixture",
+            generated_at=GENERATED_AT,
+            sources=sources,
+        )
+
+        outside = artifact["stages"]["outsideTodayMomentum"]
+        self.assertEqual([item["githubRepositoryId"] for item in outside], [101])
+        item = outside[0]
+        self.assertEqual(item["eligibilityClass"], "exact_outside_published")
+        self.assertEqual(item["todayExactRank"], 21)
+        self.assertEqual(item["recentObservedStarDelta"], 12)
+        self.assertEqual(item["priorComparableWindowDelta"], 2)
+        self.assertEqual(item["accelerationDelta"], 10)
+        self.assertIn("recent_acceleration", item["publishReasonCodes"])
+        self.assertEqual(artifact["todayExactCount"], 485)
+        self.assertEqual(artifact["todayPublishedCount"], 20)
+        self.assertEqual(artifact["excludedPublishedCount"], 2)
+        self.assertEqual(artifact["exactOutsidePublishedEvaluatedCount"], 2)
+        self.assertEqual(
+            artifact["suppressionSummary"]["reasons"][
+                "already_exact_without_momentum"
+            ],
+            1,
+        )
+        all_ids = {
+            entry["githubRepositoryId"]
+            for values in artifact["stages"].values()
+            for entry in values
+        }
+        self.assertNotIn(103, all_ids)
+        self.assertNotIn(102, all_ids)
+
+    def test_published_top_count_tamper_fails_closed(self) -> None:
+        invalid = copy.deepcopy(self.artifact)
+        invalid["todayPublishedTopCount"] = 21
+        invalid = _attach_payload_digest(invalid)
+        with self.assertRaises(TrendingDiscoverError) as context:
+            validate_discover_artifact(invalid)
+        self.assertEqual(context.exception.code, "discover_schema_invalid")
+
+    def test_retained_v1_and_v2_remain_auditable(self) -> None:
         legacy = build_discover_artifact(
             generation_id="legacy-policy-fixture",
             generated_at=GENERATED_AT,
@@ -258,6 +362,39 @@ class TrendingDiscoverContractTests(unittest.TestCase):
             sum(len(values) for values in legacy["stages"].values()),
             sum(len(values) for values in self.artifact["stages"].values()),
         )
+        v2 = build_discover_artifact(
+            generation_id="v2-policy-fixture",
+            generated_at=GENERATED_AT,
+            sources=self.sources,
+            policy_version=V2_POLICY_VERSION,
+        )
+        self.assertEqual(v2["schemaVersion"], 2)
+        self.assertEqual(v2["policyVersion"], V2_POLICY_VERSION)
+        self.assertNotIn("outsideTodayMomentum", v2["stages"])
+        self.assertEqual(v2["coverage"]["excludedExactCount"], 1)
+
+        for retained in (legacy, v2):
+            with self.subTest(policy=retained["policyVersion"]):
+                invalid = copy.deepcopy(retained)
+                invalid["todayPublishedTopCount"] = TODAY_PUBLISHED_TOP_COUNT
+                invalid = _attach_payload_digest(invalid)
+                with self.assertRaises(TrendingDiscoverError) as context:
+                    validate_discover_artifact(invalid)
+                self.assertEqual(
+                    context.exception.code, "discover_policy_contract_mismatch"
+                )
+
+                invalid = copy.deepcopy(retained)
+                target = next(
+                    item for items in invalid["stages"].values() for item in items
+                )
+                target["eligibilityClass"] = "pre_exact"
+                invalid = _attach_payload_digest(invalid)
+                with self.assertRaises(TrendingDiscoverError) as context:
+                    validate_discover_artifact(invalid)
+                self.assertEqual(
+                    context.exception.code, "discover_policy_contract_mismatch"
+                )
 
     def test_rename_fork_archive_negative_disabled_and_identity_conflict(self) -> None:
         items = [item for values in self.artifact["stages"].values() for item in values]
@@ -381,6 +518,13 @@ class TrendingDiscoverPublicationTests(unittest.TestCase):
         self.assertEqual(first["state"], "published")
         current = resolve_current_discover(self.data_dir)
         self.assertEqual(current.generation_id, first["generationId"])
+        self.assertEqual(list((current.root / "sources").glob("capture-*.json")), [])
+        self.assertTrue(
+            all(
+                "generationRelativePath" not in reference
+                for reference in current.artifact["sourceInventory"]
+            )
+        )
         self.assertIn(audit_discover_store(self.data_dir)["status"], {"healthy", "degraded"})
         second = derive_trending_discover(
             self.data_dir, generated_at=GENERATED_AT + timedelta(minutes=1)
@@ -409,10 +553,48 @@ class TrendingDiscoverPublicationTests(unittest.TestCase):
         self.assertEqual(rolled["state"], "rolled_back")
         self.assertEqual(resolve_current_discover(self.data_dir).generation_id, first["generationId"])
 
+    def test_published_set_digest_tamper_reaches_recomputation_gate(self) -> None:
+        derive_trending_discover(self.data_dir, generated_at=GENERATED_AT)
+        current = resolve_current_discover(self.data_dir)
+        artifact_path = current.root / "discover.json"
+        artifact = copy.deepcopy(current.artifact)
+        artifact["todayPublishedSetDigest"] = "0" * 64
+        artifact = _attach_payload_digest(artifact)
+
+        def encoded(value: object) -> bytes:
+            return json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+
+        artifact_bytes = encoded(artifact)
+        artifact_path.write_bytes(artifact_bytes)
+        manifest_path = current.root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["artifacts"]["discover.json"] = hashlib.sha256(
+            artifact_bytes
+        ).hexdigest()
+        manifest_bytes = encoded(manifest)
+        manifest_path.write_bytes(manifest_bytes)
+        pointer_path = current.root.parent.parent / "current.json"
+        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+        pointer["manifestSha256"] = hashlib.sha256(manifest_bytes).hexdigest()
+        pointer_path.write_bytes(encoded(pointer))
+
+        report = audit_discover_store(self.data_dir)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(
+            report["issues"][0]["code"], "discover_recomputation_mismatch"
+        )
+
     def test_source_tamper_sort_tamper_and_pointer_symlink_fail_closed(self) -> None:
         derive_trending_discover(self.data_dir, generated_at=GENERATED_AT)
         current = resolve_current_discover(self.data_dir)
-        source = current.root / "sources" / "capture-01.json"
+        source = self.data_dir / current.artifact["sourceInventory"][0][
+            "originalObservationPath"
+        ]
         source.write_bytes(source.read_bytes() + b" ")
         self.assertEqual(audit_discover_store(self.data_dir)["status"], "failed")
 
@@ -434,7 +616,10 @@ class TrendingDiscoverPublicationTests(unittest.TestCase):
     def test_source_missing_and_today_source_tamper_fail_audit(self) -> None:
         derive_trending_discover(self.data_dir, generated_at=GENERATED_AT)
         current = resolve_current_discover(self.data_dir)
-        (current.root / "sources" / "capture-01.json").unlink()
+        (
+            self.data_dir
+            / current.artifact["sourceInventory"][0]["originalObservationPath"]
+        ).unlink()
         self.assertEqual(audit_discover_store(self.data_dir)["status"], "failed")
 
         other = Path(self.temporary.name) / "today-tamper"

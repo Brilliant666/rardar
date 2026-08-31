@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rardar.local/contracts/trending-discover-manifest.schema.json",
-  "title": "Rardar immutable trending discovery generation manifest v1/v2",
+  "title": "Rardar immutable trending discovery generation manifest v1/v2/v3",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,8 +16,8 @@
     "audit"
   ],
   "properties": {
-    "schemaVersion": { "enum": [1, 2] },
-    "policyVersion": { "enum": ["trending-discover-v1", "trending-discover-v2"] },
+    "schemaVersion": { "enum": [1, 2, 3] },
+    "policyVersion": { "enum": ["trending-discover-v1", "trending-discover-v2", "trending-discover-v3"] },
     "generationId": { "$ref": "#/$defs/generationId" },
     "createdAt": { "type": "string", "format": "date-time" },
     "state": { "const": "ready" },
@@ -25,7 +25,7 @@
     "todayExplosionGenerationId": { "$ref": "#/$defs/generationId" },
     "artifacts": {
       "type": "object",
-      "minProperties": 4,
+      "minProperties": 3,
       "maxProperties": 32,
       "propertyNames": {
         "pattern": "^(?:discover\\.json|sources/(?:today-(?:explosion|manifest)|capture-[0-9]{2})\\.json)$"
@@ -41,7 +41,11 @@
         "validatedSourceCount": { "type": "integer", "minimum": 2, "maximum": 15 },
         "publishedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
         "conflictCount": { "type": "integer", "minimum": 0, "maximum": 500 },
-        "suppressedWeakSignalCount": { "type": "integer", "minimum": 0, "maximum": 500 }
+        "suppressedWeakSignalCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "suppressedSignalCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "excludedPublishedCount": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "exactOutsidePublishedEvaluatedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "outsideTodayMomentumCount": { "type": "integer", "minimum": 0, "maximum": 500 }
       }
     }
   },
@@ -50,9 +54,25 @@
       "if": { "properties": { "policyVersion": { "const": "trending-discover-v1" } } },
       "then": { "properties": { "schemaVersion": { "const": 1 } } },
       "else": {
-        "properties": {
-          "schemaVersion": { "const": 2 },
-          "audit": { "required": ["suppressedWeakSignalCount"] }
+        "if": { "properties": { "policyVersion": { "const": "trending-discover-v2" } } },
+        "then": {
+          "properties": {
+            "schemaVersion": { "const": 2 },
+            "audit": { "required": ["suppressedWeakSignalCount"] }
+          }
+        },
+        "else": {
+          "properties": {
+            "schemaVersion": { "const": 3 },
+            "audit": {
+              "required": [
+                "suppressedSignalCount",
+                "excludedPublishedCount",
+                "exactOutsidePublishedEvaluatedCount",
+                "outsideTodayMomentumCount"
+              ]
+            }
+          }
         }
       }
     }
