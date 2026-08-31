@@ -27,6 +27,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Sequence
 
 from pipeline.data_lock import data_dir_lock
+from pipeline.runtime_logging import StructuredLogger, new_run_id
 from pipeline.schema_validation import (
     strict_json_dumps,
     strict_json_loads,
@@ -47,6 +48,7 @@ RFC3339_PATTERN = re.compile(
 OPERATIONS = {"bootstrap", "refresh", "derive"}
 STATES = {"building", "ready", "failed"}
 RECOVERY_POINTER_FUTURE_DRIFT = timedelta(minutes=5)
+GENERATION_LOGGER = StructuredLogger("scheduler", stream=sys.stderr)
 
 POINTER_FIELDS = {
     "schemaVersion",
@@ -148,6 +150,7 @@ class PublicationResult:
     current: ResolvedGeneration
     audit: dict[str, Any]
     rolled_back: bool = False
+    already_published: bool = False
 
 
 @dataclass(frozen=True)
@@ -1287,7 +1290,7 @@ def _candidate_from_manifest(data_dir: Path, path: Path, manifest: dict[str, Any
     )
 
 
-def create_candidate_generation(
+def _create_candidate_generation_impl(
     data_dir: Path,
     operation: GenerationOperation,
     *,
@@ -1367,6 +1370,44 @@ def create_candidate_generation(
             stage="write",
         ) from None
     return _candidate_from_manifest(canonical, candidate_path, manifest)
+
+
+def create_candidate_generation(
+    data_dir: Path,
+    operation: GenerationOperation,
+    *,
+    generation_id: str | None = None,
+    created_at: datetime | None = None,
+    overlay_flat_staging: bool = True,
+) -> CandidateGeneration:
+    run_id = new_run_id()
+    try:
+        candidate = _create_candidate_generation_impl(
+            data_dir,
+            operation,
+            generation_id=generation_id,
+            created_at=created_at,
+            overlay_flat_staging=overlay_flat_staging,
+        )
+    except GenerationProtocolError as error:
+        if error.code == "generation_exists":
+            GENERATION_LOGGER.emit(
+                "generation_already_exists",
+                state="unchanged",
+                run_id=run_id,
+                candidateId=error.generation_id or generation_id,
+                operationId=operation,
+                errorCode=error.code,
+            )
+        raise
+    GENERATION_LOGGER.emit(
+        "generation_candidate_created",
+        state="building",
+        run_id=run_id,
+        candidateId=candidate.generation_id,
+        operationId=operation,
+    )
+    return candidate
 
 
 def fail_candidate_generation(
@@ -1680,7 +1721,7 @@ def _require_newer_publication_time(
         )
 
 
-def publish_candidate_generation(
+def _publish_candidate_generation_impl(
     candidate: CandidateGeneration,
     *,
     published_at: datetime | None = None,
@@ -1698,7 +1739,11 @@ def publish_candidate_generation(
         current = resolve_current_generation(canonical)
         if current.generation_id == candidate.generation_id:
             assert current.manifest is not None
-            return PublicationResult(current, dict(current.manifest["audit"]))
+            return PublicationResult(
+                current,
+                dict(current.manifest["audit"]),
+                already_published=True,
+            )
 
         root = _locate_ready_generation(canonical, candidate.generation_id)
         manifest, _ = _verify_manifest_integrity(
@@ -1795,6 +1840,45 @@ def publish_candidate_generation(
             legacy=False,
         )
         return PublicationResult(published, audit)
+
+
+def publish_candidate_generation(
+    candidate: CandidateGeneration,
+    *,
+    published_at: datetime | None = None,
+) -> PublicationResult:
+    run_id = new_run_id()
+    try:
+        result = _publish_candidate_generation_impl(
+            candidate,
+            published_at=published_at,
+        )
+    except GenerationProtocolError as error:
+        GENERATION_LOGGER.emit(
+            "generation_publication_failed",
+            state="failed",
+            level="error",
+            run_id=run_id,
+            candidateId=candidate.generation_id,
+            operationId=candidate.operation,
+            errorCode=error.code,
+        )
+        raise
+    if result.already_published:
+        event = "generation_already_exists"
+        state = "unchanged"
+    else:
+        event = "generation_published"
+        state = "published"
+    GENERATION_LOGGER.emit(
+        event,
+        state=state,
+        run_id=run_id,
+        candidateId=candidate.generation_id,
+        generationId=result.current.generation_id,
+        operationId=candidate.operation,
+    )
+    return result
 
 
 def verify_retained_generation(

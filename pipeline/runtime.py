@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from pipeline.data_lock import manager_dir_lock_path
+from pipeline.runtime_logging import StructuredLogger, new_run_id, process_run_id
 from pipeline.runtime_settings import (
     DEFAULT_RUNTIME_STATUS_PORT,
     DEFAULT_SCHEDULE_AT,
@@ -37,6 +38,8 @@ from pipeline.runtime_settings import (
     RUNTIME_HOST,
     SCHEDULER_ALREADY_RUNNING_EXIT_CODE,
     TRENDING_PRODUCER_ENABLED_ENV,
+    TRENDING_DISCOVER_ENABLED_ENV,
+    RETENTION_ENABLED_ENV,
     RuntimeLayout,
     RuntimeSettings,
     RuntimeSettingsError,
@@ -384,6 +387,27 @@ def _runtime_child_environment(
     environment["RARDAR_STALE_AFTER_HOURS"] = str(settings.stale_after_hours)
     environment[TRENDING_PRODUCER_ENABLED_ENV] = (
         "true" if settings.trending_producer_enabled else "false"
+    )
+    environment[TRENDING_DISCOVER_ENABLED_ENV] = (
+        "true" if settings.trending_discover_enabled else "false"
+    )
+    environment[RETENTION_ENABLED_ENV] = (
+        "true" if settings.retention_enabled else "false"
+    )
+    environment["RARDAR_RETENTION_CAPTURE_DAYS"] = str(settings.retention_capture_days)
+    environment["RARDAR_RETENTION_GENERATION_DAYS"] = str(
+        settings.retention_generation_days
+    )
+    environment["RARDAR_RETENTION_CANDIDATE_DAYS"] = str(
+        settings.retention_candidate_days
+    )
+    environment["RARDAR_RETENTION_TEMP_HOURS"] = str(settings.retention_temp_hours)
+    environment["RARDAR_STORAGE_WARNING_PERCENT"] = str(
+        settings.storage_warning_percent
+    )
+    environment["RARDAR_STORAGE_HARD_PERCENT"] = str(settings.storage_hard_percent)
+    environment["RARDAR_STORAGE_MINIMUM_FREE_BYTES"] = str(
+        settings.storage_minimum_free_bytes
     )
     # Persistent state locations remain opt-in for local compatibility.  The
     # strict layout loader validates every explicitly supplied value, and this
@@ -1129,11 +1153,34 @@ class ManagedService:
     _process_group_id: int | None = None
     _process_tree_root_pid: int | None = None
     _process_tree_root_creation_time: int | None = None
+    _output_thread: threading.Thread | None = None
+    _structured_stdio: bool = False
 
     def _close_log(self) -> None:
         if self._log_handle:
             self._log_handle.close()
             self._log_handle = None
+        if self._output_thread is not None:
+            self._output_thread.join(timeout=2)
+            self._output_thread = None
+
+    def _forward_output(self) -> None:
+        process = self.process
+        if process is None or process.stdout is None:
+            return
+        logger = StructuredLogger(self.name)
+        try:
+            for raw in iter(process.stdout.readline, b""):
+                text = raw.decode("utf-8", errors="replace").strip()
+                if text:
+                    logger.emit(
+                        "process_output",
+                        state="emitted",
+                        message=text,
+                        childProcessId=process.pid,
+                    )
+        finally:
+            process.stdout.close()
 
     def cleanup_owned_process_tree(self) -> None:
         """Prove the previous process tree is gone before any replacement."""
@@ -1182,14 +1229,35 @@ class ManagedService:
         finally:
             self._close_log()
 
-    def start(self, environment: dict[str, str]) -> None:
+    def start(
+        self,
+        environment: dict[str, str],
+        *,
+        structured_stdio: bool | None = None,
+    ) -> None:
         restarting = self.process is not None
         if restarting:
             self.cleanup_owned_process_tree()
             self.restart_count += 1
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        rotate_log(self.log_path)
-        self._log_handle = self.log_path.open("ab")
+        if structured_stdio is None:
+            structured_stdio = bool(environment.get("JOURNAL_STREAM")) or (
+                environment.get("RARDAR_STRUCTURED_LOG_STDIO") == "true"
+            )
+        self._structured_stdio = structured_stdio
+        stdout: Any
+        stderr: Any
+        if self._structured_stdio and self.name == "website":
+            stdout = subprocess.PIPE
+            stderr = subprocess.STDOUT
+        elif self._structured_stdio:
+            stdout = None
+            stderr = None
+        else:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            rotate_log(self.log_path)
+            self._log_handle = self.log_path.open("ab")
+            stdout = self._log_handle
+            stderr = subprocess.STDOUT
         creation_flags = 0
         if os.name == "nt":
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
@@ -1200,8 +1268,8 @@ class ManagedService:
             cwd=Path(environment["RARDAR_HOME"]),
             env=environment,
             stdin=subprocess.DEVNULL,
-            stdout=self._log_handle,
-            stderr=subprocess.STDOUT,
+            stdout=stdout,
+            stderr=stderr,
             creationflags=creation_flags,
             start_new_session=os.name != "nt",
         )
@@ -1227,15 +1295,44 @@ class ManagedService:
             self._process_tree_root_creation_time = creation_time
         else:
             self._process_tree_root_creation_time = None
+        if self._structured_stdio and self.name == "website":
+            self._output_thread = threading.Thread(
+                target=self._forward_output,
+                name="rardar-website-log-forwarder",
+                daemon=True,
+            )
+            self._output_thread.start()
         self.started_at = utc_now()
         if self.restart_count == 0:
             self.last_error = None
+        StructuredLogger("manager").emit(
+            "process_started",
+            state="running",
+            run_id=process_run_id(),
+            component=self.name,
+            childProcessId=self.process.pid,
+            retryCount=self.restart_count,
+        )
 
     def poll(self) -> int | None:
         return self.process.poll() if self.process else None
 
     def stop(self) -> None:
+        if self.process is not None and self.process.poll() is None:
+            StructuredLogger("manager").emit(
+                "process_stopping",
+                state="stopping",
+                run_id=process_run_id(),
+                component=self.name,
+                childProcessId=self.process.pid,
+            )
         self.cleanup_owned_process_tree()
+        StructuredLogger("manager").emit(
+            "process_stopped",
+            state="stopped",
+            run_id=process_run_id(),
+            component=self.name,
+        )
 
 
 def _service_payload(service: ManagedService, state: str) -> dict[str, Any]:
@@ -1379,6 +1476,28 @@ def _public_producer_telemetry(value: object) -> dict[str, Any] | None:
             "lastErrorCode",
             "nextExpectedAt",
         ),
+        "retention": (
+            "enabled",
+            "state",
+            "lastPlannedAt",
+            "lastAppliedAt",
+            "lastPlanDigest",
+            "deletedFiles",
+            "deletedBytes",
+            "protectedFiles",
+            "protectedBytes",
+            "errorCode",
+            "nextExpectedAt",
+        ),
+        "storage": (
+            "usedPercent",
+            "freeBytes",
+            "warningThreshold",
+            "hardThreshold",
+            "minimumFreeBytes",
+            "guardState",
+            "errorCode",
+        ),
     }
 
     def public_scalar(item: object) -> object | None:
@@ -1475,6 +1594,7 @@ def _scheduler_details(
         expected_command=expected_process_command,
     )
     status = stored if telemetry_trusted else {}
+    public_producer = _public_producer_telemetry(status.get("producer"))
     return {
         "refreshState": status.get("state", "scheduled"),
         # The manager configuration is authoritative. The scheduler status is
@@ -1496,7 +1616,17 @@ def _scheduler_details(
         "generationErrorCode": status.get("generationErrorCode"),
         "retryable": status.get("retryable", True),
         "remoteAnalysisErrorCode": status.get("remoteAnalysisErrorCode"),
-        "producer": _public_producer_telemetry(status.get("producer")),
+        "producer": public_producer,
+        "retention": (
+            public_producer.get("retention")
+            if isinstance(public_producer, dict)
+            else None
+        ),
+        "storage": (
+            public_producer.get("storage")
+            if isinstance(public_producer, dict)
+            else None
+        ),
         "telemetryTrusted": telemetry_trusted,
         "reportedProcessId": reported_process_id,
     }
@@ -1531,6 +1661,28 @@ def _stopped_status(
             "at": resolved.schedule_at,
             "timezone": resolved.schedule_timezone,
             "nextRunAt": None,
+        },
+        "retention": {
+            "enabled": resolved.retention_enabled,
+            "state": "stopped" if resolved.retention_enabled else "disabled",
+            "lastPlannedAt": None,
+            "lastAppliedAt": None,
+            "lastPlanDigest": None,
+            "deletedFiles": 0,
+            "deletedBytes": 0,
+            "protectedFiles": None,
+            "protectedBytes": None,
+            "errorCode": None,
+            "nextExpectedAt": None,
+        },
+        "storage": {
+            "usedPercent": None,
+            "freeBytes": None,
+            "warningThreshold": resolved.storage_warning_percent,
+            "hardThreshold": resolved.storage_hard_percent,
+            "minimumFreeBytes": resolved.storage_minimum_free_bytes,
+            "guardState": "unknown",
+            "errorCode": None,
         },
         "services": {
             "website": {"state": "stopped", "pid": None, "url": local_url},
@@ -1595,6 +1747,13 @@ def _run_manager(
         "website": _website_child_environment(environment),
         "scheduler": environment,
     }
+    # Detect the journal from the manager's complete environment before the
+    # website allowlist intentionally removes service-only variables.  Passing
+    # this as process-control state keeps JOURNAL_STREAM out of Vinext while
+    # still routing its output through the manager's structured journal.
+    structured_stdio = bool(environment.get("JOURNAL_STREAM")) or (
+        environment.get("RARDAR_STRUCTURED_LOG_STDIO") == "true"
+    )
 
     website = ManagedService(
         "website",
@@ -1633,9 +1792,18 @@ def _run_manager(
     )
     services = [website, scheduler]
     should_stop = False
+    manager_logger = StructuredLogger("manager")
+    manager_run_id = new_run_id()
 
     def request_stop(_signum: int, _frame: Any) -> None:
         nonlocal should_stop
+        if not should_stop:
+            manager_logger.emit(
+                "process_stopping",
+                state="stopping",
+                run_id=manager_run_id,
+                component="manager",
+            )
         should_stop = True
 
     def publish_status(payload: dict[str, Any]) -> None:
@@ -1672,6 +1840,14 @@ def _run_manager(
     signal.signal(signal.SIGTERM, request_stop)
     status_server: ThreadingHTTPServer | None = None
     try:
+        manager_logger.emit(
+            "process_started",
+            state="running",
+            run_id=manager_run_id,
+            component="manager",
+            discoverEnabled=resolved_settings.trending_discover_enabled,
+            retentionEnabled=resolved_settings.retention_enabled,
+        )
         status_server = (
             start_status_server()
             if layout is None
@@ -1705,7 +1881,10 @@ def _run_manager(
         starting_status["services"]["scheduler"]["state"] = "starting"
         publish_status(starting_status)
         for service in services:
-            service.start(service_environments[service.name])
+            service.start(
+                service_environments[service.name],
+                structured_stdio=structured_stdio,
+            )
 
         while not should_stop:
             for service in services:
@@ -1720,7 +1899,10 @@ def _run_manager(
                         service.last_error = "another scheduler owns the managed data directory"
                         continue
                     time.sleep(2)
-                    service.start(service_environments[service.name])
+                    service.start(
+                        service_environments[service.name],
+                        structured_stdio=structured_stdio,
+                    )
 
             website_health = WebsiteHealth("starting")
             if website.poll() is None and port_is_open(RUNTIME_HOST, resolved_layout.vinext_port):
@@ -1766,7 +1948,10 @@ def _run_manager(
             if scheduler_state == "stale":
                 scheduler.last_error = "scheduler heartbeat became stale"
                 scheduler.stop()
-                scheduler.start(service_environments[scheduler.name])
+                scheduler.start(
+                    service_environments[scheduler.name],
+                    structured_stdio=structured_stdio,
+                )
                 scheduler_state = "restarting"
             data_freshness = website_health.data_freshness or "invalid"
             services_healthy = website_state == scheduler_state == "healthy"
@@ -1822,6 +2007,8 @@ def _run_manager(
                     "timezone": resolved_settings.schedule_timezone,
                     "nextRunAt": scheduler_details.get("nextRunAt"),
                 },
+                "retention": scheduler_details.get("retention"),
+                "storage": scheduler_details.get("storage"),
                 "services": {
                     "website": {
                         **_service_payload(website, website_state),
@@ -1861,6 +2048,12 @@ def _run_manager(
             control_path.unlink(missing_ok=True)
         except OSError:
             pass
+        manager_logger.emit(
+            "process_stopped",
+            state="stopped",
+            run_id=manager_run_id,
+            component="manager",
+        )
     return 0
 
 

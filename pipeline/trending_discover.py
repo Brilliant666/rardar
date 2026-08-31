@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import stat
+import sys
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -22,6 +23,7 @@ from typing import Any, Sequence
 
 from pipeline.data_lock import data_dir_lock
 from pipeline.generations import GenerationProtocolError, resolve_current_generation
+from pipeline.runtime_logging import StructuredLogger, new_run_id
 from pipeline.schema_validation import (
     ArtifactKind,
     ArtifactValidationError,
@@ -63,6 +65,7 @@ TODAY_PUBLISHED_TOP_COUNT = 20
 OUTSIDE_RECENT_WINDOW_HOURS = 4
 DISCOVER_RELATIVE_ROOT = Path("artifacts/trending/discover/v1")
 DISCOVER_FILE = "discover.json"
+DISCOVER_GENERATION_LOGGER = StructuredLogger("scheduler", stream=sys.stderr)
 TODAY_SOURCE_FILE = "sources/today-explosion.json"
 TODAY_MANIFEST_FILE = "sources/today-manifest.json"
 MAX_SOURCE_CAPTURES = TRACKING_WINDOW_HOURS // 2 + 1
@@ -1998,6 +2001,7 @@ def derive_trending_discover(
     dry_run: bool = False,
     prepared_sources: DiscoverSources | None = None,
 ) -> dict[str, Any]:
+    run_id = new_run_id()
     canonical = data_dir.expanduser().resolve()
     sources = prepared_sources or load_discover_sources(canonical)
     generated = _utc(generated_at or datetime.now(timezone.utc), field="generated_at")
@@ -2008,6 +2012,13 @@ def derive_trending_discover(
         base_id = current.generation_id
         if _same_sources(current.artifact, sources):
             _require_today_source_current(canonical, sources.today)
+            DISCOVER_GENERATION_LOGGER.emit(
+                "generation_already_exists",
+                state="unchanged",
+                run_id=run_id,
+                generationId=current.generation_id,
+                operationId="discover",
+            )
             return _summary("already_derived", current.artifact)
     except TrendingDiscoverError as error:
         if error.code != "discover_current_missing":
@@ -2030,6 +2041,13 @@ def derive_trending_discover(
         )
     try:
         (candidate / "sources").mkdir(parents=True, exist_ok=False)
+        DISCOVER_GENERATION_LOGGER.emit(
+            "generation_candidate_created",
+            state="building",
+            run_id=run_id,
+            candidateId=generation_id,
+            operationId="discover",
+        )
         _atomic_write(candidate / DISCOVER_FILE, _canonical_bytes(artifact))
         if artifact["policyVersion"] != POLICY_VERSION:
             for index, source in enumerate(sources.captures, start=1):
@@ -2058,6 +2076,13 @@ def derive_trending_discover(
                     current_id = current.generation_id
                     if _same_sources(current.artifact, sources):
                         shutil.rmtree(candidate)
+                        DISCOVER_GENERATION_LOGGER.emit(
+                            "generation_already_exists",
+                            state="unchanged",
+                            run_id=run_id,
+                            generationId=current.generation_id,
+                            operationId="discover",
+                        )
                         return _summary("already_derived", current.artifact)
                 except TrendingDiscoverError as error:
                     if error.code != "discover_current_missing":
@@ -2088,10 +2113,27 @@ def derive_trending_discover(
                 require_valid(ArtifactKind.TRENDING_DISCOVER_CURRENT, pointer)
                 _atomic_write(store / "current.json", _canonical_bytes(pointer))
         resolved = resolve_current_discover(canonical)
+        DISCOVER_GENERATION_LOGGER.emit(
+            "generation_published",
+            state="published",
+            run_id=run_id,
+            candidateId=generation_id,
+            generationId=resolved.generation_id,
+            operationId="discover",
+        )
         return _summary("published", resolved.artifact)
-    except Exception:
+    except Exception as error:
         if candidate.exists():
             shutil.rmtree(candidate, ignore_errors=True)
+        DISCOVER_GENERATION_LOGGER.emit(
+            "generation_publication_failed",
+            state="failed",
+            level="error",
+            run_id=run_id,
+            candidateId=generation_id,
+            operationId="discover",
+            errorCode=str(getattr(error, "code", "discover_publication_failed"))[:100],
+        )
         raise
 
 

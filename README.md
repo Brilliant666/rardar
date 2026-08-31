@@ -74,6 +74,7 @@ Rardar 已经从“本地数据面板原型”推进到具备完整数据发布�
 | Trending fact foundation | ✅ 已合并 | 两小时 append-only Observation 与 audited 24h Explosion Artifact 已进入 `main` |
 | Trending Producer Runtime | ✅ ACTIVE | Production 已自然运行两小时 Observation 与每日 Explosion；feature flag 与 Scheduler-only token 边界保持不变 |
 | Near-real-time Discover Artifact | 🚧 Repository v3 / 未部署 | 独立 immutable store、Today Top 20 发布集合排除、榜外异动与 pre-exact 确定性阶段、只读 Audit；Production 激活另行验收 |
+| Runtime observability / retention | ✅ Repository contract | journald 结构化事件、独立 Discover flag、digest-bound retention 与磁盘门禁；Production 状态仍以独立部署验收为准 |
 | P1-6C2 legacy collision history | ⏸ Deferred | 不影响当前 Stable ID 主链，但历史 collision 生命周期尚未收口 |
 | TrendRadar/P2 能力 | 🧭 Backlog | Research Profile、Momentum Lifecycle、Alerts/Digest、MCP 等尚未进入当前主线 |
 
@@ -333,7 +334,7 @@ npm run local:stop
 08:00 Asia/Shanghai
 ```
 
-`RARDAR_TRENDING_PRODUCER_ENABLED` 默认且未配置时为 `false`，因此保持上面的 daily-refresh-only 行为。经过独立部署授权设为严格小写 `true` 后，唯一 Scheduler 才会增加 Asia/Shanghai 偶数整点 Observation → Discover 与每日 08:00 Explosion derive；`GITHUB_TOKEN` 只进入 Scheduler child，不进入 Website、状态 JSON、日志或浏览器。Discover Repository 能力合并不表示 Production Discover 已启用。
+`RARDAR_TRENDING_PRODUCER_ENABLED` 默认且未配置时为 `false`，因此保持上面的 daily-refresh-only 行为。经过独立部署授权设为严格小写 `true` 后，唯一 Scheduler 才会增加 Asia/Shanghai 偶数整点 Observation 与每日 08:00 Explosion derive；`GITHUB_TOKEN` 只进入 Scheduler child，不进入 Website、状态 JSON、日志或浏览器。Discover 另由严格布尔值 `RARDAR_TRENDING_DISCOVER_ENABLED` 独立控制，默认、未配置和空值均为 `false`；关闭 Discover 不会关闭 Observation、Refresh 或 Explosion。
 
 Discover `trending-discover-v3` 将 Today 的完整 24 小时事实集与实际发布 Top 20 分开：只排除 exact rank 1～20，rank 21+ 继续接受短窗口信号判断。`pre_exact` 沿用“刚刚发现 / 持续升温 / 待日榜验证”；`exact_outside_published` 只有最近 4 小时达到 `+10 Star / +1%` 双通道之一、连续两个区间增长且高于此前可比 4 小时，才进入“榜外异动”。门禁不使用 AI、预测或综合评分，页面允许诚实空态；Artifact 冻结 published-set digest、资格分层、窗口事实、发布原因和聚合抑制原因供 Audit 重算。retained v1/v2 generation 继续严格读取与审计。
 
@@ -348,9 +349,12 @@ npm run data:derive
 npm run data:discover
 npm run data:discover:status
 npm run data:discover:audit
+npm run data:retention:plan
+npm run data:retention:audit
 ```
 
 正式数据发布不是“直接改 JSON”，而是先生成 candidate，经过 Schema + Audit，再原子发布 generation。
+Retention `plan` 只读生成确定性计划和 digest；`apply` 必须由操作者显式提供计划文件与 exact digest，重新验证 protected set 与目标字节后才执行。它不自动删除 release、Operator backup 或 GitHub Actions 下载物。
 
 ---
 

@@ -149,6 +149,15 @@ RARDAR_SCHEDULE_AT=08:00
 RARDAR_SCHEDULE_TIMEZONE=Asia/Shanghai
 RARDAR_STALE_AFTER_HOURS=36
 RARDAR_TRENDING_PRODUCER_ENABLED=false
+RARDAR_TRENDING_DISCOVER_ENABLED=false
+RARDAR_RETENTION_ENABLED=false
+RARDAR_RETENTION_CAPTURE_DAYS=90
+RARDAR_RETENTION_GENERATION_DAYS=30
+RARDAR_RETENTION_CANDIDATE_DAYS=7
+RARDAR_RETENTION_TEMP_HOURS=24
+RARDAR_STORAGE_WARNING_PERCENT=85
+RARDAR_STORAGE_HARD_PERCENT=90
+RARDAR_STORAGE_MINIMUM_FREE_BYTES=8589934592
 
 WRANGLER_LOG_PATH=/var/log/rardar/wrangler
 WRANGLER_REGISTRY_PATH=/var/lib/rardar/runtime/wrangler-registry
@@ -160,6 +169,10 @@ MINIFLARE_REGISTRY_PATH=/var/lib/rardar/runtime/miniflare-registry
 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 是可选的 Website Host 合同，不属于所有部署的必填变量。未配置时保持现有 loopback / tunnel 行为；配置时，Managed Runtime 和 offline/online checker 都只接受最多 8 个逗号分隔、无空白、无重复的 canonical lowercase ASCII FQDN，并把经过验证的 hostname 列表报告为 `websiteAllowedHosts`。URL、端口、路径、IP、`localhost`、leading-dot suffix、通配符和 `true` 都会在任何 child 启动前 fail closed。合法原始值只通过 Website 的正向环境 allowlist 传给 Vite 官方 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` 机制；不会启用 `allowedHosts: true`，也不会把完整 systemd environment 或 secret 暴露给 Website。
 
 `RARDAR_TRENDING_PRODUCER_ENABLED` 是严格的非敏感布尔合同，只接受小写 `true` 或 `false`，未配置时为 `false`。`false` 保持既有 daily-refresh-only 行为；只有通过独立 Production 门禁把它设为 `true`，唯一 Managed Scheduler 才会同时拥有固定两小时 Observation 和每日 Explosion derive。启用时仍固定使用 `08:00 Asia/Shanghai` 产品调度，不能通过自定义 cadence 或第二套 profile 改写相位。
+
+`RARDAR_TRENDING_DISCOVER_ENABLED` 是独立的严格 opt-in：未配置、空值或 `false` 均关闭，只有精确 `true` 启用，其他值在启动 child 前 fail closed；它还要求 Producer 已启用。关闭时 Observation、Refresh 与 Explosion 继续运行，Discover telemetry 明确为 `disabled`，且不创建 candidate 或切换 Discover pointer。`RARDAR_RETENTION_ENABLED` 同样默认关闭且要求 Producer；首次 Production 启用必须先保存只读 plan 并人工核对 protected set。
+
+Retention 和存储阈值必须是上面所列的有界正整数，且 warning 小于 hard。软线记录 warning 并在非每日 Discover 相位优先尝试当天一次 maintenance；硬线或自由空间低于 8 GiB 时只阻止新的非核心 Discover candidate，稳定错误码为 `discover_storage_guard`。核心 Observation / Refresh / Explosion 仍使用既有原子写入和 fail-closed 边界。
 
 真实 GitHub 或 remote-analysis credential 只能写入 `/etc/rardar/rardar.secret` 或等价受限 EnvironmentFile。Producer 启用时 `GITHUB_TOKEN` 必须存在且非空；Manager 仅把完整受限环境交给 Scheduler child，Website 继续使用正向 allowlist，因此不会获得 `GITHUB_TOKEN` 或 Producer flag。不得：
 
@@ -258,6 +271,21 @@ KillMode=control-group
 在 CI 或没有 systemd 作为 PID 1 的隔离环境中，只执行 unit 静态验证和进程级 lifecycle 测试，不尝试控制宿主 systemd。真实服务器上的 `daemon-reload`、`enable`、`start` 和 `restart` 只允许在 `PROD-DEPLOY-01` 中执行。
 
 不要用 `npm run local:start` 代替 unit 的 `ExecStart`：`local:start` 面向本地后台管理，systemd 必须直接拥有 foreground `pipeline.runtime service`。
+
+### 7.1 Persistent structured journal
+
+Production unit 把 stdout/stderr 唯一写入 systemd journal；不得同时保留无限增长的 Manager/Website/Scheduler 应用文件日志。Scheduler 和 Manager 原生输出 `eventSchemaVersion=1` 的单行 JSON；Website 的有限 stdout/stderr 由 Manager 包装成 `process_output` JSON。每条事件至少含 timestamp、level、service、event、processId、releaseSha、runId 与 state，字段/集合/总字节有上限；Authorization、Token、API key、prompt、模型/上游正文、README、数据库 URL 和绝对运行路径在写入前脱敏。
+
+将 [`deploy/systemd/60-rardar-journal.conf`](../deploy/systemd/60-rardar-journal.conf) 安装为 `/etc/systemd/journald.conf.d/60-rardar-runtime.conf`。该主机级 drop-in 使用 persistent/compressed journal、14 天保留、3 GiB 总上限、128 MiB 单文件上限及 8 GiB keep-free。3 GiB 而不是 256 MiB 是因为现有主机 journal 已约 2.6 GiB；直接收紧到 256 MiB 会立即丢弃无关服务的诊断证据。安装前备份现有 drop-in，运行 `systemd-analyze cat-config systemd/journald.conf`，restart journald 后用 `journalctl --disk-usage` 复核；该变更不修改 Nginx。
+
+查询示例：
+
+```bash
+journalctl -u rardar.service --since '2 hours ago' -o cat
+journalctl -u rardar.service -o json | jq -r 'select(.MESSAGE | fromjson? | .event == "observation_completed") | .MESSAGE'
+```
+
+Runtime restart 前后的记录必须都可查询。unit 使用 `SyslogIdentifier=rardar` 和有界 rate limit，日志保留由 journald 一处负责。
 
 ## 8. 外部访问
 
@@ -454,18 +482,31 @@ systemd
 └─ Manager
    └─ Scheduler
       ├─ Observation  每个 Asia/Shanghai 偶数整点
-      ├─ Discover     每个成功 Observation 后
+      ├─ Discover     独立 flag 启用时，每个成功 Observation 后
       ├─ Refresh      每日 08:00
-      └─ Explosion    每日 08:00
+      ├─ Explosion    每日 08:00
+      └─ Retention    启用时，每日 08:00 链最后
 ```
 
-不得新增 cron、timer、第二个 service、daemon 或长期后台调度线程。普通偶数相位按 Observation → Discover；08:00 的顺序严格为 Observation → 原有 Refresh → Explosion → Discover，四项串行，使 Discover 使用最新 Today exact 事实与其中 rank 1～20 的 published set。Observation 失败不运行该相位 Discover，但不阻止 Refresh；Refresh 最终失败不阻止基于仍可信 current 的 Explosion 尝试；Explosion 或 Discover 失败只进入各自嵌套 Producer telemetry，不回滚已成功的核心阶段，也不使 Manager 把一个 heartbeat 新鲜的 Scheduler 判为 stale。
+不得新增 cron、timer、第二个 service、daemon 或长期后台调度线程。Discover 启用时普通偶数相位按 Observation → Discover；08:00 的顺序严格为 Observation → 原有 Refresh → Explosion → Discover → Retention。Discover 关闭时对应顺序为 Observation，以及 Observation → Refresh → Explosion → Retention。Observation 失败不运行该相位 Discover，但不阻止 Refresh；Refresh 最终失败不阻止基于仍可信 current 的 Explosion 尝试；Explosion、Discover 或 Retention 失败只进入各自嵌套 Producer telemetry，不回滚已成功的核心阶段，也不使 Manager 把一个 heartbeat 新鲜的 Scheduler 判为 stale。Retention 同日重复运行返回 no-op/already-completed，启动 catch-up 最多补最近一次 maintenance。
 
 Observation 收到的是固定相位的 intended `scheduledAt`，而不是实际启动时间。正常相位执行一次；只有明确的全源网络/HTTP 408、429 或 5xx 失败可在同一 10 分钟 eligibility 窗口内短重试一次。Scheduler 启动时只允许补最近一个且延迟不超过 10 分钟的 observation slot；超过窗口或错过多个 slot 时不回填。observer lock 冲突记录 `skipped_overlap`，不会启动第二个 observer。
 
 既有 daily 12 小时 catch-up、最多三次尝试、五分钟间隔和 remote-clone non-retryable 分类保持不变。restart 后先处理合法 daily catch-up；当天 08:00 capture 已存在且 eligible 时，Explosion 可幂等 catch-up。capture 缺失或不 eligible 时只记录 `not_ready`，不得制造 capture。首次合法 08:00 capture 后的 `firstExactEligibleAt` 机械等于该 endpoint +24 小时；到时是否为 exact 仍取决于两个 endpoint 都 eligible。
 
-Scheduler status 保留既有 top-level Refresh 字段，并增加 path-free `producer.observation`、`producer.explosion` 与 `producer.discover` telemetry。Discover 只公开状态、时间、capture/generation ID、阶段/发布/冲突/排除计数、有限 coverage 和稳定错误码。统一的进程内 status store 串行化 heartbeat 和事件更新；Manager 只转发来自当前受管 Scheduler PID 的 reviewed fields。token、Authorization、absolute capture/candidate path、上游错误正文和 stack trace 都不得进入 status 或日志。
+Scheduler status 保留既有 top-level Refresh 字段，并增加 path-free `producer.observation`、`producer.explosion`、`producer.discover`、`producer.retention` 与 `producer.storage` telemetry。Retention 只公开计划/apply 时间、digest、删除/保护计数和稳定错误码；storage 只公开使用率、自由字节、阈值和 guard state。统一的进程内 status store 串行化 heartbeat 和事件更新；Manager 只转发来自当前受管 Scheduler PID 的 reviewed fields。token、Authorization、absolute capture/candidate path、上游错误正文和 stack trace 都不得进入 status 或日志。
+
+### 14.1 Retention operator protocol
+
+所有命令必须使用 canonical `RARDAR_DATA_DIR`，首次 apply 必须停在人工核对计划之后：
+
+```bash
+python -m pipeline.retention --data-dir "$RARDAR_DATA_DIR" plan --out /var/lib/rardar/runtime/retention/operator-plan.json --release-root /opt/rardar/releases --backup-root /var/backups/rardar
+python -m pipeline.retention --data-dir "$RARDAR_DATA_DIR" apply --plan /var/lib/rardar/runtime/retention/operator-plan.json --digest <exact-plan-digest>
+python -m pipeline.retention --data-dir "$RARDAR_DATA_DIR" audit
+```
+
+`plan` 零删除；`apply` 重新验证 pointer/protected guard digest 与每个目标的路径、inode/mtime、文件数、字节数和内容 digest。任何变化都会拒绝整批操作。目标先在 data lock 下事务性移动；全部成功才写外部 runtime receipt，异常则恢复所有源，重复 apply 读取 receipt 并 no-op。禁止手改计划后重新计算 digest 来绕过审核；结构、排序、计数和路径仍会严格验证。apply 后必须再次运行 generation、Observation、Explosion、Discover（存在时）和 Retention audits。
 
 Discover generation 位于 `data/artifacts/trending/discover/v1/`，与 `data/current.json` 和每日 retained generations 使用独立 pointer、manifest、lock 和 rollback。发布只依赖已验证 Observation source copies 与当前 Today Explosion exact exclusion；不会修改 D1。合并 Scheduler 集成不等于 Production Discover 激活，部署与首个自然 derive 必须由独立 `RARDAR-DISCOVER-RUNTIME-ACTIVATION-01` 完成。
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -13,6 +14,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPConnection
 from pathlib import Path
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from pipeline.runtime import (
@@ -541,6 +543,40 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual((Path(temporary) / "website.log.1").read_bytes(), b"second-version")
             self.assertEqual((Path(temporary) / "website.log.2").read_bytes(), b"first-version")
 
+    def test_service_journal_mode_wraps_website_output_without_file_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            log_path = root / "website.log"
+            service = ManagedService(
+                "website",
+                [
+                    sys.executable,
+                    "-c",
+                    "print('Authorization: Bearer fixture-secret', flush=True)",
+                ],
+                log_path,
+            )
+            output = io.StringIO()
+            environment = {
+                **os.environ,
+                "RARDAR_HOME": str(ROOT),
+            }
+            try:
+                with redirect_stdout(output):
+                    service.start(environment, structured_stdio=True)
+                    service.process.wait(timeout=10)
+                    service._close_log()
+            finally:
+                if service.process is not None and service.process.poll() is None:
+                    service.cleanup_owned_process_tree()
+                else:
+                    service.process = None
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            forwarded = [item for item in records if item.get("event") == "process_output"]
+            self.assertEqual(len(forwarded), 1)
+            self.assertNotIn("fixture-secret", json.dumps(forwarded))
+            self.assertFalse(log_path.exists())
+
     def test_manager_lock_allows_only_one_owner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             lock_path = Path(temporary) / "manager.lock"
@@ -966,12 +1002,14 @@ class RuntimeTests(unittest.TestCase):
                 self.start_count = 0
                 self.stop_count = 0
                 self.environment = None
+                self.structured_stdio = None
                 services.append(self)
 
-            def start(self, environment) -> None:
+            def start(self, environment, *, structured_stdio=None) -> None:
                 self.start_count += 1
                 self.started_at = datetime.now(timezone.utc).isoformat()
                 self.environment = dict(environment)
+                self.structured_stdio = structured_stdio
 
             def poll(self) -> None:
                 return None
@@ -1013,6 +1051,7 @@ class RuntimeTests(unittest.TestCase):
                 "UNREVIEWED_SERVICE_TOKEN": "unknown-token",
                 "INTERNAL_CLIENT_SECRET": "unknown-secret",
                 "DATABASE_URL": "sqlite://must-not-reach-website",
+                "JOURNAL_STREAM": "8:12345",
             }
             with (
                 patch.dict("os.environ", persistent),
@@ -1067,6 +1106,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertNotIn("UNREVIEWED_SERVICE_TOKEN", website.environment)
         self.assertNotIn("INTERNAL_CLIENT_SECRET", website.environment)
         self.assertNotIn("DATABASE_URL", website.environment)
+        self.assertNotIn("JOURNAL_STREAM", website.environment)
+        self.assertTrue(website.structured_stdio)
+        self.assertTrue(scheduler.structured_stdio)
         self.assertNotIn("RARDAR_TRENDING_PRODUCER_ENABLED", website.environment)
         self.assertEqual(website.environment["CLOUDFLARE_VITE_FORCE_LOCAL"], "true")
         self.assertEqual(website.environment["HOME"], persistent["HOME"])
@@ -1109,7 +1151,7 @@ class RuntimeTests(unittest.TestCase):
                 self.stop_count = 0
                 services.append(self)
 
-            def start(self, _environment) -> None:
+            def start(self, _environment, *, structured_stdio=None) -> None:
                 self.start_count += 1
                 self.started_at = datetime.now(timezone.utc).isoformat()
 
@@ -1311,7 +1353,7 @@ class RuntimeTests(unittest.TestCase):
                 self.stop_count = 0
                 services.append(self)
 
-            def start(self, _environment) -> None:
+            def start(self, _environment, *, structured_stdio=None) -> None:
                 self.started_at = datetime.now(timezone.utc).isoformat()
                 if self.name == "scheduler":
                     handlers[signal.SIGTERM](signal.SIGTERM, None)

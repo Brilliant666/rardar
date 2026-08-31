@@ -62,6 +62,28 @@ export type RuntimeStatusSnapshot = {
     timezone: string;
     nextRunAt: string | null;
   };
+  retention?: {
+    enabled: boolean;
+    state: string;
+    lastPlannedAt: string | null;
+    lastAppliedAt: string | null;
+    lastPlanDigest: string | null;
+    deletedFiles: number;
+    deletedBytes: number;
+    protectedFiles: number | null;
+    protectedBytes: number | null;
+    errorCode: string | null;
+    nextExpectedAt: string | null;
+  } | null;
+  storage?: {
+    usedPercent: number | null;
+    freeBytes: number | null;
+    warningThreshold: number;
+    hardThreshold: number;
+    minimumFreeBytes: number;
+    guardState: "healthy" | "warning" | "blocked" | "unknown";
+    errorCode: string | null;
+  } | null;
 };
 
 export function runtimeReadinessConfig(

@@ -33,6 +33,17 @@ from pipeline.producer_schedule import (
     startup_observation_catch_up,
 )
 from pipeline.refresh import refresh
+from pipeline.retention import (
+    RetentionError,
+    StorageSnapshot,
+    apply_retention_plan,
+    audit_retention,
+    create_retention_plan,
+    recover_pending_retention_transactions,
+    storage_snapshot,
+    write_retention_plan,
+)
+from pipeline.runtime_logging import StructuredLogger, new_run_id, process_run_id
 from pipeline.runtime_settings import (
     SCHEDULER_ALREADY_RUNNING_EXIT_CODE,
     RuntimeSettings,
@@ -57,6 +68,7 @@ RETRY_DELAY_MINUTES = 5
 OBSERVATION_RETRY_DELAY_SECONDS = 30
 STATUS_HEARTBEAT_SECONDS = 15
 EXPLOSION_CATCH_UP_HOURS = 12
+SCHEDULER_LOGGER = StructuredLogger("scheduler")
 
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
@@ -416,6 +428,7 @@ def _default_producer_status(
     now: datetime,
 ) -> dict[str, Any]:
     enabled = settings.trending_producer_enabled
+    discover_enabled = enabled and settings.trending_discover_enabled
     next_observation = (
         next_observation_at(now, settings.schedule_timezone) if enabled else None
     )
@@ -430,8 +443,8 @@ def _default_producer_status(
         "nextObservationAt": _iso(next_observation) if next_observation else None,
         "nextExplosionAt": _iso(next_explosion) if next_explosion else None,
         "discover": {
-            "enabled": enabled,
-            "state": "scheduled" if enabled else "disabled",
+            "enabled": discover_enabled,
+            "state": "scheduled" if discover_enabled else "disabled",
             "lastScheduledAt": None,
             "startedAt": None,
             "completedAt": None,
@@ -451,6 +464,32 @@ def _default_producer_status(
             "coverage": None,
             "lastErrorCode": None,
             "nextExpectedAt": _iso(next_observation) if next_observation else None,
+        },
+        "retention": {
+            "enabled": enabled and settings.retention_enabled,
+            "state": "scheduled" if enabled and settings.retention_enabled else "disabled",
+            "lastPlannedAt": None,
+            "lastAppliedAt": None,
+            "lastPlanDigest": None,
+            "deletedFiles": 0,
+            "deletedBytes": 0,
+            "protectedFiles": None,
+            "protectedBytes": None,
+            "errorCode": None,
+            "nextExpectedAt": (
+                _iso(next_daily_at(now, EXPLOSION_SCHEDULE_AT, settings.schedule_timezone))
+                if enabled and settings.retention_enabled
+                else None
+            ),
+        },
+        "storage": {
+            "usedPercent": None,
+            "freeBytes": None,
+            "warningThreshold": settings.storage_warning_percent,
+            "hardThreshold": settings.storage_hard_percent,
+            "minimumFreeBytes": settings.storage_minimum_free_bytes,
+            "guardState": "unknown",
+            "errorCode": None,
         },
         "first08CaptureAt": None,
         "firstExactEligibleAt": None,
@@ -510,12 +549,26 @@ def _restore_producer_status(
         value = stored.get(key)
         if isinstance(value, scalar_types):
             status[key] = value
-    for section_name in ("observation", "explosion", "discover"):
+    for section_name in ("observation", "explosion", "discover", "retention", "storage"):
+        if section_name == "discover" and not settings.trending_discover_enabled:
+            continue
+        if section_name == "retention" and not settings.retention_enabled:
+            continue
         section = stored.get(section_name)
         if not isinstance(section, dict):
             continue
         for key in tuple(status[section_name]):
-            if key in {"cadenceMinutes", "timezone", "scheduleAt", "nextRunAt", "enabled", "nextExpectedAt"}:
+            if key in {
+                "cadenceMinutes",
+                "timezone",
+                "scheduleAt",
+                "nextRunAt",
+                "enabled",
+                "nextExpectedAt",
+                "warningThreshold",
+                "hardThreshold",
+                "minimumFreeBytes",
+            }:
                 continue
             value = section.get(key)
             if isinstance(value, scalar_types) or (
@@ -531,11 +584,15 @@ def _producer_summary_state(producer: dict[str, Any]) -> str:
     observation_state = producer["observation"].get("state")
     explosion_state = producer["explosion"].get("state")
     discover_state = producer["discover"].get("state")
+    retention_state = producer["retention"].get("state")
+    storage_state = producer["storage"].get("guardState")
     if observation_state in {"failed", "degraded", "skipped_overlap"}:
         return "degraded"
     if explosion_state in {"blocked", "degraded", "not_ready"}:
         return "degraded"
-    if discover_state in {"failed", "degraded"}:
+    if discover_state in {"failed", "degraded", "blocked"}:
+        return "degraded"
+    if retention_state in {"failed", "degraded"} or storage_state in {"warning", "blocked"}:
         return "degraded"
     if explosion_state in {"healthy", "already_derived"}:
         return "healthy"
@@ -550,6 +607,245 @@ def _publish_producer(
     store.update({"producer": producer})
 
 
+def _update_storage_status(
+    data_dir: Path,
+    settings: RuntimeSettings,
+    store: SchedulerStatusStore,
+    producer: dict[str, Any],
+    *,
+    run_id: str | None = None,
+) -> StorageSnapshot | None:
+    storage = producer["storage"]
+    previous = storage.get("guardState")
+    try:
+        measured = storage_snapshot(data_dir, settings)
+    except OSError:
+        storage.update(
+            {
+                "usedPercent": None,
+                "freeBytes": None,
+                "warningThreshold": settings.storage_warning_percent,
+                "hardThreshold": settings.storage_hard_percent,
+                "minimumFreeBytes": settings.storage_minimum_free_bytes,
+                "guardState": "blocked",
+                "errorCode": "storage_measurement_failed",
+            }
+        )
+        if previous != "blocked":
+            SCHEDULER_LOGGER.emit(
+                "storage_guard_blocked",
+                state="blocked",
+                level="error",
+                run_id=run_id,
+                errorCode="storage_measurement_failed",
+            )
+        _publish_producer(store, producer)
+        return None
+    storage.update(
+        {
+            "usedPercent": measured.used_percent,
+            "freeBytes": measured.free_bytes,
+            "warningThreshold": measured.warning_threshold,
+            "hardThreshold": measured.hard_threshold,
+            "minimumFreeBytes": measured.minimum_free_bytes,
+            "guardState": measured.guard_state,
+            "errorCode": None,
+        }
+    )
+    if measured.guard_state in {"warning", "blocked"} and previous != measured.guard_state:
+        SCHEDULER_LOGGER.emit(
+            "storage_warning",
+            state=measured.guard_state,
+            level="warning",
+            run_id=run_id,
+            diskUsedPercent=measured.used_percent,
+            diskFreeBytes=measured.free_bytes,
+        )
+    _publish_producer(store, producer)
+    return measured
+
+
+def _mark_discover_disabled(
+    scheduled_at: datetime,
+    settings: RuntimeSettings,
+    store: SchedulerStatusStore,
+    producer: dict[str, Any],
+) -> None:
+    discover = producer["discover"]
+    discover.update(
+        {
+            "enabled": False,
+            "state": "disabled",
+            "lastScheduledAt": _iso(scheduled_at),
+            "startedAt": None,
+            "completedAt": _iso(scheduled_at),
+            "lastErrorCode": None,
+            "nextExpectedAt": _iso(
+                next_observation_at(scheduled_at, settings.schedule_timezone)
+            ),
+        }
+    )
+    _publish_producer(store, producer)
+    SCHEDULER_LOGGER.emit(
+        "discover_disabled",
+        state="disabled",
+        scheduledAt=_iso(scheduled_at),
+    )
+
+
+def _run_retention_phase(
+    data_dir: Path,
+    scheduled_at: datetime,
+    settings: RuntimeSettings,
+    store: SchedulerStatusStore,
+    producer: dict[str, Any],
+    *,
+    clock: Clock,
+) -> dict[str, Any] | None:
+    retention = producer["retention"]
+    if not settings.retention_enabled:
+        retention.update({"enabled": False, "state": "disabled", "errorCode": None})
+        _publish_producer(store, producer)
+        return None
+    scheduled_day = scheduled_at.astimezone(ZoneInfo(settings.schedule_timezone)).date()
+    previous_applied = _parse_datetime(retention.get("lastAppliedAt"))
+    if (
+        previous_applied is not None
+        and previous_applied.astimezone(ZoneInfo(settings.schedule_timezone)).date()
+        == scheduled_day
+        and retention.get("state") in {"healthy", "no_op", "already_completed"}
+    ):
+        retention["state"] = "already_completed"
+        _publish_producer(store, producer)
+        return {"state": "already_completed", "noOp": True}
+    run_id = new_run_id()
+    started = _utc_now(clock)
+    retention.update({"state": "planning", "errorCode": None})
+    _publish_producer(store, producer)
+    try:
+        recover_pending_retention_transactions(
+            data_dir,
+            runtime_dir=store.path.parent,
+        )
+        release_roots: tuple[Path, ...] = ()
+        configured_home = os.environ.get("RARDAR_HOME")
+        if configured_home:
+            resolved_home = Path(configured_home).expanduser().resolve()
+            if (
+                resolved_home.parent.name == "releases"
+                and len(resolved_home.name) == 40
+                and all(character in "0123456789abcdef" for character in resolved_home.name)
+            ):
+                release_roots = (resolved_home.parent,)
+        backup_roots = (
+            (Path(os.environ["RARDAR_BACKUP_DIR"]).expanduser().resolve(),)
+            if os.environ.get("RARDAR_BACKUP_DIR")
+            else ()
+        )
+        plan = create_retention_plan(
+            data_dir,
+            settings,
+            now=started,
+            release_roots=release_roots,
+            backup_roots=backup_roots,
+        )
+        plan_path = store.path.parent / "retention" / "latest-plan.json"
+        write_retention_plan(plan_path, plan)
+        retention.update(
+            {
+                "state": "planned",
+                "lastPlannedAt": _iso(started),
+                "lastPlanDigest": plan["planDigest"],
+                "protectedFiles": plan["summary"]["protectedFiles"],
+                "protectedBytes": plan["summary"]["protectedBytes"],
+            }
+        )
+        _publish_producer(store, producer)
+        SCHEDULER_LOGGER.emit(
+            "retention_plan_created",
+            state="completed",
+            run_id=run_id,
+            operationId=plan["planDigest"],
+            candidateCount=plan["summary"]["plannedDeletions"],
+        )
+        SCHEDULER_LOGGER.emit(
+            "retention_apply_started",
+            state="running",
+            run_id=run_id,
+            operationId=plan["planDigest"],
+        )
+        with _producer_heartbeat(store, clock):
+            result = apply_retention_plan(
+                data_dir,
+                plan,
+                plan["planDigest"],
+                settings,
+                runtime_dir=store.path.parent,
+            )
+        audit = audit_retention(data_dir, settings, now=_utc_now(clock))
+        if audit.get("status") != "healthy":
+            raise RetentionError(
+                str(audit.get("errorCode", "retention_audit_failed")),
+                "retention post-apply audit failed",
+            )
+        completed = _utc_now(clock)
+        no_op = bool(result.get("noOp"))
+        retention.update(
+            {
+                "state": "no_op" if no_op else "healthy",
+                "lastAppliedAt": _iso(completed),
+                "deletedFiles": result.get("deletedFiles", 0),
+                "deletedBytes": result.get("deletedBytes", 0),
+                "errorCode": None,
+                "nextExpectedAt": _iso(
+                    next_daily_at(
+                        completed,
+                        EXPLOSION_SCHEDULE_AT,
+                        settings.schedule_timezone,
+                    )
+                ),
+            }
+        )
+        _update_storage_status(data_dir, settings, store, producer, run_id=run_id)
+        SCHEDULER_LOGGER.emit(
+            "retention_apply_completed",
+            state=retention["state"],
+            run_id=run_id,
+            operationId=plan["planDigest"],
+            completedAt=_iso(completed),
+            durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+            retentionDeletedFiles=result.get("deletedFiles", 0),
+            retentionDeletedBytes=result.get("deletedBytes", 0),
+        )
+        return result
+    except (RetentionError, OSError, ValueError) as error:
+        completed = _utc_now(clock)
+        code = str(getattr(error, "code", "retention_apply_failed"))[:100]
+        retention.update(
+            {
+                "state": "failed",
+                "errorCode": code,
+                "nextExpectedAt": _iso(
+                    next_daily_at(
+                        completed,
+                        EXPLOSION_SCHEDULE_AT,
+                        settings.schedule_timezone,
+                    )
+                ),
+            }
+        )
+        _publish_producer(store, producer)
+        SCHEDULER_LOGGER.emit(
+            "retention_apply_failed",
+            state="failed",
+            level="error",
+            run_id=run_id,
+            errorCode=code,
+            durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+        )
+        return None
+
+
 @contextmanager
 def _producer_heartbeat(
     store: SchedulerStatusStore,
@@ -558,9 +854,20 @@ def _producer_heartbeat(
     stop = threading.Event()
 
     def keep_fresh() -> None:
+        emitted_at = 0.0
         while not stop.wait(STATUS_HEARTBEAT_SECONDS):
             try:
-                store.update({"heartbeatAt": _iso(_utc_now(clock))})
+                heartbeat = _utc_now(clock)
+                store.update({"heartbeatAt": _iso(heartbeat)})
+                monotonic_now = time.monotonic()
+                if monotonic_now - emitted_at >= 60:
+                    SCHEDULER_LOGGER.emit(
+                        "scheduler_heartbeat",
+                        state="healthy",
+                        run_id=process_run_id(),
+                        completedAt=_iso(heartbeat),
+                    )
+                    emitted_at = monotonic_now
             except OSError:
                 pass
 
@@ -605,6 +912,20 @@ def _run_observation_phase(
     sleeper: Sleeper,
 ) -> dict[str, Any] | None:
     started = _utc_now(clock)
+    run_id = new_run_id()
+    SCHEDULER_LOGGER.emit(
+        "observation_scheduled",
+        state="scheduled",
+        run_id=run_id,
+        scheduledAt=_iso(scheduled_at),
+    )
+    SCHEDULER_LOGGER.emit(
+        "observation_started",
+        state="running",
+        run_id=run_id,
+        scheduledAt=_iso(scheduled_at),
+        startedAt=_iso(started),
+    )
     observation = producer["observation"]
     observation.update(
         {
@@ -663,7 +984,18 @@ def _run_observation_phase(
             )
             producer["nextObservationAt"] = observation["nextRunAt"]
             _publish_producer(store, producer)
-            print(f"Rardar observation failed: {error.code}", flush=True)
+            SCHEDULER_LOGGER.emit(
+                "observation_failed",
+                state="failed",
+                level="error",
+                run_id=run_id,
+                scheduledAt=_iso(scheduled_at),
+                completedAt=_iso(now),
+                durationMs=max(0, int((now - started).total_seconds() * 1000)),
+                retryCount=observation["retryCount"],
+                retryable=observation_error_retryable(error),
+                errorCode=error.code,
+            )
             return None
         except Exception:
             now = _utc_now(clock)
@@ -679,7 +1011,18 @@ def _run_observation_phase(
             )
             producer["nextObservationAt"] = observation["nextRunAt"]
             _publish_producer(store, producer)
-            print("Rardar observation failed: observation_internal_error", flush=True)
+            SCHEDULER_LOGGER.emit(
+                "observation_failed",
+                state="failed",
+                level="error",
+                run_id=run_id,
+                scheduledAt=_iso(scheduled_at),
+                completedAt=_iso(now),
+                durationMs=max(0, int((now - started).total_seconds() * 1000)),
+                retryCount=observation["retryCount"],
+                retryable=False,
+                errorCode="observation_internal_error",
+            )
             return None
         break
 
@@ -726,6 +1069,31 @@ def _run_observation_phase(
             first_exact_eligible_at(scheduled_at)
         )
     _publish_producer(store, producer)
+    if result_state == "skipped_overlap":
+        SCHEDULER_LOGGER.emit(
+            "scheduler_overlap_skipped",
+            state="skipped",
+            level="warning",
+            run_id=run_id,
+            scheduledAt=_iso(scheduled_at),
+            errorCode="skipped_overlap",
+        )
+    SCHEDULER_LOGGER.emit(
+        "observation_completed",
+        state=telemetry_state,
+        run_id=run_id,
+        scheduledAt=_iso(scheduled_at),
+        startedAt=_iso(started),
+        completedAt=_iso(completed),
+        durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+        captureId=result.get("captureId"),
+        querySuccessCount=result.get("successfulQueryCount"),
+        queryFailureCount=result.get("failedQueryCount"),
+        candidateCount=result.get("candidateCount"),
+        observationCount=result.get("observationCount"),
+        metadataFailureCount=result.get("metadataFailureCount"),
+        retryCount=observation["retryCount"],
+    )
     return result
 
 
@@ -739,6 +1107,14 @@ def _run_explosion_phase(
     clock: Clock,
 ) -> dict[str, Any] | None:
     started = _utc_now(clock)
+    run_id = new_run_id()
+    SCHEDULER_LOGGER.emit(
+        "explosion_started",
+        state="running",
+        run_id=run_id,
+        scheduledAt=_iso(window_end),
+        startedAt=_iso(started),
+    )
     explosion = producer["explosion"]
     explosion.update(
         {
@@ -772,7 +1148,16 @@ def _run_explosion_phase(
         )
         producer["nextExplosionAt"] = explosion["nextRunAt"]
         _publish_producer(store, producer)
-        print(f"Rardar explosion derive blocked: {code}", flush=True)
+        SCHEDULER_LOGGER.emit(
+            "explosion_failed",
+            state="blocked",
+            level="error",
+            run_id=run_id,
+            scheduledAt=_iso(window_end),
+            completedAt=_iso(completed),
+            durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+            errorCode=code,
+        )
         return None
     except Exception:
         completed = _utc_now(clock)
@@ -792,7 +1177,16 @@ def _run_explosion_phase(
         )
         producer["nextExplosionAt"] = explosion["nextRunAt"]
         _publish_producer(store, producer)
-        print("Rardar explosion derive blocked: explosion_internal_error", flush=True)
+        SCHEDULER_LOGGER.emit(
+            "explosion_failed",
+            state="blocked",
+            level="error",
+            run_id=run_id,
+            scheduledAt=_iso(window_end),
+            completedAt=_iso(completed),
+            durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+            errorCode="explosion_internal_error",
+        )
         return None
 
     completed = _utc_now(clock)
@@ -826,6 +1220,19 @@ def _run_explosion_phase(
     )
     producer["nextExplosionAt"] = explosion["nextRunAt"]
     _publish_producer(store, producer)
+    SCHEDULER_LOGGER.emit(
+        "explosion_completed",
+        state=telemetry_state,
+        run_id=run_id,
+        scheduledAt=_iso(window_end),
+        startedAt=_iso(started),
+        completedAt=_iso(completed),
+        durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+        generationId=result.get("generationId"),
+        exactCount=result.get("exactCount"),
+        pendingCount=result.get("pendingCount"),
+        conflictCount=result.get("conflictCount"),
+    )
     return result
 
 
@@ -837,11 +1244,69 @@ def _run_discover_phase(
     producer: dict[str, Any],
     *,
     clock: Clock,
+    capacity: StorageSnapshot | None = None,
 ) -> dict[str, Any] | None:
     """Derive Discover after the phase's core producer work, without coupling failure."""
 
+    if not settings.trending_discover_enabled:
+        _mark_discover_disabled(scheduled_at, settings, store, producer)
+        return None
     started = _utc_now(clock)
+    run_id = new_run_id()
     discover = producer["discover"]
+    if capacity is None:
+        capacity = _update_storage_status(
+            data_dir,
+            settings,
+            store,
+            producer,
+            run_id=run_id,
+        )
+    if capacity is None or capacity.guard_state == "blocked":
+        completed = _utc_now(clock)
+        storage = producer["storage"]
+        error_code = "discover_storage_guard"
+        discover.update(
+            {
+                "state": "blocked",
+                "lastScheduledAt": _iso(scheduled_at),
+                "startedAt": None,
+                "completedAt": _iso(completed),
+                "lastErrorCode": error_code,
+                "nextExpectedAt": _iso(
+                    next_observation_at(completed, settings.schedule_timezone)
+                ),
+            }
+        )
+        _publish_producer(store, producer)
+        SCHEDULER_LOGGER.emit(
+            "storage_guard_blocked",
+            state="blocked",
+            level="warning",
+            run_id=run_id,
+            scheduledAt=_iso(scheduled_at),
+            diskUsedPercent=storage.get("usedPercent"),
+            diskFreeBytes=storage.get("freeBytes"),
+            errorCode=error_code,
+        )
+        SCHEDULER_LOGGER.emit(
+            "discover_failed",
+            state="blocked",
+            level="warning",
+            run_id=run_id,
+            scheduledAt=_iso(scheduled_at),
+            errorCode=error_code,
+        )
+        return None
+    SCHEDULER_LOGGER.emit(
+        "discover_started",
+        state="running",
+        run_id=run_id,
+        scheduledAt=_iso(scheduled_at),
+        startedAt=_iso(started),
+        diskUsedPercent=capacity.used_percent,
+        diskFreeBytes=capacity.free_bytes,
+    )
     discover.update(
         {
             "state": "running",
@@ -869,7 +1334,16 @@ def _run_discover_phase(
             }
         )
         _publish_producer(store, producer)
-        print(f"Rardar Discover derive failed: {code}", flush=True)
+        SCHEDULER_LOGGER.emit(
+            "discover_failed",
+            state="failed",
+            level="error",
+            run_id=run_id,
+            scheduledAt=_iso(scheduled_at),
+            completedAt=_iso(completed),
+            durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+            errorCode=code,
+        )
         return None
     except Exception:
         completed = _utc_now(clock)
@@ -884,7 +1358,16 @@ def _run_discover_phase(
             }
         )
         _publish_producer(store, producer)
-        print("Rardar Discover derive failed: discover_internal_error", flush=True)
+        SCHEDULER_LOGGER.emit(
+            "discover_failed",
+            state="failed",
+            level="error",
+            run_id=run_id,
+            scheduledAt=_iso(scheduled_at),
+            completedAt=_iso(completed),
+            durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+            errorCode="discover_internal_error",
+        )
         return None
     completed = _utc_now(clock)
     coverage = result.get("coverage")
@@ -926,6 +1409,25 @@ def _run_discover_phase(
         }
     )
     _publish_producer(store, producer)
+    SCHEDULER_LOGGER.emit(
+        "discover_completed",
+        state=state,
+        run_id=run_id,
+        scheduledAt=_iso(scheduled_at),
+        startedAt=_iso(started),
+        completedAt=_iso(completed),
+        durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+        captureId=result.get("latestCaptureId"),
+        generationId=result.get("generationId"),
+        discoverStageCounts=result.get("stageCounts"),
+        candidateCount=(coverage.get("candidateCount") if isinstance(coverage, dict) else None),
+        excludedPublishedCount=result.get("excludedPublishedCount"),
+        suppressedCount=(
+            suppression.get("suppressedSignalCount")
+            if isinstance(suppression, dict)
+            else None
+        ),
+    )
     return result
 
 
@@ -938,6 +1440,14 @@ def _run_refresh_sequence(
     sleeper: Sleeper,
 ) -> dict[str, object]:
     attempts = 0
+    started = _utc_now(clock)
+    run_id = new_run_id()
+    SCHEDULER_LOGGER.emit(
+        "refresh_started",
+        state="running",
+        run_id=run_id,
+        startedAt=_iso(started),
+    )
     while True:
         result = run_cycle(
             arguments.data_dir,
@@ -954,6 +1464,26 @@ def _run_refresh_sequence(
             attempts,
             retryable=result.get("retryable", True),
         ):
+            completed = _utc_now(clock)
+            failed = result.get("state") == "failed"
+            SCHEDULER_LOGGER.emit(
+                "refresh_failed" if failed else "refresh_completed",
+                state=str(result.get("state", "failed" if failed else "completed")),
+                level="error" if failed else "info",
+                run_id=run_id,
+                startedAt=_iso(started),
+                completedAt=_iso(completed),
+                durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+                generationId=result.get("currentGenerationId"),
+                candidateId=result.get("candidateGenerationId"),
+                retryCount=attempts - 1,
+                retryable=result.get("retryable"),
+                errorCode=(
+                    result.get("generationErrorCode")
+                    or result.get("remoteAnalysisErrorCode")
+                    or ("refresh_failed" if failed else None)
+                ),
+            )
             return result
         retry_at = _utc_now(clock) + timedelta(minutes=RETRY_DELAY_MINUTES)
         store.update(
@@ -963,7 +1493,13 @@ def _run_refresh_sequence(
                 "retryAttempt": attempts + 1,
             }
         )
-        print(f"next Rardar refresh retry: {_iso(retry_at)}", flush=True)
+        SCHEDULER_LOGGER.emit(
+            "scheduler_tick",
+            state="retrying",
+            level="warning",
+            scheduledAt=_iso(retry_at),
+            retryCount=attempts + 1,
+        )
         _wait_until(retry_at, store, clock=clock, sleeper=sleeper)
 
 
@@ -1040,6 +1576,13 @@ def _execute_scheduled_events(
     """Execute one fixed phase serially in its declared priority order."""
 
     refresh_result: dict[str, object] | None = None
+    SCHEDULER_LOGGER.emit(
+        "scheduler_tick",
+        state="running",
+        run_id=process_run_id(),
+        scheduledAt=_iso(events[0].scheduled_at),
+        operations=[event.kind for event in events],
+    )
     observation_completed = False
     explosion_required = any(event.kind == "explosion" for event in events)
     explosion_completed = not explosion_required
@@ -1071,8 +1614,51 @@ def _execute_scheduled_events(
                 producer,
                 clock=clock,
             ) is not None
-        elif event.kind == "discover" and observation_completed and explosion_completed:
-            _run_discover_phase(
+        elif event.kind == "discover":
+            if not settings.trending_discover_enabled:
+                _mark_discover_disabled(
+                    event.scheduled_at,
+                    settings,
+                    store,
+                    producer,
+                )
+            elif observation_completed and explosion_completed:
+                capacity = _update_storage_status(
+                    arguments.data_dir,
+                    settings,
+                    store,
+                    producer,
+                )
+                if (
+                    settings.retention_enabled
+                    and producer["storage"].get("guardState") in {"warning", "blocked"}
+                    and not any(item.kind == "retention" for item in events)
+                ):
+                    _run_retention_phase(
+                        arguments.data_dir,
+                        event.scheduled_at,
+                        settings,
+                        store,
+                        producer,
+                        clock=clock,
+                    )
+                    capacity = _update_storage_status(
+                        arguments.data_dir,
+                        settings,
+                        store,
+                        producer,
+                    )
+                _run_discover_phase(
+                    arguments.data_dir,
+                    event.scheduled_at,
+                    settings,
+                    store,
+                    producer,
+                    clock=clock,
+                    capacity=capacity,
+                )
+        elif event.kind == "retention":
+            _run_retention_phase(
                 arguments.data_dir,
                 event.scheduled_at,
                 settings,
@@ -1121,6 +1707,23 @@ def _run_producer_scheduler(
             "producer": producer,
         }
     )
+    SCHEDULER_LOGGER.emit(
+        "process_started",
+        state="running",
+        run_id=process_run_id(),
+        component="scheduler",
+    )
+    SCHEDULER_LOGGER.emit(
+        "scheduler_started",
+        state="healthy",
+        run_id=process_run_id(),
+        scheduledAt=_iso(
+            next_daily_at(now, settings.schedule_at, settings.schedule_timezone)
+        ),
+        discoverEnabled=settings.trending_discover_enabled,
+        retentionEnabled=settings.retention_enabled,
+    )
+    _update_storage_status(arguments.data_dir, settings, store, producer)
 
     startup_now = _utc_now(now_fn)
     startup_phase = (
@@ -1173,6 +1776,30 @@ def _run_producer_scheduler(
             sleeper=sleep_fn,
         )
         if startup_observation_result is not None:
+            capacity = _update_storage_status(
+                arguments.data_dir,
+                settings,
+                store,
+                producer,
+            )
+            if (
+                settings.retention_enabled
+                and producer["storage"].get("guardState") in {"warning", "blocked"}
+            ):
+                _run_retention_phase(
+                    arguments.data_dir,
+                    startup_phase,
+                    settings,
+                    store,
+                    producer,
+                    clock=now_fn,
+                )
+                capacity = _update_storage_status(
+                    arguments.data_dir,
+                    settings,
+                    store,
+                    producer,
+                )
             _run_discover_phase(
                 arguments.data_dir,
                 startup_phase,
@@ -1180,6 +1807,7 @@ def _run_producer_scheduler(
                 store,
                 producer,
                 clock=now_fn,
+                capacity=capacity,
             )
 
     explosion_window = _startup_explosion_window(_utc_now(now_fn), settings)
@@ -1212,6 +1840,14 @@ def _run_producer_scheduler(
                 producer,
                 _utc_now(now_fn),
             )
+        _run_retention_phase(
+            arguments.data_dir,
+            explosion_window,
+            settings,
+            store,
+            producer,
+            clock=now_fn,
+        )
 
     while True:
         now = _utc_now(now_fn)
@@ -1243,11 +1879,12 @@ def _run_producer_scheduler(
                 "producer": producer,
             }
         )
-        print(
-            "next Rardar events: "
-            f"{_iso(target)} "
-            + ",".join(event.kind for event in events),
-            flush=True,
+        SCHEDULER_LOGGER.emit(
+            "scheduler_tick",
+            state="scheduled",
+            run_id=process_run_id(),
+            scheduledAt=_iso(target),
+            operations=[event.kind for event in events],
         )
         _wait_until(target, store, clock=now_fn, sleeper=sleep_fn)
         refresh_result = _execute_scheduled_events(
@@ -1291,6 +1928,77 @@ def _run_scheduler(
         print(json.dumps(status, ensure_ascii=False))
         return
 
+    SCHEDULER_LOGGER.emit(
+        "process_started",
+        state="running",
+        run_id=process_run_id(),
+        component="scheduler",
+    )
+    SCHEDULER_LOGGER.emit(
+        "scheduler_started",
+        state="healthy",
+        run_id=process_run_id(),
+        scheduledAt=next_run_at(
+            datetime.now(timezone.utc),
+            hour,
+            minute,
+            schedule_timezone,
+        ).isoformat(),
+        discoverEnabled=False,
+        retentionEnabled=False,
+    )
+
+    def logged_cycle() -> dict[str, object]:
+        started = datetime.now(timezone.utc)
+        run_id = new_run_id()
+        SCHEDULER_LOGGER.emit(
+            "refresh_started",
+            state="running",
+            run_id=run_id,
+            startedAt=started.isoformat(),
+        )
+        try:
+            result = run_cycle(
+                arguments.data_dir,
+                analyze_top,
+                status_path,
+                schedule_at,
+                schedule_timezone,
+            )
+        except Exception:
+            completed = datetime.now(timezone.utc)
+            SCHEDULER_LOGGER.emit(
+                "refresh_failed",
+                state="failed",
+                level="error",
+                run_id=run_id,
+                startedAt=started.isoformat(),
+                completedAt=completed.isoformat(),
+                durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+                errorCode="refresh_internal_error",
+            )
+            raise
+        completed = datetime.now(timezone.utc)
+        failed = result.get("state") == "failed"
+        SCHEDULER_LOGGER.emit(
+            "refresh_failed" if failed else "refresh_completed",
+            state=str(result.get("state", "failed" if failed else "completed")),
+            level="error" if failed else "info",
+            run_id=run_id,
+            startedAt=started.isoformat(),
+            completedAt=completed.isoformat(),
+            durationMs=max(0, int((completed - started).total_seconds() * 1000)),
+            generationId=result.get("currentGenerationId"),
+            candidateId=result.get("candidateGenerationId"),
+            retryable=result.get("retryable"),
+            errorCode=(
+                result.get("generationErrorCode")
+                or result.get("remoteAnalysisErrorCode")
+                or ("refresh_failed" if failed else None)
+            ),
+        )
+        return result
+
     stored_status = _read_status(status_path)
     last_status: dict[str, object] = {
         "state": stored_status.get("state", "scheduled"),
@@ -1312,13 +2020,7 @@ def _run_scheduler(
     )
     attempts_in_cycle = 0
     if not arguments.skip_initial or catch_up:
-        last_status = run_cycle(
-            arguments.data_dir,
-            analyze_top,
-            status_path,
-            schedule_at,
-            schedule_timezone,
-        )
+        last_status = logged_cycle()
         attempts_in_cycle = 1 if last_status.get("state") == "failed" else 0
 
     while True:
@@ -1340,7 +2042,14 @@ def _run_scheduler(
             "retryAttempt": attempts_in_cycle + 1 if retrying else None,
         }
         _write_status(status_path, status)
-        print(f"next Rardar refresh: {target.isoformat()}", flush=True)
+        SCHEDULER_LOGGER.emit(
+            "scheduler_tick",
+            state="retrying" if retrying else "scheduled",
+            level="warning" if retrying else "info",
+            run_id=process_run_id(),
+            scheduledAt=target.isoformat(),
+            retryCount=attempts_in_cycle + 1 if retrying else 0,
+        )
 
         while True:
             now = datetime.now(timezone.utc)
@@ -1349,15 +2058,15 @@ def _run_scheduler(
                 break
             status["heartbeatAt"] = now.isoformat()
             _write_status(status_path, status)
+            SCHEDULER_LOGGER.emit(
+                "scheduler_heartbeat",
+                state="healthy",
+                run_id=process_run_id(),
+                completedAt=now.isoformat(),
+            )
             time.sleep(min(60, remaining))
 
-        last_status = run_cycle(
-            arguments.data_dir,
-            analyze_top,
-            status_path,
-            schedule_at,
-            schedule_timezone,
-        )
+        last_status = logged_cycle()
         if last_status.get("state") == "failed":
             attempts_in_cycle = attempts_in_cycle + 1 if retrying else 1
         else:
@@ -1389,10 +2098,39 @@ def main() -> None:
     status_path = arguments.status_path or default_scheduler_status_path()
     try:
         with scheduler_instance_lock(arguments.data_dir):
-            _run_scheduler(arguments, settings, status_path)
+            try:
+                _run_scheduler(arguments, settings, status_path)
+            finally:
+                SCHEDULER_LOGGER.emit(
+                    "process_stopping",
+                    state="stopping",
+                    run_id=process_run_id(),
+                    component="scheduler",
+                )
+                SCHEDULER_LOGGER.emit(
+                    "process_stopped",
+                    state="stopped",
+                    run_id=process_run_id(),
+                    component="scheduler",
+                )
     except SchedulerAlreadyRunningError as error:
-        print(str(error), file=sys.stderr)
+        SCHEDULER_LOGGER.emit(
+            "scheduler_overlap_skipped",
+            state="skipped_overlap",
+            level="warning",
+            run_id=process_run_id(),
+            errorCode="scheduler_already_running",
+        )
         raise SystemExit(SCHEDULER_ALREADY_RUNNING_EXIT_CODE) from None
+    except Exception as error:
+        SCHEDULER_LOGGER.emit(
+            "scheduler_failed",
+            state="failed",
+            level="critical",
+            run_id=process_run_id(),
+            errorCode=str(getattr(error, "code", "scheduler_unexpected_exit"))[:100],
+        )
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":
