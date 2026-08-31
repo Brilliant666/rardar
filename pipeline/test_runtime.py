@@ -307,6 +307,7 @@ class RuntimeTests(unittest.TestCase):
                     "generationId": "discover-generation",
                     "stageCounts": {
                         "just_discovered": 2,
+                        "outside_today_momentum": 4,
                         "rising": 3,
                         "near_validation": 1,
                         "candidatePath": "/var/lib/rardar/private/candidate",
@@ -316,6 +317,12 @@ class RuntimeTests(unittest.TestCase):
                         "querySuccessCount": 5,
                         "queryFailureCount": 1,
                         "upstreamError": "Bearer must-not-pass",
+                    },
+                    "suppressedSignalCount": 12,
+                    "suppressionCounts": {
+                        "today_published": 20,
+                        "no_recent_acceleration": 7,
+                        "privateReason": "Bearer must-not-pass",
                     },
                     "sourcePath": "/var/lib/rardar/data/artifacts/private.json",
                 },
@@ -328,7 +335,15 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(producer["enabled"])
         self.assertEqual(producer["observation"]["state"], "healthy")
         self.assertEqual(producer["discover"]["stageCounts"]["rising"], 3)
+        self.assertEqual(
+            producer["discover"]["stageCounts"]["outside_today_momentum"], 4
+        )
         self.assertEqual(producer["discover"]["coverage"]["queryFailureCount"], 1)
+        self.assertEqual(producer["discover"]["suppressedSignalCount"], 12)
+        self.assertEqual(
+            producer["discover"]["suppressionCounts"],
+            {"today_published": 20, "no_recent_acceleration": 7},
+        )
         serialized = json.dumps(producer)
         self.assertNotIn("capturePath", serialized)
         self.assertNotIn("candidatePath", serialized)

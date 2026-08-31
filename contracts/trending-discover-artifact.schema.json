@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rardar.local/contracts/trending-discover-artifact.schema.json",
-  "title": "Rardar audited near-real-time GitHub discovery artifact v1/v2",
+  "title": "Rardar audited near-real-time GitHub discovery artifact v1/v2/v3",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,8 +27,8 @@
     "payloadDigest"
   ],
   "properties": {
-    "schemaVersion": { "enum": [1, 2] },
-    "policyVersion": { "enum": ["trending-discover-v1", "trending-discover-v2"] },
+    "schemaVersion": { "enum": [1, 2, 3] },
+    "policyVersion": { "enum": ["trending-discover-v1", "trending-discover-v2", "trending-discover-v3"] },
     "discoverGenerationId": { "$ref": "#/$defs/generationId" },
     "generatedAt": { "type": "string", "format": "date-time" },
     "latestCaptureId": { "$ref": "#/$defs/captureId" },
@@ -47,14 +47,10 @@
       "properties": {
         "sections": {
           "type": "array",
-          "prefixItems": [
-            { "const": "just_discovered" },
-            { "const": "rising" },
-            { "const": "near_validation" }
-          ],
-          "items": false,
+          "items": { "enum": ["just_discovered", "outside_today_momentum", "rising", "near_validation"] },
+          "uniqueItems": true,
           "minItems": 3,
-          "maxItems": 3
+          "maxItems": 4
         },
         "withinStage": {
           "type": "array",
@@ -75,6 +71,7 @@
       "required": ["justDiscovered", "rising", "nearValidation"],
       "properties": {
         "justDiscovered": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/item" } },
+        "outsideTodayMomentum": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/item" } },
         "rising": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/item" } },
         "nearValidation": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/item" } }
       }
@@ -90,8 +87,7 @@
         "sourceCaptureCount",
         "candidateCount",
         "publishedCount",
-        "conflictCount",
-        "excludedExactCount"
+        "conflictCount"
       ],
       "properties": {
         "state": { "enum": ["healthy", "degraded"] },
@@ -102,29 +98,104 @@
         "candidateCount": { "type": "integer", "minimum": 0, "maximum": 500 },
         "publishedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
         "conflictCount": { "type": "integer", "minimum": 0, "maximum": 500 },
-        "excludedExactCount": { "type": "integer", "minimum": 0, "maximum": 500 }
+        "excludedExactCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "todayExactCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "todayPublishedCount": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "excludedPublishedCount": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "exactOutsidePublishedEvaluatedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "preExactEvaluatedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "invalidCount": { "type": "integer", "minimum": 0, "maximum": 500 }
       }
     },
     "conflicts": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/conflict" } },
     "sourceInventory": { "type": "array", "minItems": 1, "maxItems": 14, "items": { "$ref": "#/$defs/sourceCapture" } },
     "todayExplosionSource": { "$ref": "#/$defs/todaySource" },
     "signalPolicy": { "$ref": "#/$defs/signalPolicy" },
-    "suppressionSummary": { "$ref": "#/$defs/suppressionSummary" },
+    "suppressionSummary": { "oneOf": [{ "$ref": "#/$defs/suppressionSummaryV2" }, { "$ref": "#/$defs/suppressionSummaryV3" }] },
+    "todayExactCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+    "todayPublishedTopCount": { "const": 20 },
+    "todayPublishedCount": { "type": "integer", "minimum": 0, "maximum": 20 },
+    "todayPublishedSetDigest": { "$ref": "#/$defs/sha256" },
+    "excludedPublishedCount": { "type": "integer", "minimum": 0, "maximum": 20 },
+    "exactOutsidePublishedEvaluatedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+    "preExactEvaluatedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+    "eligibilityCounts": { "$ref": "#/$defs/eligibilityCounts" },
     "payloadDigest": { "$ref": "#/$defs/digest" }
   },
   "allOf": [
     {
       "if": { "properties": { "policyVersion": { "const": "trending-discover-v1" } } },
-      "then": { "properties": { "schemaVersion": { "const": 1 } } },
-      "else": {
-        "required": ["signalPolicy", "suppressionSummary"],
+      "then": {
         "properties": {
-          "schemaVersion": { "const": 2 },
-          "stages": {
-            "properties": {
-              "justDiscovered": { "items": { "$ref": "#/$defs/itemV2" } },
-              "rising": { "items": { "$ref": "#/$defs/itemV2" } },
-              "nearValidation": { "items": { "$ref": "#/$defs/itemV2" } }
+          "schemaVersion": { "const": 1 },
+          "coverage": { "required": ["excludedExactCount"] },
+          "stages": { "not": { "required": ["outsideTodayMomentum"] } },
+          "sourceInventory": { "items": { "required": ["generationRelativePath"] } }
+        }
+      },
+      "else": {
+        "if": { "properties": { "policyVersion": { "const": "trending-discover-v2" } } },
+        "then": {
+          "required": ["signalPolicy", "suppressionSummary"],
+          "properties": {
+            "schemaVersion": { "const": 2 },
+            "coverage": { "required": ["excludedExactCount"] },
+            "suppressionSummary": { "$ref": "#/$defs/suppressionSummaryV2" },
+            "sourceInventory": { "items": { "required": ["generationRelativePath"] } },
+            "stages": {
+              "not": { "required": ["outsideTodayMomentum"] },
+              "properties": {
+                "justDiscovered": { "items": { "$ref": "#/$defs/itemV2" } },
+                "rising": { "items": { "$ref": "#/$defs/itemV2" } },
+                "nearValidation": { "items": { "$ref": "#/$defs/itemV2" } }
+              }
+            }
+          }
+        },
+        "else": {
+          "required": [
+            "signalPolicy",
+            "suppressionSummary",
+            "todayExactCount",
+            "todayPublishedTopCount",
+            "todayPublishedCount",
+            "todayPublishedSetDigest",
+            "excludedPublishedCount",
+            "exactOutsidePublishedEvaluatedCount",
+            "preExactEvaluatedCount",
+            "eligibilityCounts"
+          ],
+          "properties": {
+            "schemaVersion": { "const": 3 },
+            "signalPolicy": {
+              "required": [
+                "todayPublishedTopCount",
+                "outsideRecentWindowHours",
+                "outsideRequiresAcceleration"
+              ]
+            },
+            "coverage": {
+              "required": [
+                "todayExactCount",
+                "todayPublishedCount",
+                "excludedPublishedCount",
+                "exactOutsidePublishedEvaluatedCount",
+                "preExactEvaluatedCount",
+                "invalidCount"
+              ]
+            },
+            "suppressionSummary": { "$ref": "#/$defs/suppressionSummaryV3" },
+            "sourceInventory": {
+              "items": { "not": { "required": ["generationRelativePath"] } }
+            },
+            "stages": {
+              "required": ["outsideTodayMomentum"],
+              "properties": {
+                "justDiscovered": { "items": { "$ref": "#/$defs/itemV3" } },
+                "outsideTodayMomentum": { "items": { "$ref": "#/$defs/itemV3" } },
+                "rising": { "items": { "$ref": "#/$defs/itemV3" } },
+                "nearValidation": { "items": { "$ref": "#/$defs/itemV3" } }
+              }
             }
           }
         }
@@ -170,7 +241,6 @@
         "scheduledAt",
         "capturedAt",
         "coverageState",
-        "generationRelativePath",
         "originalObservationPath",
         "payloadDigestSha256",
         "fileSha256"
@@ -225,10 +295,13 @@
         "relativeGrowthGatePercent": { "const": 1.0 },
         "consecutivePositiveIntervalGate": { "const": 2 },
         "recentDiscoveryHours": { "const": 4 },
-        "nearValidationHours": { "const": 20 }
+        "nearValidationHours": { "const": 20 },
+        "todayPublishedTopCount": { "const": 20 },
+        "outsideRecentWindowHours": { "const": 4 },
+        "outsideRequiresAcceleration": { "const": true }
       }
     },
-    "suppressionSummary": {
+    "suppressionSummaryV2": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -273,6 +346,66 @@
         }
       }
     },
+    "suppressionSummaryV3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateCount",
+        "publishedCount",
+        "suppressedSignalCount",
+        "excludedPublishedCount",
+        "conflictCount",
+        "reasons"
+      ],
+      "properties": {
+        "candidateCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "publishedCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "suppressedSignalCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "excludedPublishedCount": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "conflictCount": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "reasons": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "today_published",
+            "weak_recent_absolute_growth",
+            "weak_recent_relative_growth",
+            "no_recent_continuous_growth",
+            "no_recent_acceleration",
+            "weak_pre_exact_growth",
+            "already_exact_without_momentum",
+            "identity_conflict",
+            "negative_growth",
+            "disabled",
+            "metadata_incomplete"
+          ],
+          "properties": {
+            "today_published": { "type": "integer", "minimum": 0, "maximum": 20 },
+            "weak_recent_absolute_growth": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "weak_recent_relative_growth": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "no_recent_continuous_growth": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "no_recent_acceleration": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "weak_pre_exact_growth": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "already_exact_without_momentum": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "identity_conflict": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "negative_growth": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "disabled": { "type": "integer", "minimum": 0, "maximum": 500 },
+            "metadata_incomplete": { "type": "integer", "minimum": 0, "maximum": 500 }
+          }
+        }
+      }
+    },
+    "eligibilityCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["todayPublished", "exactOutsidePublished", "preExact", "invalid"],
+      "properties": {
+        "todayPublished": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "exactOutsidePublished": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "preExact": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "invalid": { "type": "integer", "minimum": 0, "maximum": 500 }
+      }
+    },
     "item": {
       "type": "object",
       "additionalProperties": false,
@@ -304,7 +437,7 @@
         "githubRepositoryId": { "type": "integer", "minimum": 1 },
         "repository": { "$ref": "#/$defs/repository" },
         "url": { "type": "string", "format": "http-url", "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
-        "stage": { "enum": ["just_discovered", "rising", "near_validation"] },
+        "stage": { "enum": ["just_discovered", "outside_today_momentum", "rising", "near_validation"] },
         "firstSeenAt": { "type": "string", "format": "date-time" },
         "lastObservedAt": { "type": "string", "format": "date-time" },
         "observedWindowStart": { "type": "string", "format": "date-time" },
@@ -338,7 +471,15 @@
           ]
         },
         "publishReasonCodes": { "$ref": "#/$defs/signalFacts" },
-        "signalFacts": { "$ref": "#/$defs/signalFacts" }
+        "signalFacts": { "$ref": "#/$defs/signalFacts" },
+        "eligibilityClass": { "enum": ["pre_exact", "exact_outside_published"] },
+        "todayExactRank": { "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 21, "maximum": 500 }] },
+        "todayExact24hDelta": { "oneOf": [{ "type": "null" }, { "type": "integer", "minimum": 0 }] },
+        "recentWindowHours": { "type": "number", "minimum": 0, "maximum": 4 },
+        "recentObservedStarDelta": { "oneOf": [{ "type": "null" }, { "type": "integer" }] },
+        "priorComparableWindowDelta": { "oneOf": [{ "type": "null" }, { "type": "integer" }] },
+        "accelerationDelta": { "oneOf": [{ "type": "null" }, { "type": "integer" }] },
+        "recentRelativeGrowthPercent": { "oneOf": [{ "type": "null" }, { "type": "number" }] }
       }
     },
     "itemV2": {
@@ -356,14 +497,37 @@
         }
       ]
     },
+    "itemV3": {
+      "allOf": [
+        { "$ref": "#/$defs/itemV2" },
+        {
+          "required": [
+            "eligibilityClass",
+            "todayExactRank",
+            "todayExact24hDelta",
+            "recentWindowHours",
+            "recentObservedStarDelta",
+            "priorComparableWindowDelta",
+            "accelerationDelta",
+            "recentRelativeGrowthPercent"
+          ]
+        }
+      ]
+    },
     "signalFacts": {
       "type": "array",
       "minItems": 1,
-      "maxItems": 5,
+      "maxItems": 11,
       "uniqueItems": true,
       "items": {
         "enum": [
           "first_seen_recently",
+          "outside_today_top20",
+          "exact_rank_available",
+          "recent_absolute_growth",
+          "recent_relative_growth",
+          "continuous_recent_growth",
+          "recent_acceleration",
           "continuous_positive_growth",
           "absolute_growth_gate",
           "relative_growth_gate",

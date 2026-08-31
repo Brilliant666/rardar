@@ -459,7 +459,7 @@ systemd
       └─ Explosion    每日 08:00
 ```
 
-不得新增 cron、timer、第二个 service、daemon 或长期后台调度线程。普通偶数相位按 Observation → Discover；08:00 的顺序严格为 Observation → 原有 Refresh → Explosion → Discover，四项串行，使 Discover 使用最新 Today exact 排除集合。Observation 失败不运行该相位 Discover，但不阻止 Refresh；Refresh 最终失败不阻止基于仍可信 current 的 Explosion 尝试；Explosion 或 Discover 失败只进入各自嵌套 Producer telemetry，不回滚已成功的核心阶段，也不使 Manager 把一个 heartbeat 新鲜的 Scheduler 判为 stale。
+不得新增 cron、timer、第二个 service、daemon 或长期后台调度线程。普通偶数相位按 Observation → Discover；08:00 的顺序严格为 Observation → 原有 Refresh → Explosion → Discover，四项串行，使 Discover 使用最新 Today exact 事实与其中 rank 1～20 的 published set。Observation 失败不运行该相位 Discover，但不阻止 Refresh；Refresh 最终失败不阻止基于仍可信 current 的 Explosion 尝试；Explosion 或 Discover 失败只进入各自嵌套 Producer telemetry，不回滚已成功的核心阶段，也不使 Manager 把一个 heartbeat 新鲜的 Scheduler 判为 stale。
 
 Observation 收到的是固定相位的 intended `scheduledAt`，而不是实际启动时间。正常相位执行一次；只有明确的全源网络/HTTP 408、429 或 5xx 失败可在同一 10 分钟 eligibility 窗口内短重试一次。Scheduler 启动时只允许补最近一个且延迟不超过 10 分钟的 observation slot；超过窗口或错过多个 slot 时不回填。observer lock 冲突记录 `skipped_overlap`，不会启动第二个 observer。
 

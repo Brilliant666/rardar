@@ -1368,6 +1368,13 @@ def _public_producer_telemetry(value: object) -> dict[str, Any] | None:
             "publishedCount",
             "conflictCount",
             "excludedExactCount",
+            "todayExactCount",
+            "todayPublishedCount",
+            "excludedPublishedCount",
+            "exactOutsidePublishedEvaluatedCount",
+            "preExactEvaluatedCount",
+            "suppressedSignalCount",
+            "suppressionCounts",
             "coverage",
             "lastErrorCode",
             "nextExpectedAt",
@@ -1382,7 +1389,12 @@ def _public_producer_telemetry(value: object) -> dict[str, Any] | None:
         return None
 
     nested_fields = {
-        "stageCounts": ("just_discovered", "rising", "near_validation"),
+        "stageCounts": (
+            "just_discovered",
+            "outside_today_momentum",
+            "rising",
+            "near_validation",
+        ),
         "coverage": (
             "state",
             "querySuccessCount",
@@ -1393,6 +1405,25 @@ def _public_producer_telemetry(value: object) -> dict[str, Any] | None:
             "publishedCount",
             "conflictCount",
             "excludedExactCount",
+            "todayExactCount",
+            "todayPublishedCount",
+            "excludedPublishedCount",
+            "exactOutsidePublishedEvaluatedCount",
+            "preExactEvaluatedCount",
+            "invalidCount",
+        ),
+        "suppressionCounts": (
+            "today_published",
+            "weak_recent_absolute_growth",
+            "weak_recent_relative_growth",
+            "no_recent_continuous_growth",
+            "no_recent_acceleration",
+            "weak_pre_exact_growth",
+            "already_exact_without_momentum",
+            "identity_conflict",
+            "negative_growth",
+            "disabled",
+            "metadata_incomplete",
         ),
     }
 

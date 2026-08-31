@@ -141,7 +141,7 @@ nextRunAt:       2026-08-24 08:00 Asia/Shanghai
 | Trending Observation v1 | ✅ MERGED | 固定两小时事实 capture、numeric GitHub identity、26h carry-forward、create-only store 与只读 Audit |
 | Trending Explosion Artifact v1 | ✅ MERGED | 08:00 exact/pending/conflict、byte-exact generation sources、Schema/Audit、幂等与 CAS publication |
 | Trending Producer Runtime | ✅ ACTIVE | Production 已自然运行 Observation 与 Explosion；单 Scheduler、feature flag 与 Scheduler-only token 边界保持不变 |
-| Trending Discover Artifact v1 | 🚧 IMPLEMENTED / NOT DEPLOYED | 独立 immutable generations、Today exact 排除、三阶段事实、只读 Audit 与 Scheduler 编排；Production 激活另开任务 |
+| Trending Discover Artifact v3 | 🚧 IMPLEMENTED / NOT DEPLOYED | 独立 immutable generations、Today published Top 20 排除、榜外异动与 pre-exact 三阶段事实、只读 Audit 与 Scheduler 编排；Production 激活另开任务 |
 | Legacy collision lifecycle | ⏸ Deferred | P1-6C2 尚未收口，不阻塞当前 Stable ID 主链 |
 
 ---
@@ -182,7 +182,7 @@ PR #22、PR #23、`PROD-PRODUCT-RELEASE-02`、`SERVER-NATURAL-RUN-03`、`OPS-RES
 
 ### Phase F — Rardar v2 fact producer
 
-PR #26、#27 与 #28 已把固定两小时 GitHub Observation 和 audited 24-hour Explosion Artifact 合入 Repository `main`，后续 Runtime 集成与自然运行验收已使 Production producer ACTIVE。`RARDAR-DISCOVER-REALTIME-01` 在此基础上增加独立 Discover immutable store：每个成功 Observation 后按当前 Today exact 排除集合派生近实时三阶段事实，失败与核心 Scheduler 隔离。它的 Repository 合并和 TopicEye 本地闭环不代表 Production Discover 已激活；部署与自然 derive 属于后续独立任务。
+PR #26、#27 与 #28 已把固定两小时 GitHub Observation 和 audited 24-hour Explosion Artifact 合入 Repository `main`，后续 Runtime 集成与自然运行验收已使 Production producer ACTIVE。Discover 在此基础上使用独立 immutable store：每个成功 Observation 后读取当前 Today exact 事实，但只排除产品实际发布的 rank 1～20；rank 21+ 进入榜外异动评估，pre-exact 继续进入三阶段评估，失败与核心 Scheduler 隔离。Repository 合并和 TopicEye 本地闭环不代表 Production Discover 已激活；部署与自然 derive 属于后续独立任务。
 
 ---
 

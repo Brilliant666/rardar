@@ -80,9 +80,9 @@ python -m pipeline.collect_trending_observations `
 
 这里的 `<generation>` 表示 `data/current.json` 一次解析后得到的 `data/generations/<generationId>/`。页面、API、审计命令和下一轮增长基线不得分别重读指针或拼接 flat 路径。
 
-## Trending Discover Artifact v1
+## Trending Discover Artifact v1/v2/v3
 
-`TrendingDiscoverArtifact v1/v2` 是与每日 generation 分离的近实时事实产物。它在每个合法 Observation 完成后读取最新 eligible capture、向前最多 26 小时的 eligible captures，以及当前已验证 Today Explosion exact 集合，并发布到独立 immutable store。store 路径为了 retained generation 与消费者兼容保持不变：
+`TrendingDiscoverArtifact v1/v2/v3` 是与每日 generation 分离的近实时事实产物。它在每个合法 Observation 完成后读取最新 eligible capture、向前最多 26 小时的 eligible captures，以及当前已验证 Today Explosion exact 集合，并发布到独立 immutable store。store 路径为了 retained generation 与消费者兼容保持不变：
 
 ```text
 data/artifacts/trending/discover/v1/current.json
@@ -90,18 +90,21 @@ data/artifacts/trending/discover/v1/generations/<discoverGenerationId>/
 ├─ manifest.json
 ├─ discover.json
 └─ sources/
-   ├─ capture-01.json ... capture-14.json
    ├─ today-explosion.json
    └─ today-manifest.json
 ```
 
-新发布合同为 `schemaVersion=2`、`policyVersion=trending-discover-v2`；retained v1 generation 仍按 v1 规则严格读取、重算和 rollback。每个 generation 复制 source 原始字节，manifest 绑定全部文件 SHA-256，artifact 另有 canonical payload digest；`current.json` 只通过独立 data lock、CAS 与原子替换推进。policy version 参与 generation identity；只有 policy、latest capture、Today generation 和 Today digest 都一致才返回 `already_derived`。并发第二写者不得覆盖胜者。Discover 不读取或写入 D1，也不改写每日 generation。
+retained v1/v2 generation 的 `sources/` 还包含 `capture-01.json ... capture-14.json`；v3 仅在 Artifact 中保存这些 Observation 的 canonical descriptor，不复制其 bytes。
 
-Today exact 排除只按 GitHub numeric repository ID。Today current、manifest、Explosion artifact 或 digest 不能安全验证时 derive fail closed；不得按 `owner/name` 猜测，也不得回退到旧或 flat 数据。rename/transfer 保持 numeric ID 连续，fork/mirror 保留为独立仓库事实；disabled、负 Star 增量、名称到 numeric ID 冲突进入 conflicts 或被排除。
+新发布合同为 `schemaVersion=3`、`policyVersion=trending-discover-v3`；retained v1/v2 generation 仍按各自规则严格读取、重算和 rollback。v3 不再逐代复制 Observation bytes，只冻结 canonical relative path、capture ID、scheduledAt、payload digest 与文件 SHA-256；Audit 以 no-follow stable read 回到 canonical capture store 验证。Today Explosion 与其 manifest 仍按代冻结，manifest 绑定 generation-local 文件，artifact 另有 canonical payload digest；`current.json` 只通过独立 data lock、CAS 与原子替换推进。policy version 参与 generation identity；只有 policy、latest capture、Today generation 和 Today digest 都一致才返回 `already_derived`。并发第二写者不得覆盖胜者。Discover 不读取或写入 D1，也不改写每日 generation。
 
-一个 v2 发布项目只属于一个透明阶段：最近 4 个计划小时首次出现时进入 `just_discovered`，不强制增长；其他项目必须满足至少两个有效区间、正总增量、绝对增长 `>=10` 或相对增长 `>=1%`，并在窗口内形成至少 2 个连续正增长区间。通过门禁且连续观察不足 20 小时为 `rising`；连续观察至少 20 小时为 `near_validation`，产品文案为“待日榜验证”。页面分区顺序固定为刚刚发现、持续升温、待日榜验证；每个分区内部按 `observedStarDelta DESC`、`totalStars DESC`、`repository ASC`。每项冻结相对增长、正增长区间、最长连续正增长、最新区间增量与发布原因；聚合 suppression summary 冻结弱绝对/相对增长、缺少连续增长、Today exact、冲突和 metadata failure。所有事实均从 source bytes 重算，禁止 AI 排名以及预计、折算或外推 24 小时事实。
+Today published Top 20 排除只按 GitHub numeric repository ID。Today current、manifest、Explosion artifact 或 digest 不能安全验证时 derive fail closed；不得按 `owner/name` 猜测，也不得回退到旧或 flat 数据。rename/transfer 保持 numeric ID 连续，fork/mirror 保留为独立仓库事实；disabled、负 Star 增量、名称到 numeric ID 冲突进入 conflicts 或被排除。
 
-`python -m pipeline.audit_trending_discover --data-dir <path>` 只读验证 current、generation path、manifest/hash、Schema、payload digest、全部 source identity/hash/digest、Today exclusion source、numeric ID、阶段唯一性、门禁/发布原因/抑制原因/阶段/排序重算、实际窗口、delta、conflicts、临时文件及 link/reparse/path escape。Audit 只使用 generation-local source copies 完整重算，不修复或覆盖数据。CLI：
+v3 固定 `todayPublishedTopCount=20`，以 GitHub numeric repository ID 构造 Today rank 1～20 的 published set，并冻结其 SHA-256 digest。rank 1～20 为 `today_published`，rank 21+ 为 `exact_outside_published`，无完整 24 小时事实为 `pre_exact`；冲突、disabled 与负增长进入 `invalid`。只有 published set 被排除，不能再把完整 exact 集合当作页面发布集合。
+
+一个 v3 发布项目只属于一个透明阶段。`pre_exact` 最近 4 个计划小时首次出现时进入 `just_discovered`；其他项目必须满足绝对增长 `>=10` 或相对增长 `>=1%`，并形成至少 2 个连续正增长区间，连续观察不足 20 小时为 `rising`，至少 20 小时为 `near_validation`。`exact_outside_published` 使用最近实际 4 小时及此前可比 4 小时；只有短窗绝对/相对门禁、连续增长和 `recent > prior` 同时成立，才进入 `outside_today_momentum`。页面顺序固定为刚刚发现、榜外异动、持续升温、待日榜验证。每项与 aggregate 都可从冻结的 Today bytes 和哈希绑定的 canonical Observation bytes 重算，禁止 AI 排名以及预计、折算或外推 24 小时事实。
+
+`python -m pipeline.audit_trending_discover --data-dir <path>` 只读验证 current、generation path、manifest/hash、Schema、payload digest、全部 source identity/hash/digest、Today exclusion source、numeric ID、阶段唯一性、门禁/发布原因/抑制原因/阶段/排序重算、实际窗口、delta、conflicts、临时文件及 link/reparse/path escape。v1/v2 Audit 使用 generation-local source copies；v3 Audit 对 canonical Observation 执行 no-follow stable read，并核对冻结 descriptor 与 SHA-256。Audit 不修复或覆盖数据。CLI：
 
 ```powershell
 python -m pipeline.derive_trending_discover --data-dir data derive
@@ -110,7 +113,7 @@ python -m pipeline.derive_trending_discover --data-dir data rollback <generation
 python -m pipeline.audit_trending_discover --data-dir data
 ```
 
-Producer 启用时仍只有一个 Managed Scheduler。普通偶数整点严格执行 Observation → Discover；08:00 严格执行 Observation → Refresh → Explosion → Discover，使 Discover 使用最新 Today exact 排除集合。Discover 失败只降级 `producer.discover` telemetry，不回滚或终止 Observation、Refresh、Explosion，也不新增 timer、cron、service 或 daemon。Repository 合并只表示合同和编排可用；Production Discover 必须经过独立 Runtime activation 后才可称为 ACTIVE。
+Producer 启用时仍只有一个 Managed Scheduler。普通偶数整点严格执行 Observation → Discover；08:00 严格执行 Observation → Refresh → Explosion → Discover，使 Discover 使用最新 Today exact 事实与其中 rank 1～20 的 published set。Discover 失败只降级 `producer.discover` telemetry，不回滚或终止 Observation、Refresh、Explosion，也不新增 timer、cron、service 或 daemon。Repository 合并只表示合同和编排可用；Production Discover 必须经过独立 Runtime activation 后才可称为 ACTIVE。
 
 Schema 使用 JSON Schema Draft 2020-12，并限制必填字段、对象额外字段、字段类型、数组成员、枚举、时间、HTTP(S) URL、`owner/name` 仓库身份、字符串长度和数值范围。Schema 只引用仓库内文件，验证过程不会联网获取契约。
 

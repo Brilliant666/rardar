@@ -406,6 +406,62 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(stored["lastErrorCode"], "discover_internal_error")
         self.assertNotIn("secret absolute path", output.getvalue())
 
+    def test_discover_success_publishes_v3_eligibility_and_suppression_telemetry(
+        self,
+    ) -> None:
+        settings = RuntimeSettings("08:00", "Asia/Shanghai", 36, True)
+        phase = datetime(2026, 8, 27, 2, 0, tzinfo=timezone.utc)
+        clock = MutableClock(phase)
+        result = {
+            "state": "published",
+            "generationId": "discover-v3-generation",
+            "latestCaptureId": "trending-v1-20260827T020000Z",
+            "coverageState": "healthy",
+            "stageCounts": {
+                "just_discovered": 1,
+                "outside_today_momentum": 4,
+                "rising": 2,
+                "near_validation": 3,
+            },
+            "publishedCount": 10,
+            "conflictCount": 2,
+            "todayExactCount": 477,
+            "todayPublishedCount": 20,
+            "excludedPublishedCount": 20,
+            "exactOutsidePublishedEvaluatedCount": 453,
+            "preExactEvaluatedCount": 2,
+            "coverage": {"state": "healthy", "candidateCount": 499},
+            "suppressionSummary": {
+                "suppressedSignalCount": 467,
+                "reasons": {
+                    "today_published": 20,
+                    "no_recent_acceleration": 300,
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            store = SchedulerStatusStore(Path(directory) / "scheduler.json")
+            producer = _default_producer_status(settings, clock())
+            with patch(
+                "pipeline.scheduler.derive_trending_discover", return_value=result
+            ):
+                actual = _run_discover_phase(
+                    Path(directory) / "data",
+                    phase,
+                    settings,
+                    store,
+                    producer,
+                    clock=clock,
+                )
+            stored = store.snapshot()["producer"]["discover"]
+
+        self.assertEqual(actual, result)
+        self.assertEqual(stored["state"], "healthy")
+        self.assertEqual(stored["stageCounts"]["outside_today_momentum"], 4)
+        self.assertEqual(stored["exactOutsidePublishedEvaluatedCount"], 453)
+        self.assertEqual(stored["suppressedSignalCount"], 467)
+        self.assertEqual(stored["suppressionCounts"]["today_published"], 20)
+
     def test_refresh_sequence_keeps_three_attempts_and_five_minute_delays(self) -> None:
         settings = RuntimeSettings("08:00", "Asia/Shanghai", 36, True)
         clock = MutableClock(datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc))

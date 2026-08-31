@@ -16,7 +16,9 @@ from pipeline.trending_discover import (
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Derive or inspect TrendingDiscoverArtifact v1")
+    parser = argparse.ArgumentParser(
+        description="Derive or inspect versioned TrendingDiscoverArtifact generations"
+    )
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     subparsers = parser.add_subparsers(dest="command")
     derive = subparsers.add_parser("derive")

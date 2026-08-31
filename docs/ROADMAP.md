@@ -98,7 +98,7 @@ Repository `main` 与 Production release 可以合法不同。只有完成 exact
 - 高价值资产库完整产品建设继续 Deferred，只积累最低限度历史事实；
 - `TRENDING-OBSERVATIONS-01` 已由 PR #26 合并；PR #27 已解决 Linux same-slot create-only settlement 竞态，observation Schema、immutable capture bundle、九查询召回、26 小时 carry-forward、numeric repository ID 连续性、create-only store、单实例锁和只读 audit 均已进入 `main`。
 - `TRENDING-EXPLOSION-ARTIFACT-01` 已由 PR #28 合并；eligible endpoint 的 24h exact/pending/conflict、byte-exact generation source copies、Schema/Audit、幂等和 CAS publication 已进入 `main`。
-- Production 已自然运行既有两小时 Observation 与每日 Explosion。本工程轮为尚未形成完整 24 小时事实的项目增加独立 `TrendingDiscoverArtifact v1`：最新 eligible capture + 最多 26 小时 source copies + 当前 Today exact 排除、确定性三阶段、manifest/hash/digest、Audit 与原子 pointer。
+- Production 已自然运行既有两小时 Observation 与每日 Explosion。Discover 现以 `TrendingDiscoverArtifact v3` 严格拆分 Today exact 事实全集与产品发布 Top 20：只排除 rank 1～20，rank 21+ 通过最近/此前可比 4 小时事实进入可审计的“榜外异动”判断；pre-exact 三阶段、manifest/hash/digest、Audit 与原子 pointer 保持不变。
 - 同一唯一 Scheduler 在普通相位按 Observation → Discover，在 08:00 按 Observation → Refresh → Explosion → Discover；Discover 失败隔离，不新增 service/daemon，不修改 D1，也不让 AI 参与候选、阶段、增量或排序。
 - Repository 实现不等于 Production Discover ACTIVE。Rardar 合并后由 TopicEye vendoring 最终合同并完成本地真实数据产品闭环；Production 激活只能由后续 `RARDAR-DISCOVER-RUNTIME-ACTIVATION-01` 完成。
 - Today Artifact、精确排名、Stable Project ID、Action/Feedback、AI Provider 与 Find Project 均冻结；本轮不部署 Production。
