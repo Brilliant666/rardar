@@ -2,3 +2,6 @@
 # staging line-ending conversion to the pointer or immutable generations.
 /data/current.json -text -diff
 /data/generations/** -text -diff
+
+# The installed unit must be byte-identical to the reviewed Git/release copy.
+/deploy/systemd/rardar.service text eol=lf

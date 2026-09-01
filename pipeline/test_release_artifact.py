@@ -49,6 +49,11 @@ def _write_release_fixture(root: Path) -> None:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"fixture:{relative}\n", encoding="utf-8")
+    (root / ".gitattributes").write_text(
+        "/deploy/systemd/rardar.service text eol=lf\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     (root / "requirements.lock").write_text(
         "fixture-alpha==1.0.0\nfixture.beta==2.0.0\n",
         encoding="utf-8",
@@ -369,6 +374,19 @@ class ReleaseArtifactTests(unittest.TestCase):
         self.assertFalse((stage / "data").exists())
         self.assertTrue((source / "data" / "current.json").is_file())
         self.assertTrue((stage / "node_modules" / "vite" / "bin" / "vite.js").is_file())
+        committed_unit = subprocess.check_output(
+            [
+                "git",
+                "-C",
+                str(source),
+                "show",
+                f"{commit_sha}:deploy/systemd/rardar.service",
+            ]
+        )
+        self.assertEqual(
+            (stage / "deploy" / "systemd" / "rardar.service").read_bytes(),
+            committed_unit,
+        )
 
     def test_archive_is_deterministic_and_fresh_extraction_is_verified(self) -> None:
         output = Path(self.temporary.name) / "output"

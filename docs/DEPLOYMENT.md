@@ -265,8 +265,11 @@ EnvironmentFile=-/etc/rardar/rardar.secret
 ExecStartPre=/opt/rardar/current/.venv/bin/python -m pipeline.deployment check --offline
 ExecStart=/opt/rardar/current/.venv/bin/python -m pipeline.runtime service
 Restart=on-failure
+TimeoutStartSec=5min
 KillMode=control-group
 ```
+
+`TimeoutStartSec=5min` 是版本化 unit 的启动合同，不依赖主机上的人工 drop-in。offline preflight 由父进程监督，并在 4 分钟达到内部墙钟上限时以稳定错误码 `deployment_preflight_timeout` 非零退出；systemd 额外保留 1 分钟用于进程收口和失败记录。任何 preflight 失败或超时都发生在 `ExecStart` 之前，Manager、Website 与 Scheduler 不会启动。灾难恢复中临时加入的启动时限 drop-in 只能在新 unit 首次健康启动期间保留，确认有效 unit 仍解析为 5 分钟后必须移除并受控重启验证，不能成为长期部署依赖。
 
 在 CI 或没有 systemd 作为 PID 1 的隔离环境中，只执行 unit 静态验证和进程级 lifecycle 测试，不尝试控制宿主 systemd。真实服务器上的 `daemon-reload`、`enable`、`start` 和 `restart` 只允许在 `PROD-DEPLOY-01` 中执行。
 
@@ -339,6 +342,8 @@ offline check 是只读门禁，至少验证：
 - current pointer、generation ID/path、ready manifest、manifest digest、全部 artifact hash、JSON Schema 和跨文件 Audit；
 - audit `errorCount == 0`，允许 healthy 或只有 warning 的 degraded；
 - Vinext state 中至少存在一个 Rardar SQLite；checker 对 source main、`-wal` 与 `-journal` 做打开前后身份/字节稳定校验，只把稳定字节复制到系统临时 scratch（systemd 下位于该服务的 `PrivateTmp`），然后仅在副本上执行 WAL recovery、`PRAGMA quick_check` 和 Rardar 表指纹检查。
+
+完整 CLI 的内部上限为 4 分钟，所有显式子进程和 HTTP 请求还保留各自更短的 timeout。该上限只负责终止并报告超时，不会把未完成检查当作成功，也不会放宽 generation、release、D1 或路径门禁。
 
 失败返回非零和结构化错误。它不得：
 

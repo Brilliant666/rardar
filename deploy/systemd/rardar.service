@@ -19,6 +19,7 @@ ExecStart=/opt/rardar/current/.venv/bin/python -m pipeline.runtime service
 Restart=on-failure
 RestartPreventExitStatus=4
 RestartSec=10s
+TimeoutStartSec=5min
 TimeoutStopSec=45s
 KillMode=control-group
 UMask=0077

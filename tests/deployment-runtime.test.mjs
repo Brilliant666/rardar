@@ -542,6 +542,12 @@ test("Always-on deployment keeps one foreground manager behind loopback", async 
   assert.match(journal, /^SystemMaxUse=3G$/m);
   assert.match(journal, /^SystemKeepFree=8G$/m);
   assert.match(unit, /^Restart=on-failure$/m);
+  const unitDirectives = parseUnitDirectives(unit);
+  assert.equal(
+    requireSingleDirective(unitDirectives, "Service", "TimeoutStartSec"),
+    "5min",
+  );
+  assert.doesNotMatch(unit, /90-start-timeout-recovery/);
   assert.match(unit, /^StartLimitIntervalSec=300$/m);
   assert.match(unit, /^StartLimitBurst=5$/m);
   assert.doesNotMatch(unit, /pipeline\.scheduler/);

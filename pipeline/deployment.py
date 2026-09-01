@@ -52,6 +52,9 @@ APPLICATION_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MIN_FREE_BYTES = 1024 * 1024 * 1024
 MAX_HTTP_BODY_BYTES = 1024 * 1024
 HTTP_TIMEOUT_SECONDS = 5
+PREFLIGHT_TIMEOUT_SECONDS = 4 * 60
+PREFLIGHT_WORKER_ARGUMENT = "--rardar-preflight-worker"
+MAX_PREFLIGHT_OUTPUT_BYTES = 1024 * 1024
 MAX_MANAGER_STATUS_AGE_SECONDS = 45
 MAX_SCHEDULER_HEARTBEAT_AGE_SECONDS = 130
 MAX_CLOCK_FUTURE_SKEW_SECONDS = 300
@@ -1499,5 +1502,91 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+def _preflight_failure_payload(mode: str, code: str, detail: str) -> dict[str, Any]:
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "status": "failed",
+        "mode": mode,
+        "checkedAt": _checked_at(),
+        "error": {"code": code, "detail": detail},
+    }
+
+
+def bounded_main(
+    argv: Sequence[str] | None = None,
+    *,
+    timeout_seconds: int = PREFLIGHT_TIMEOUT_SECONDS,
+) -> int:
+    """Run the CLI in a supervised child so the whole preflight has a deadline."""
+
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == [PREFLIGHT_WORKER_ARGUMENT]:
+        return main(arguments[1:])
+
+    mode = "online" if "--online" in arguments else "offline"
+    command = [
+        sys.executable,
+        "-m",
+        "pipeline.deployment",
+        PREFLIGHT_WORKER_ARGUMENT,
+        *arguments,
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        payload = _preflight_failure_payload(
+            mode,
+            "deployment_preflight_timeout",
+            f"deployment preflight exceeded its {timeout_seconds}-second internal deadline",
+        )
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return 1
+    except OSError:
+        payload = _preflight_failure_payload(
+            mode,
+            "deployment_preflight_worker_failed",
+            "deployment preflight worker could not start",
+        )
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return 1
+
+    output = completed.stdout
+    if len(output) > MAX_PREFLIGHT_OUTPUT_BYTES:
+        payload = _preflight_failure_payload(
+            mode,
+            "deployment_preflight_worker_failed",
+            "deployment preflight worker output exceeded its bound",
+        )
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return 1
+    try:
+        payload = json.loads(output.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = _preflight_failure_payload(
+            mode,
+            "deployment_preflight_worker_failed",
+            "deployment preflight worker returned an invalid result",
+        )
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return 1
+    if not isinstance(payload, dict):
+        payload = _preflight_failure_payload(
+            mode,
+            "deployment_preflight_worker_failed",
+            "deployment preflight worker returned an invalid result",
+        )
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return 1
+    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    return completed.returncode
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(bounded_main())

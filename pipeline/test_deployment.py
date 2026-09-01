@@ -19,10 +19,12 @@ from unittest.mock import patch
 from pipeline.deployment import (
     CANONICAL_SYSTEMD_PATHS,
     DeploymentCheckError,
+    PREFLIGHT_TIMEOUT_SECONDS,
     _check_release,
     _check_toolchain,
     _check_vinext_state,
     _load_paths,
+    bounded_main,
     check_offline,
     check_online,
     main,
@@ -1041,6 +1043,26 @@ class DeploymentCliAndUnitTests(unittest.TestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["error"]["code"], "fixture_failed")
 
+    def test_bounded_cli_fails_closed_with_a_stable_timeout(self) -> None:
+        output = io.StringIO()
+        with patch(
+            "pipeline.deployment.subprocess.run",
+            side_effect=subprocess.TimeoutExpired([sys.executable], 0.01),
+        ), redirect_stdout(output):
+            exit_code = bounded_main(
+                ["check", "--offline"],
+                timeout_seconds=1,
+            )
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["mode"], "offline")
+        self.assertEqual(
+            payload["error"]["code"],
+            "deployment_preflight_timeout",
+        )
+        self.assertLessEqual(PREFLIGHT_TIMEOUT_SECONDS, 4 * 60)
+
     def test_systemd_unit_owns_only_the_foreground_manager(self) -> None:
         unit = SYSTEMD_UNIT.read_text(encoding="utf-8")
         self.assertIn("Type=simple", unit)
@@ -1059,6 +1081,15 @@ class DeploymentCliAndUnitTests(unittest.TestCase):
         self.assertIn("KillMode=control-group", unit)
         self.assertIn("Restart=on-failure", unit)
         self.assertIn("RestartPreventExitStatus=4", unit)
+        self.assertEqual(
+            [
+                line
+                for line in unit.splitlines()
+                if line.startswith("TimeoutStartSec=")
+            ],
+            ["TimeoutStartSec=5min"],
+        )
+        self.assertNotIn("90-start-timeout-recovery", unit)
         self.assertIn("ProtectSystem=strict", unit)
         self.assertNotIn("pipeline.scheduler", unit)
         self.assertNotIn("local:start", unit)
