@@ -244,7 +244,7 @@ def _partial_sources(data_dir: Path, window_start: datetime, window_end: datetim
 
 
 def _coverage_witness(data_dir: Path, window_start: datetime) -> CaptureSource | None:
-    """Find the nearest valid slot before T-24h with a strict 90-day bound."""
+    """Find the nearest valid slot before T-24h within the current Capture bound."""
 
     maximum_slots = RETENTION_DAYS * (24 // CADENCE_HOURS)
     scheduled = window_start - timedelta(hours=CADENCE_HOURS)

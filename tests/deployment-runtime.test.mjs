@@ -586,9 +586,36 @@ test("Always-on deployment keeps one foreground manager behind loopback", async 
   assert.match(runtime, /VITE_ADDITIONAL_ALLOWED_HOSTS_ENV/);
   assert.match(systemdExample, /^RARDAR_TRENDING_DISCOVER_ENABLED=false$/m);
   assert.match(systemdExample, /^RARDAR_RETENTION_ENABLED=false$/m);
+  assert.match(systemdExample, /^RARDAR_RETENTION_CAPTURE_DAYS=45$/m);
+  assert.match(systemdExample, /^RARDAR_RETENTION_GENERATION_DAYS=30$/m);
+  assert.match(systemdExample, /^RARDAR_RETENTION_DISCOVER_GENERATION_DAYS=14$/m);
+  assert.match(systemdExample, /^RARDAR_RETENTION_FAILED_CANDIDATE_DAYS=3$/m);
+  assert.match(systemdExample, /^RARDAR_RETENTION_CANDIDATE_DAYS=7$/m);
+  assert.match(systemdExample, /^RARDAR_RETENTION_CANDIDATE_LATEST_COUNT=10$/m);
+  assert.match(systemdExample, /^RARDAR_RETENTION_TEMP_HOURS=24$/m);
   assert.match(systemdExample, /^RARDAR_STORAGE_WARNING_PERCENT=85$/m);
   assert.match(systemdExample, /^RARDAR_STORAGE_HARD_PERCENT=90$/m);
   assert.match(systemdExample, /^RARDAR_STORAGE_MINIMUM_FREE_BYTES=8589934592$/m);
+});
+
+test("Verify publishes single-run pytest timing evidence within the 45-minute budget", async () => {
+  const [workflow, verify, testRequirements] = await Promise.all([
+    source(".github/workflows/verify.yml"),
+    source("scripts/verify.mjs"),
+    source("requirements-test.lock"),
+  ]);
+  assert.match(workflow, /^\s+timeout-minutes: 45$/m);
+  assert.doesNotMatch(workflow, /^\s+timeout-minutes: 30$/m);
+  assert.match(workflow, /RARDAR_VERIFY_TIMING_PATH/);
+  assert.match(workflow, /RARDAR_PYTEST_JUNIT_PATH/);
+  assert.match(workflow, /rardar-verify-timing-/);
+  assert.match(workflow, /requirements-test\.lock/);
+  assert.match(verify, /--durations=50/);
+  assert.match(verify, /--durations-min=1\.0/);
+  assert.match(verify, /--junitxml=/);
+  assert.match(verify, /pipeline\.pytest_timing/);
+  assert.doesNotMatch(verify, /unittest", "discover/);
+  assert.match(testRequirements, /^pytest==8\.3\.5$/m);
 });
 
 test("systemd sandbox grants exactly the address families required by the runtime", async () => {

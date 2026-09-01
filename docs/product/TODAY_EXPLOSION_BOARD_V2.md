@@ -106,7 +106,7 @@ observedStarDelta = totalStars(T) - totalStars(T - 24h)
 - 现有 9 条 Search 查询为 108 次/日；动态语言/Topic 查询总数设置全局上限，不超过 20 次/轮；
 - Search 请求串行或小并发，遵守 `x-ratelimit-*`、`retry-after` 和 secondary limits；
 - repository metadata 使用 ETag conditional requests；
-- 原始 2h observations 保留 90 天，每日 rollup 长期保留。
+- 新原始 2h observations 保留 45 天；历史 90 天 bundle 按其原始 `retainUntil` 保留；每日 rollup 长期保留。
 
 该规模对小型单机属于轻量元数据工作；真正重资源的浅克隆和 AI 分析不在 2h 全量路径中。
 
@@ -119,7 +119,7 @@ observedStarDelta = totalStars(T) - totalStars(T - 24h)
 - 不修改历史 bundle；修正以新 observation 表达；
 - 每日 derive 记录实际消费的 capture IDs/digests，随后把榜单 artifact 冻结进 generation；
 - D1 继续只承载用户 Action/Feedback 等业务状态，不混入高频 GitHub 事实；
-- 90 天后可把 2h bundle 压缩归档，但 daily rollup 和 generation provenance 长期保留。
+- Capture 完成自身 45 天（历史 bundle 为 90 天）合同且不再被 retained generation 引用后，才可由统一 Retention 的 digest-bound 计划清理；daily rollup 和 generation-local provenance 继续保留。
 
 具体目录名属于第一个实现 PR 的合同评审内容；RFC 不预先修改 `data/` 或 `contracts/`。
 

@@ -151,9 +151,12 @@ RARDAR_STALE_AFTER_HOURS=36
 RARDAR_TRENDING_PRODUCER_ENABLED=false
 RARDAR_TRENDING_DISCOVER_ENABLED=false
 RARDAR_RETENTION_ENABLED=false
-RARDAR_RETENTION_CAPTURE_DAYS=90
+RARDAR_RETENTION_CAPTURE_DAYS=45
 RARDAR_RETENTION_GENERATION_DAYS=30
+RARDAR_RETENTION_DISCOVER_GENERATION_DAYS=14
+RARDAR_RETENTION_FAILED_CANDIDATE_DAYS=3
 RARDAR_RETENTION_CANDIDATE_DAYS=7
+RARDAR_RETENTION_CANDIDATE_LATEST_COUNT=10
 RARDAR_RETENTION_TEMP_HOURS=24
 RARDAR_STORAGE_WARNING_PERCENT=85
 RARDAR_STORAGE_HARD_PERCENT=90
@@ -172,7 +175,7 @@ MINIFLARE_REGISTRY_PATH=/var/lib/rardar/runtime/miniflare-registry
 
 `RARDAR_TRENDING_DISCOVER_ENABLED` 是独立的严格 opt-in：未配置、空值或 `false` 均关闭，只有精确 `true` 启用，其他值在启动 child 前 fail closed；它还要求 Producer 已启用。关闭时 Observation、Refresh 与 Explosion 继续运行，Discover telemetry 明确为 `disabled`，且不创建 candidate 或切换 Discover pointer。`RARDAR_RETENTION_ENABLED` 同样默认关闭且要求 Producer；首次 Production 启用必须先保存只读 plan 并人工核对 protected set。
 
-Retention 和存储阈值必须是上面所列的有界正整数，且 warning 小于 hard。软线记录 warning 并在非每日 Discover 相位优先尝试当天一次 maintenance；硬线或自由空间低于 8 GiB 时只阻止新的非核心 Discover candidate，稳定错误码为 `discover_storage_guard`。核心 Observation / Refresh / Explosion 仍使用既有原子写入和 fail-closed 边界。
+Retention 和存储阈值必须是上面所列的有界正整数，且 warning 小于 hard。Capture 必须严格长于 Refresh/Explosion 与 Discover generation 的最长周期，Discover 不得长于 Capture，candidate latest count 至少为 1，temporary hours 必须大于 0；任何不合法组合在启动 child 前 fail closed。45 天 Capture 覆盖 30 天 retained generation 审计窗口并保留 15 天清理、时区边界和延迟回滚余量；历史 `retentionDays=90` capture 的既有承诺不被缩短。软线记录 warning 并在非每日 Discover 相位优先尝试当天一次 maintenance；硬线或自由空间低于 8 GiB 时只阻止新的非核心 Discover candidate，稳定错误码为 `discover_storage_guard`。核心 Observation / Refresh / Explosion 仍使用既有原子写入和 fail-closed 边界。
 
 真实 GitHub 或 remote-analysis credential 只能写入 `/etc/rardar/rardar.secret` 或等价受限 EnvironmentFile。Producer 启用时 `GITHUB_TOKEN` 必须存在且非空；Manager 仅把完整受限环境交给 Scheduler child，Website 继续使用正向 allowlist，因此不会获得 `GITHUB_TOKEN` 或 Producer flag。不得：
 
@@ -279,7 +282,7 @@ KillMode=control-group
 
 Production unit 把 stdout/stderr 唯一写入 systemd journal；不得同时保留无限增长的 Manager/Website/Scheduler 应用文件日志。Scheduler 和 Manager 原生输出 `eventSchemaVersion=1` 的单行 JSON；Website 的有限 stdout/stderr 由 Manager 包装成 `process_output` JSON。每条事件至少含 timestamp、level、service、event、processId、releaseSha、runId 与 state，字段/集合/总字节有上限；Authorization、Token、API key、prompt、模型/上游正文、README、数据库 URL 和绝对运行路径在写入前脱敏。
 
-将 [`deploy/systemd/60-rardar-journal.conf`](../deploy/systemd/60-rardar-journal.conf) 安装为 `/etc/systemd/journald.conf.d/60-rardar-runtime.conf`。该主机级 drop-in 使用 persistent/compressed journal、14 天保留、3 GiB 总上限、128 MiB 单文件上限及 8 GiB keep-free。3 GiB 而不是 256 MiB 是因为现有主机 journal 已约 2.6 GiB；直接收紧到 256 MiB 会立即丢弃无关服务的诊断证据。安装前备份现有 drop-in，运行 `systemd-analyze cat-config systemd/journald.conf`，restart journald 后用 `journalctl --disk-usage` 复核；该变更不修改 Nginx。
+将 [`deploy/systemd/60-rardar-journal.conf`](../deploy/systemd/60-rardar-journal.conf) 安装为 `/etc/systemd/journald.conf.d/60-rardar-runtime.conf`。该配置明确是主机级而不是 Rardar 独立日志作用域，因此继续使用 persistent/compressed journal、14 天保留、3 GiB 系统总上限、128 MiB 单文件上限及 8 GiB keep-free，不能为了 Rardar 把整机上限盲目收紧到 1 GiB。Rardar 自身依靠 unit 的 `LogRateLimitIntervalSec=30s` / `LogRateLimitBurst=2000`、结构化字段长度/集合/事件总字节上限，以及按 unit 的只读 journal byte-rate 复核，把 14 天预计份额控制在约 1 GiB 内；超出时先修正高频事件或字段，不牺牲 Nginx 和其他服务证据。安装前备份现有 drop-in，运行 `systemd-analyze cat-config systemd/journald.conf`，restart journald 后用 `journalctl --disk-usage` 和 `journalctl -u rardar.service --since '14 days ago' -o export` 的只读字节统计复核；该变更不修改 Nginx。
 
 查询示例：
 
@@ -506,12 +509,12 @@ Scheduler status 保留既有 top-level Refresh 字段，并增加 path-free `pr
 所有命令必须使用 canonical `RARDAR_DATA_DIR`，首次 apply 必须停在人工核对计划之后：
 
 ```bash
-python -m pipeline.retention --data-dir "$RARDAR_DATA_DIR" plan --out /var/lib/rardar/runtime/retention/operator-plan.json --release-root /opt/rardar/releases --backup-root /var/backups/rardar
+python -m pipeline.retention --data-dir "$RARDAR_DATA_DIR" plan --out /var/lib/rardar/runtime/retention/operator-plan.json --release-root /opt/rardar/releases --backup-root /var/backups/rardar --operator-artifact-root /var/lib/rardar/runtime/retention
 python -m pipeline.retention --data-dir "$RARDAR_DATA_DIR" apply --plan /var/lib/rardar/runtime/retention/operator-plan.json --digest <exact-plan-digest>
 python -m pipeline.retention --data-dir "$RARDAR_DATA_DIR" audit
 ```
 
-`plan` 零删除；`apply` 重新验证 pointer/protected guard digest 与每个目标的路径、inode/mtime、文件数、字节数和内容 digest。任何变化都会拒绝整批操作。目标先在 data lock 下事务性移动；全部成功才写外部 runtime receipt，异常则恢复所有源，重复 apply 读取 receipt 并 no-op。禁止手改计划后重新计算 digest 来绕过审核；结构、排序、计数和路径仍会严格验证。apply 后必须再次运行 generation、Observation、Explosion、Discover（存在时）和 Retention audits。
+`plan` 零删除；release directories、deployment backups 和 operator artifacts 只统计，绝不成为自动删除目标。`apply` 重新验证 pointer/protected guard digest 与每个目标的路径、inode/mtime、文件数、字节数和内容 digest。任何变化都会拒绝整批操作。目标先在 data lock 下事务性移动；全部成功才写外部 runtime receipt，异常则恢复所有源，重复 apply 读取 receipt 并 no-op。禁止手改计划后重新计算 digest 来绕过审核；结构、排序、计数和路径仍会严格验证。apply 后必须再次运行 generation、Observation、Explosion、Discover（存在时）和 Retention audits。
 
 Discover generation 位于 `data/artifacts/trending/discover/v1/`，与 `data/current.json` 和每日 retained generations 使用独立 pointer、manifest、lock 和 rollback。发布只依赖已验证 Observation source copies 与当前 Today Explosion exact exclusion；不会修改 D1。合并 Scheduler 集成不等于 Production Discover 激活，部署与首个自然 derive 必须由独立 `RARDAR-DISCOVER-RUNTIME-ACTIVATION-01` 完成。
 

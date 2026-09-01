@@ -354,7 +354,7 @@ npm run data:retention:audit
 ```
 
 正式数据发布不是“直接改 JSON”，而是先生成 candidate，经过 Schema + Audit，再原子发布 generation。
-Retention `plan` 只读生成确定性计划和 digest；`apply` 必须由操作者显式提供计划文件与 exact digest，重新验证 protected set 与目标字节后才执行。它不自动删除 release、Operator backup 或 GitHub Actions 下载物。
+Retention `plan` 只读生成确定性计划和 digest；`apply` 必须由操作者显式提供计划文件与 exact digest，重新验证 protected set 与目标字节后才执行。它不自动删除 release、deployment backup、operator artifact 或 GitHub Actions 下载物。
 
 ---
 

@@ -44,7 +44,7 @@ from pipeline.trending_observations import (
 )
 
 
-RETENTION_POLICY_VERSION = "rardar-retention-v1"
+RETENTION_POLICY_VERSION = "rardar-retention-v2"
 RETENTION_PLAN_SCHEMA_VERSION = 1
 CAPTURE_ROOT = Path("observations/trending/v1/captures")
 UNIFIED_GENERATION_ROOT = Path("generations")
@@ -52,7 +52,6 @@ UNIFIED_CANDIDATE_ROOT = Path("generations/.candidates")
 DISCOVER_GENERATION_ROOT = DISCOVER_RELATIVE_ROOT / "generations"
 DISCOVER_CANDIDATE_ROOT = DISCOVER_GENERATION_ROOT / ".candidates"
 NEWEST_READY_PER_TYPE = 3
-NEWEST_DIAGNOSTIC_CANDIDATES = 10
 _GENERATION_ID = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$")
 _CAPTURE_REFERENCE = re.compile(
     r"^observations/trending/v1/captures/[0-9]{4}/(?:0[1-9]|1[0-2])/"
@@ -460,6 +459,7 @@ def _build_plan_locked(
     now: datetime,
     release_roots: Sequence[Path],
     backup_roots: Sequence[Path],
+    operator_artifact_roots: Sequence[Path],
 ) -> dict[str, Any]:
     if _pending_transaction_digests(canonical):
         raise RetentionError(
@@ -478,10 +478,19 @@ def _build_plan_locked(
         raise RetentionError("retention_current_invalid", str(error)) from None
     if current.legacy or current.generation_id is None:
         raise RetentionError("retention_current_invalid", "retention requires an audited generation pointer")
+    verified_unified: dict[str, object] = {}
+
+    def verify_unified(identifier: str):
+        verified = verified_unified.get(identifier)
+        if verified is None:
+            verified = verify_retained_generation(canonical, identifier)
+            verified_unified[identifier] = verified
+        return verified
+
     _add_protected(protected, f"generations/{current.generation_id}", "current_generation")
     previous = current.pointer.get("previousGenerationId") if current.pointer else None
     if isinstance(previous, str):
-        verify_retained_generation(canonical, previous)
+        verify_unified(previous)
         _add_protected(protected, f"generations/{previous}", "previous_healthy_generation")
     current_pointer_snapshot = stable_read(canonical / "current.json")
 
@@ -494,7 +503,7 @@ def _build_plan_locked(
         manifest, _ = _manifest(root, root.name)
         if manifest.get("state") != "ready":
             raise RetentionError("retention_retained_not_ready", "retained generation manifest is not ready")
-        verify_retained_generation(canonical, root.name)
+        verify_unified(root.name)
         _tree_snapshot(root, canonical)
         created = _parse_time(manifest.get("createdAt"), field="generation.createdAt")
         artifact_type = _generation_artifact_type(manifest)
@@ -507,13 +516,12 @@ def _build_plan_locked(
         grouped.setdefault(item[2], []).append(item)
     for operation, entries in grouped.items():
         for _, identifier, _, _ in sorted(entries, reverse=True)[:NEWEST_READY_PER_TYPE]:
-            verify_retained_generation(canonical, identifier)
             _add_protected(protected, f"generations/{identifier}", f"newest_ready_{operation}")
     generation_cutoff = now_utc - timedelta(days=settings.retention_generation_days)
     for created, identifier, operation, root in sorted(unified):
         relative = root.relative_to(canonical).as_posix()
         if created < generation_cutoff and not _is_protected(relative, protected):
-            verified = verify_retained_generation(canonical, identifier)
+            verified = verify_unified(identifier)
             snapshot = _tree_snapshot(root, canonical)
             deletions.append({
                 **snapshot,
@@ -526,6 +534,15 @@ def _build_plan_locked(
     discover_root = canonical / DISCOVER_RELATIVE_ROOT
     discover_pointer_digest: str | None = None
     discover_entries: list[tuple[datetime, str, Path]] = []
+    verified_discover: dict[str, dict[str, Any]] = {}
+
+    def verify_discover(root: Path) -> dict[str, Any]:
+        report = verified_discover.get(root.name)
+        if report is None:
+            report = audit_discover_generation(root)
+            verified_discover[root.name] = report
+        return report
+
     discover_pointer = discover_root / "current.json"
     if os.path.lexists(discover_pointer):
         try:
@@ -541,7 +558,7 @@ def _build_plan_locked(
         previous_discover = discover_current.pointer.get("previousGenerationId")
         if isinstance(previous_discover, str):
             previous_root = discover_root / "generations" / previous_discover
-            audit_discover_generation(previous_root)
+            verify_discover(previous_root)
             _add_protected(
                 protected,
                 (DISCOVER_GENERATION_ROOT / previous_discover).as_posix(),
@@ -555,7 +572,7 @@ def _build_plan_locked(
         manifest, _ = _manifest(root, root.name)
         if manifest.get("state") != "ready":
             raise RetentionError("retention_retained_not_ready", "retained Discover generation is not ready")
-        audit_discover_generation(root)
+        verify_discover(root)
         _tree_snapshot(root, canonical)
         created = _parse_time(manifest.get("createdAt"), field="discover.createdAt")
         discover_entries.append((created, root.name, root))
@@ -563,16 +580,16 @@ def _build_plan_locked(
         if _keep_marker(root, discover_generation_root):
             _add_protected(protected, root.relative_to(canonical).as_posix(), "operator_keep_marker")
     for _, identifier, root in sorted(discover_entries, reverse=True)[:NEWEST_READY_PER_TYPE]:
-        audit_discover_generation(root)
         _add_protected(
             protected,
             (DISCOVER_GENERATION_ROOT / identifier).as_posix(),
             "newest_ready_discover",
         )
+    discover_cutoff = now_utc - timedelta(days=settings.retention_discover_generation_days)
     for created, identifier, root in sorted(discover_entries):
         relative = root.relative_to(canonical).as_posix()
-        if created < generation_cutoff and not _is_protected(relative, protected):
-            report = audit_discover_generation(root)
+        if created < discover_cutoff and not _is_protected(relative, protected):
+            report = verify_discover(root)
             snapshot = _tree_snapshot(root, canonical)
             deletions.append({
                 **snapshot,
@@ -599,10 +616,24 @@ def _build_plan_locked(
                 raise RetentionError("retention_unsafe_capture", "capture store contains an unsafe file")
             payload = load_capture(path)
             scheduled = _parse_time(payload.get("scheduledAt"), field="capture.scheduledAt")
+            retention = payload.get("retention")
+            if not isinstance(retention, Mapping):
+                raise RetentionError(
+                    "retention_invalid_capture_metadata",
+                    "capture retention metadata is missing",
+                )
+            retain_until = _parse_time(
+                retention.get("retainUntil"),
+                field="capture.retention.retainUntil",
+            )
             relative = path.relative_to(canonical).as_posix()
             if _keep_marker(path.parent, capture_root):
                 _add_protected(protected, relative, "operator_keep_marker")
-            if scheduled < capture_cutoff and not _is_protected(relative, protected):
+            if (
+                scheduled < capture_cutoff
+                and retain_until <= now_utc
+                and not _is_protected(relative, protected)
+            ):
                 snapshot = _tree_snapshot(path, canonical)
                 deletions.append({
                     **snapshot,
@@ -612,7 +643,6 @@ def _build_plan_locked(
                     "numericIdentity": payload.get("captureId"),
                 })
 
-    candidate_cutoff = now_utc - timedelta(days=settings.retention_candidate_days)
     candidate_entries: list[tuple[datetime, str, str, Path, str]] = []
     for candidate_relative, label in (
         (UNIFIED_CANDIDATE_ROOT, "generation_candidate"),
@@ -621,6 +651,8 @@ def _build_plan_locked(
         root = canonical / candidate_relative
         for path in _iter_real_directories(root):
             scanned_paths += 1
+            if _TEMP_NAME.search(path.name):
+                continue
             manifest, digest = _manifest(path, path.name)
             _tree_snapshot(path, canonical)
             created = _parse_time(manifest.get("createdAt"), field="candidate.createdAt")
@@ -633,7 +665,9 @@ def _build_plan_locked(
                 _add_protected(protected, relative, "operator_keep_marker")
     for candidate_state in ("failed", "ready"):
         matching = [item for item in candidate_entries if item[2] == candidate_state]
-        for _, _, _, path, _ in sorted(matching, reverse=True)[:NEWEST_DIAGNOSTIC_CANDIDATES]:
+        for _, _, _, path, _ in sorted(matching, reverse=True)[
+            : settings.retention_candidate_latest_count
+        ]:
             _add_protected(
                 protected,
                 path.relative_to(canonical).as_posix(),
@@ -644,6 +678,12 @@ def _build_plan_locked(
         if state not in {"failed", "ready"}:
             _add_protected(protected, relative, "unknown_candidate_state")
             continue
+        cutoff_days = (
+            settings.retention_failed_candidate_days
+            if state == "failed"
+            else settings.retention_candidate_days
+        )
+        candidate_cutoff = now_utc - timedelta(days=cutoff_days)
         if created < candidate_cutoff and not _is_protected(relative, protected):
             manifest, digest = _manifest(path, identifier)
             snapshot = _tree_snapshot(path, canonical)
@@ -659,7 +699,11 @@ def _build_plan_locked(
     # this caller owns the canonical data lock.  Candidate directories and
     # immutable retained directories are otherwise handled by their manifests.
     temp_cutoff_ns = int((now_utc - timedelta(hours=settings.retention_temp_hours)).timestamp() * 1_000_000_000)
-    known_roots = [canonical / "artifacts" / "trending"]
+    known_roots = [
+        canonical / "artifacts" / "trending",
+        canonical / UNIFIED_CANDIDATE_ROOT,
+        canonical / DISCOVER_CANDIDATE_ROOT,
+    ]
     if not _observer_is_active(canonical):
         known_roots.append(capture_root)
     existing_deletions = {_safe_relative(item["relativePath"]) for item in deletions}
@@ -724,7 +768,8 @@ def _build_plan_locked(
     ).hexdigest()
     external = {
         "releaseDirectories": _external_audit(release_roots),
-        "operatorBackups": _external_audit(backup_roots),
+        "deploymentBackups": _external_audit(backup_roots),
+        "operatorArtifacts": _external_audit(operator_artifact_roots),
         "automaticDeletion": False,
     }
     plan: dict[str, Any] = {
@@ -734,10 +779,12 @@ def _build_plan_locked(
         "policy": {
             "captureDays": settings.retention_capture_days,
             "generationDays": settings.retention_generation_days,
-            "candidateDays": settings.retention_candidate_days,
+            "discoverGenerationDays": settings.retention_discover_generation_days,
+            "failedCandidateDays": settings.retention_failed_candidate_days,
+            "readyCandidateDays": settings.retention_candidate_days,
+            "candidateLatestCount": settings.retention_candidate_latest_count,
             "temporaryHours": settings.retention_temp_hours,
             "newestReadyPerType": NEWEST_READY_PER_TYPE,
-            "newestDiagnosticCandidates": NEWEST_DIAGNOSTIC_CANDIDATES,
         },
         "guardDigest": guard_digest,
         "protected": protected_entries,
@@ -763,6 +810,7 @@ def create_retention_plan(
     now: datetime | None = None,
     release_roots: Sequence[Path] = (),
     backup_roots: Sequence[Path] = (),
+    operator_artifact_roots: Sequence[Path] = (),
 ) -> dict[str, Any]:
     canonical = _canonical_data_dir(data_dir)
     effective_now = now or datetime.now(timezone.utc)
@@ -773,6 +821,7 @@ def create_retention_plan(
             now=effective_now,
             release_roots=release_roots,
             backup_roots=backup_roots,
+            operator_artifact_roots=operator_artifact_roots,
         )
 
 
@@ -901,10 +950,12 @@ def _validate_retention_plan(plan: Mapping[str, object]) -> None:
         {
             "captureDays",
             "generationDays",
-            "candidateDays",
+            "discoverGenerationDays",
+            "failedCandidateDays",
+            "readyCandidateDays",
+            "candidateLatestCount",
             "temporaryHours",
             "newestReadyPerType",
-            "newestDiagnosticCandidates",
         },
         label="retention policy",
     )
@@ -929,12 +980,17 @@ def _validate_retention_plan(plan: Mapping[str, object]) -> None:
         raise RetentionError("retention_plan_invalid", "external audit inventory is invalid")
     _require_exact_keys(
         external,
-        {"releaseDirectories", "operatorBackups", "automaticDeletion"},
+        {
+            "releaseDirectories",
+            "deploymentBackups",
+            "operatorArtifacts",
+            "automaticDeletion",
+        },
         label="external audit",
     )
     if external.get("automaticDeletion") is not False:
         raise RetentionError("retention_plan_invalid", "external artifacts cannot be automatically deleted")
-    for label in ("releaseDirectories", "operatorBackups"):
+    for label in ("releaseDirectories", "deploymentBackups", "operatorArtifacts"):
         inventory = external.get(label)
         if not isinstance(inventory, dict):
             raise RetentionError("retention_plan_invalid", "external audit summary is invalid")
@@ -1112,10 +1168,12 @@ def apply_retention_plan(
     expected_policy = {
         "captureDays": settings.retention_capture_days,
         "generationDays": settings.retention_generation_days,
-        "candidateDays": settings.retention_candidate_days,
+        "discoverGenerationDays": settings.retention_discover_generation_days,
+        "failedCandidateDays": settings.retention_failed_candidate_days,
+        "readyCandidateDays": settings.retention_candidate_days,
+        "candidateLatestCount": settings.retention_candidate_latest_count,
         "temporaryHours": settings.retention_temp_hours,
         "newestReadyPerType": NEWEST_READY_PER_TYPE,
-        "newestDiagnosticCandidates": NEWEST_DIAGNOSTIC_CANDIDATES,
     }
     if policy != expected_policy:
         raise RetentionError(
@@ -1138,6 +1196,7 @@ def apply_retention_plan(
             now=created_at,
             release_roots=(),
             backup_roots=(),
+            operator_artifact_roots=(),
         )
         if current.get("guardDigest") != plan.get("guardDigest"):
             raise RetentionError("retention_protected_set_changed", "protected set changed after the plan was created")
@@ -1315,7 +1374,16 @@ def _settings_from_plan(plan: Mapping[str, Any]) -> RuntimeSettings:
         {
             "RARDAR_RETENTION_CAPTURE_DAYS": str(policy.get("captureDays")),
             "RARDAR_RETENTION_GENERATION_DAYS": str(policy.get("generationDays")),
-            "RARDAR_RETENTION_CANDIDATE_DAYS": str(policy.get("candidateDays")),
+            "RARDAR_RETENTION_DISCOVER_GENERATION_DAYS": str(
+                policy.get("discoverGenerationDays")
+            ),
+            "RARDAR_RETENTION_FAILED_CANDIDATE_DAYS": str(
+                policy.get("failedCandidateDays")
+            ),
+            "RARDAR_RETENTION_CANDIDATE_DAYS": str(policy.get("readyCandidateDays")),
+            "RARDAR_RETENTION_CANDIDATE_LATEST_COUNT": str(
+                policy.get("candidateLatestCount")
+            ),
             "RARDAR_RETENTION_TEMP_HOURS": str(policy.get("temporaryHours")),
         }
     )
@@ -1331,6 +1399,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     plan_command.add_argument("--out", type=Path)
     plan_command.add_argument("--release-root", type=Path, action="append", default=[])
     plan_command.add_argument("--backup-root", type=Path, action="append", default=[])
+    plan_command.add_argument("--operator-artifact-root", type=Path, action="append", default=[])
     apply_command = commands.add_parser("apply")
     apply_command.add_argument("--plan", type=Path, required=True)
     apply_command.add_argument("--digest", required=True)
@@ -1346,6 +1415,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 settings,
                 release_roots=tuple(arguments.release_root),
                 backup_roots=tuple(arguments.backup_root),
+                operator_artifact_roots=tuple(arguments.operator_artifact_root),
             )
             if arguments.out:
                 write_retention_plan(arguments.out, result)

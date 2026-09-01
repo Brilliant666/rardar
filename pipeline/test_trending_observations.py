@@ -32,6 +32,7 @@ from pipeline.trending_observations import (
     nearest_scheduled_phase,
     observation_error_retryable,
     observer_instance_lock,
+    parse_timestamp,
     parse_scheduled_at,
     run_observer,
     validate_capture_bundle,
@@ -181,8 +182,8 @@ def _bundle(
         "observations": observations,
         "retention": {
             "retentionClass": "raw_2h_observation",
-            "retentionDays": 90,
-            "retainUntil": (captured_at + timedelta(days=90))
+            "retentionDays": 45,
+            "retainUntil": (captured_at + timedelta(days=45))
             .isoformat()
             .replace("+00:00", "Z"),
         },
@@ -1237,7 +1238,7 @@ class TrendingAuditTests(unittest.TestCase):
         mutations = [
             lambda bundle: bundle.update({"observationCount": 2}),
             lambda bundle: bundle["retention"].update(
-                {"retainUntil": (CAPTURED + timedelta(days=89)).isoformat()}
+                {"retainUntil": (CAPTURED + timedelta(days=44)).isoformat()}
             ),
         ]
         for mutation in mutations:
@@ -1249,6 +1250,24 @@ class TrendingAuditTests(unittest.TestCase):
                 report = audit_observation_store(data)
                 self.assertEqual(report["status"], "failed")
                 self.assertEqual(report["issueCount"], 1)
+
+    def test_historical_90_day_capture_remains_valid(self) -> None:
+        bundle = _bundle()
+        historical = json.loads(json.dumps(bundle))
+        captured = parse_timestamp(historical["capturedAt"], field="capturedAt")
+        historical["retention"] = {
+            "retentionClass": "raw_2h_observation",
+            "retentionDays": 90,
+            "retainUntil": (captured + timedelta(days=90)).isoformat().replace(
+                "+00:00", "Z"
+            ),
+        }
+        self.assertEqual(
+            validate_capture_bundle(attach_bundle_digest(historical))["retention"][
+                "retentionDays"
+            ],
+            90,
+        )
 
     def test_audit_detects_digest_corruption_and_duplicate_keys(self) -> None:
         for content in (

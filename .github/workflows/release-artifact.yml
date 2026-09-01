@@ -54,7 +54,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.lock
+          cache-dependency-path: |
+            requirements.lock
+            requirements-test.lock
 
       - name: Install isolated builder dependencies
         shell: bash
@@ -63,6 +65,7 @@ jobs:
           npm ci
           python -m venv .venv-release-builder
           .venv-release-builder/bin/python -m pip install --disable-pip-version-check -r requirements.lock
+          .venv-release-builder/bin/python -m pip install --disable-pip-version-check -r requirements-test.lock
           .venv-release-builder/bin/python -m pip check
 
       - name: Run complete Verify gate
