@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  appendFileSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -12,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -144,6 +147,28 @@ function displayGitStatus(status) {
   return text || "(clean)";
 }
 
+function isoNow() {
+  return new Date().toISOString();
+}
+
+function roundedSeconds(milliseconds) {
+  return Math.round(milliseconds) / 1000;
+}
+
+function pythonVersion(environment) {
+  const result = spawnSync(python, ["--version"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    env: environment,
+    shell: false,
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0) {
+    return "unavailable";
+  }
+  return `${result.stdout || ""}${result.stderr || ""}`.trim();
+}
+
 function createIsolation() {
   const root = mkdtempSync(join(tmpdir(), "rardar-verify-"));
   try {
@@ -183,9 +208,12 @@ function createIsolation() {
       RARDAR_TRENDING_PRODUCER_ENABLED: "false",
       RARDAR_TRENDING_DISCOVER_ENABLED: "false",
       RARDAR_RETENTION_ENABLED: "false",
-      RARDAR_RETENTION_CAPTURE_DAYS: "90",
+      RARDAR_RETENTION_CAPTURE_DAYS: "45",
       RARDAR_RETENTION_GENERATION_DAYS: "30",
+      RARDAR_RETENTION_DISCOVER_GENERATION_DAYS: "14",
+      RARDAR_RETENTION_FAILED_CANDIDATE_DAYS: "3",
       RARDAR_RETENTION_CANDIDATE_DAYS: "7",
+      RARDAR_RETENTION_CANDIDATE_LATEST_COUNT: "10",
       RARDAR_RETENTION_TEMP_HOURS: "24",
       RARDAR_STORAGE_WARNING_PERCENT: "85",
       RARDAR_STORAGE_HARD_PERCENT: "90",
@@ -250,6 +278,8 @@ function npmCommand(script) {
 
 function runGate(name, command, args, environment) {
   console.log(`\n=== Verify: ${name} ===`);
+  const startedAt = isoNow();
+  const startedClock = performance.now();
   const result = spawnSync(command, args, {
     cwd: repositoryRoot,
     env: environment,
@@ -257,14 +287,26 @@ function runGate(name, command, args, environment) {
     stdio: "inherit",
     windowsHide: true,
   });
+  const timing = {
+    name,
+    startedAt,
+    completedAt: isoNow(),
+    durationSeconds: roundedSeconds(performance.now() - startedClock),
+    result: result.error || result.status !== 0 ? "failed" : "success",
+  };
   if (result.error) {
-    throw new Error(`${name} could not start: ${result.error.message}`);
+    const error = new Error(`${name} could not start: ${result.error.message}`);
+    error.timing = timing;
+    throw error;
   }
   if (result.status !== 0) {
     const outcome = result.signal ? `signal ${result.signal}` : `exit code ${result.status}`;
-    throw new Error(`${name} failed with ${outcome}`);
+    const error = new Error(`${name} failed with ${outcome}`);
+    error.timing = timing;
+    throw error;
   }
   console.log(`=== Verify passed: ${name} ===`);
+  return timing;
 }
 
 function prepareSystemdUnitForVerification(root) {
@@ -291,13 +333,29 @@ function summarizeInventoryDiff(diff) {
 
 let isolation;
 const failures = [];
+const verifyStartedAt = isoNow();
+const verifyStartedClock = performance.now();
+const stepTimings = [];
+let pytestTiming = null;
+let detectedPythonVersion = "unavailable";
+let repositoryHeadSha = "unavailable";
+let workflowSha = process.env.GITHUB_SHA || "unavailable";
 
 try {
   assertSupportedNode();
+  repositoryHeadSha = runGit(["rev-parse", "HEAD"]).toString("utf8").trim();
+  if (!process.env.GITHUB_SHA) {
+    workflowSha = repositoryHeadSha;
+  }
   const dataBefore = inventoryTree(dataRoot);
   const gitFilesBefore = gitVisibleInventory();
   const gitBefore = gitStatus();
   isolation = createIsolation();
+  const pytestTimingPath = join(isolation.root, "pytest-timing.json");
+  const pytestJunitPath =
+    process.env.RARDAR_PYTEST_JUNIT_PATH || join(isolation.root, "pytest-junit.xml");
+  isolation.environment.RARDAR_PYTEST_TIMING_PATH = pytestTimingPath;
+  detectedPythonVersion = pythonVersion(isolation.environment);
 
   try {
     const gates = [
@@ -305,7 +363,16 @@ try {
       [
         "Python tests",
         python,
-        ["-m", "unittest", "discover", "-s", "pipeline", "-p", "test_*.py"],
+        [
+          "-m",
+          "pytest",
+          "pipeline",
+          "--durations=50",
+          "--durations-min=1.0",
+          `--junitxml=${pytestJunitPath}`,
+          "-p",
+          "pipeline.pytest_timing",
+        ],
       ],
       ["Schema validation", ...npmCommand("data:validate")],
       ["Data audit", ...npmCommand("data:audit")],
@@ -326,7 +393,20 @@ try {
     }
 
     for (const [name, command, args] of gates) {
-      runGate(name, command, args, isolation.environment);
+      try {
+        stepTimings.push(runGate(name, command, args, isolation.environment));
+      } catch (error) {
+        if (error.timing) {
+          stepTimings.push(error.timing);
+        }
+        if (name === "Python tests" && existsSync(pytestTimingPath)) {
+          pytestTiming = JSON.parse(readFileSync(pytestTimingPath, "utf8"));
+        }
+        throw error;
+      }
+      if (name === "Python tests" && existsSync(pytestTimingPath)) {
+        pytestTiming = JSON.parse(readFileSync(pytestTimingPath, "utf8"));
+      }
     }
   } catch (error) {
     failures.push(error);
@@ -383,6 +463,63 @@ try {
       failures.push(new Error(`Could not remove isolated Verify state: ${error.message}`));
     }
   }
+}
+
+const verifyCompletedAt = isoNow();
+const timingEvidence = {
+  schemaVersion: 1,
+  workflowSha,
+  repositoryHeadSha,
+  jobName: process.env.GITHUB_JOB || "local-verify",
+  runnerOS: process.env.RUNNER_OS || process.platform,
+  pythonVersion: detectedPythonVersion,
+  startedAt: verifyStartedAt,
+  completedAt: verifyCompletedAt,
+  totalDurationSeconds: roundedSeconds(performance.now() - verifyStartedClock),
+  result: failures.length ? "failed" : "success",
+  steps: stepTimings,
+  pytest: pytestTiming,
+};
+const timingOutput = process.env.RARDAR_VERIFY_TIMING_PATH;
+if (timingOutput) {
+  mkdirSync(dirname(timingOutput), { recursive: true });
+  writeFileSync(timingOutput, `${JSON.stringify(timingEvidence, null, 2)}\n`, "utf8");
+  console.log(`=== Verify timing evidence: ${timingOutput} ===`);
+}
+if (process.env.GITHUB_STEP_SUMMARY) {
+  const rows = stepTimings
+    .map(
+      (step) =>
+        `| ${step.name} | ${step.result} | ${step.durationSeconds.toFixed(3)} |`,
+    )
+    .join("\n");
+  const pytestSummary = pytestTiming
+    ? `Pytest collected ${pytestTiming.collected}; passed ${pytestTiming.passed}; failed ${pytestTiming.failed}; skipped ${pytestTiming.skipped}; duration ${pytestTiming.totalDurationSeconds}s.`
+    : "Pytest timing was not available because the Python gate did not complete.";
+  const slow = (pytestTiming?.topSlowTests || [])
+    .slice(0, 10)
+    .map((item) => `- \`${item.nodeId}\`: ${item.durationSeconds}s`)
+    .join("\n");
+  appendFileSync(
+    process.env.GITHUB_STEP_SUMMARY,
+    [
+      "## Complete Verify timing",
+      "",
+      `Total: ${timingEvidence.totalDurationSeconds}s (${timingEvidence.result}).`,
+      "",
+      "| Step | Result | Seconds |",
+      "| --- | --- | ---: |",
+      rows,
+      "",
+      pytestSummary,
+      "",
+      "### Slowest pytest items",
+      "",
+      slow || "- unavailable",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
 }
 
 if (failures.length) {

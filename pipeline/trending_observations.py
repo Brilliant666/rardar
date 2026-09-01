@@ -44,7 +44,9 @@ CADENCE_MINUTES = 120
 WINDOW_TOLERANCE_SECONDS = 600
 TRACKING_WINDOW_HOURS = 26
 DEFAULT_LIMIT = 500
-RETENTION_DAYS = 90
+RETENTION_DAYS = 45
+LEGACY_RETENTION_DAYS = 90
+SUPPORTED_RETENTION_DAYS = frozenset({RETENTION_DAYS, LEGACY_RETENTION_DAYS})
 CAPTURE_ID_PATTERN = re.compile(r"^trending-v1-(\d{8})T(\d{6})Z$")
 REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 CAPTURE_FILE_PATTERN = re.compile(r"^trending-v1-\d{8}T\d{6}Z\.json$")
@@ -540,13 +542,19 @@ def validate_capture_bundle(
             "coverageState does not match query and metadata outcomes",
         )
 
+    retention_days = bundle["retention"].get("retentionDays")
+    if type(retention_days) is not int or retention_days not in SUPPORTED_RETENTION_DAYS:
+        raise TrendingObservationError(
+            "retention_mismatch",
+            "retentionDays must use the current 45-day policy or the historical 90-day policy",
+        )
     retain_until = parse_timestamp(
         bundle["retention"]["retainUntil"], field="retention.retainUntil"
     )
-    if retain_until != captured + timedelta(days=RETENTION_DAYS):
+    if retain_until != captured + timedelta(days=retention_days):
         raise TrendingObservationError(
             "retention_mismatch",
-            "retainUntil must be exactly 90 days after capturedAt",
+            "retainUntil must exactly match capturedAt plus retentionDays",
         )
     digest = bundle["digest"]
     if digest["algorithm"] != "sha256" or not SHA256_PATTERN.fullmatch(digest["value"]):

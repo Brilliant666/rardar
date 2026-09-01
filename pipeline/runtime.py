@@ -398,8 +398,17 @@ def _runtime_child_environment(
     environment["RARDAR_RETENTION_GENERATION_DAYS"] = str(
         settings.retention_generation_days
     )
+    environment["RARDAR_RETENTION_DISCOVER_GENERATION_DAYS"] = str(
+        settings.retention_discover_generation_days
+    )
+    environment["RARDAR_RETENTION_FAILED_CANDIDATE_DAYS"] = str(
+        settings.retention_failed_candidate_days
+    )
     environment["RARDAR_RETENTION_CANDIDATE_DAYS"] = str(
         settings.retention_candidate_days
+    )
+    environment["RARDAR_RETENTION_CANDIDATE_LATEST_COUNT"] = str(
+        settings.retention_candidate_latest_count
     )
     environment["RARDAR_RETENTION_TEMP_HOURS"] = str(settings.retention_temp_hours)
     environment["RARDAR_STORAGE_WARNING_PERCENT"] = str(

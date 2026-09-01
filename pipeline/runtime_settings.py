@@ -20,9 +20,12 @@ DEFAULT_TRENDING_DISCOVER_ENABLED = False
 TRENDING_DISCOVER_ENABLED_ENV = "RARDAR_TRENDING_DISCOVER_ENABLED"
 DEFAULT_RETENTION_ENABLED = False
 RETENTION_ENABLED_ENV = "RARDAR_RETENTION_ENABLED"
-DEFAULT_RETENTION_CAPTURE_DAYS = 90
+DEFAULT_RETENTION_CAPTURE_DAYS = 45
 DEFAULT_RETENTION_GENERATION_DAYS = 30
+DEFAULT_RETENTION_DISCOVER_GENERATION_DAYS = 14
+DEFAULT_RETENTION_FAILED_CANDIDATE_DAYS = 3
 DEFAULT_RETENTION_CANDIDATE_DAYS = 7
+DEFAULT_RETENTION_CANDIDATE_LATEST_COUNT = 10
 DEFAULT_RETENTION_TEMP_HOURS = 24
 DEFAULT_STORAGE_WARNING_PERCENT = 85
 DEFAULT_STORAGE_HARD_PERCENT = 90
@@ -74,7 +77,10 @@ class RuntimeSettings:
     retention_enabled: bool = DEFAULT_RETENTION_ENABLED
     retention_capture_days: int = DEFAULT_RETENTION_CAPTURE_DAYS
     retention_generation_days: int = DEFAULT_RETENTION_GENERATION_DAYS
+    retention_discover_generation_days: int = DEFAULT_RETENTION_DISCOVER_GENERATION_DAYS
+    retention_failed_candidate_days: int = DEFAULT_RETENTION_FAILED_CANDIDATE_DAYS
     retention_candidate_days: int = DEFAULT_RETENTION_CANDIDATE_DAYS
+    retention_candidate_latest_count: int = DEFAULT_RETENTION_CANDIDATE_LATEST_COUNT
     retention_temp_hours: int = DEFAULT_RETENTION_TEMP_HOURS
     storage_warning_percent: int = DEFAULT_STORAGE_WARNING_PERCENT
     storage_hard_percent: int = DEFAULT_STORAGE_HARD_PERCENT
@@ -132,7 +138,10 @@ def default_runtime_settings() -> RuntimeSettings:
         retention_enabled=DEFAULT_RETENTION_ENABLED,
         retention_capture_days=DEFAULT_RETENTION_CAPTURE_DAYS,
         retention_generation_days=DEFAULT_RETENTION_GENERATION_DAYS,
+        retention_discover_generation_days=DEFAULT_RETENTION_DISCOVER_GENERATION_DAYS,
+        retention_failed_candidate_days=DEFAULT_RETENTION_FAILED_CANDIDATE_DAYS,
         retention_candidate_days=DEFAULT_RETENTION_CANDIDATE_DAYS,
+        retention_candidate_latest_count=DEFAULT_RETENTION_CANDIDATE_LATEST_COUNT,
         retention_temp_hours=DEFAULT_RETENTION_TEMP_HOURS,
         storage_warning_percent=DEFAULT_STORAGE_WARNING_PERCENT,
         storage_hard_percent=DEFAULT_STORAGE_HARD_PERCENT,
@@ -426,6 +435,24 @@ def load_runtime_settings(
         minimum=1,
         maximum=MAX_RETENTION_DAYS,
     )
+    discover_generation_days = _validate_bounded_integer(
+        "RARDAR_RETENTION_DISCOVER_GENERATION_DAYS",
+        source.get(
+            "RARDAR_RETENTION_DISCOVER_GENERATION_DAYS",
+            str(DEFAULT_RETENTION_DISCOVER_GENERATION_DAYS),
+        ),
+        minimum=1,
+        maximum=MAX_RETENTION_DAYS,
+    )
+    failed_candidate_days = _validate_bounded_integer(
+        "RARDAR_RETENTION_FAILED_CANDIDATE_DAYS",
+        source.get(
+            "RARDAR_RETENTION_FAILED_CANDIDATE_DAYS",
+            str(DEFAULT_RETENTION_FAILED_CANDIDATE_DAYS),
+        ),
+        minimum=1,
+        maximum=MAX_RETENTION_DAYS,
+    )
     candidate_days = _validate_bounded_integer(
         "RARDAR_RETENTION_CANDIDATE_DAYS",
         source.get(
@@ -434,6 +461,15 @@ def load_runtime_settings(
         ),
         minimum=1,
         maximum=MAX_RETENTION_DAYS,
+    )
+    candidate_latest_count = _validate_bounded_integer(
+        "RARDAR_RETENTION_CANDIDATE_LATEST_COUNT",
+        source.get(
+            "RARDAR_RETENTION_CANDIDATE_LATEST_COUNT",
+            str(DEFAULT_RETENTION_CANDIDATE_LATEST_COUNT),
+        ),
+        minimum=1,
+        maximum=1000,
     )
     temp_hours = _validate_bounded_integer(
         "RARDAR_RETENTION_TEMP_HOURS",
@@ -470,6 +506,17 @@ def load_runtime_settings(
             "RARDAR_STORAGE_WARNING_PERCENT must be lower than "
             "RARDAR_STORAGE_HARD_PERCENT"
         )
+    if discover_generation_days > capture_days:
+        raise RuntimeSettingsError(
+            "RARDAR_RETENTION_DISCOVER_GENERATION_DAYS must not exceed "
+            "RARDAR_RETENTION_CAPTURE_DAYS"
+        )
+    if capture_days <= max(generation_days, discover_generation_days):
+        raise RuntimeSettingsError(
+            "RARDAR_RETENTION_CAPTURE_DAYS must be greater than both "
+            "RARDAR_RETENTION_GENERATION_DAYS and "
+            "RARDAR_RETENTION_DISCOVER_GENERATION_DAYS"
+        )
     validated_at = validate_schedule_at(effective_at)
     validated_timezone = validate_schedule_timezone(effective_timezone)
     if producer_enabled and (
@@ -499,7 +546,10 @@ def load_runtime_settings(
         retention_enabled=retention_enabled,
         retention_capture_days=capture_days,
         retention_generation_days=generation_days,
+        retention_discover_generation_days=discover_generation_days,
+        retention_failed_candidate_days=failed_candidate_days,
         retention_candidate_days=candidate_days,
+        retention_candidate_latest_count=candidate_latest_count,
         retention_temp_hours=temp_hours,
         storage_warning_percent=warning_percent,
         storage_hard_percent=hard_percent,

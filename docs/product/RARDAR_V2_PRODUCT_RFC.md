@@ -177,7 +177,7 @@ Rardar 不是“又一个 GitHub 热门项目列表”。它应形成从发现�
 | AI 画像复用 | 永久 / TTL / 证据指纹 | 证据指纹完全一致才复用；任务比较不跨请求复用，除非 RequirementProfile hash 一致 | 防止陈旧或错任务 | 调用增加 | 已接受 |
 | 后台资产字段 | 不保留 / 全资产库 / 最小历史 | 保留 firstSeen、Star 时序、Trending 出现、release、push、AI/static history、match history、feedback | 为未来资产库留事实，不设计 UI | 数据增长 | 已接受 |
 | generation 集成 | mutable join / AI 直接改 current / 引用 ready 版本 | generation 发布时冻结 AI 引用；Job 结果在独立命名空间按 generationId 展示 | 单请求一致且可回滚 | 两套读取路径需清楚标识 | 已接受 |
-| 历史保留 | 全部永久 / 全部短期 / 分层 | 2h 原始观察 90 天、每日 Star rollup 长期；AI profile 保留最新与变更历史；搜索 30 天；反馈按用户删除契约 | 控制容量并保留趋势价值 | 归档策略需测试 | 已接受 |
+| 历史保留 | 全部永久 / 全部短期 / 分层 | 新 2h 原始观察 45 天（历史 90 天承诺保持）、每日 Star rollup 长期；AI profile 保留最新与变更历史；搜索 30 天；反馈按用户删除契约 | 45 天覆盖 30 天审计窗口并保留 15 天清理/回滚余量 | 归档策略需测试 | 已接受 |
 
 ### 5.5 高价值资产库暂缓期间的最低限度后台字段
 
@@ -186,7 +186,7 @@ Rardar 不是“又一个 GitHub 热门项目列表”。它应形成从发现�
 | 字段 | 推荐保存方式 | 阶段 |
 | --- | --- | --- |
 | `firstSeenAt` | 首次可信观察后不可改写 | V2 第一版必须 |
-| `star time series` | 2h 原始 observation 90 天；daily rollup 长期 | V2 第一版必须 |
+| `star time series` | 新 2h 原始 observation 45 天，历史 90 天 bundle 按原 `retainUntil` 保留；daily rollup 长期 | V2 第一版必须 |
 | `trending appearances` | 来源、timeframe、rank、capturedAt；受第三方许可约束 | V2 第一版必须 |
 | `latest release` | 版本化 GitHub release 事实与 observedAt | V2 第一版必须 |
 | `last push` | 每个 metadata observation 的 pushedAt | V2 第一版必须 |
@@ -568,7 +568,7 @@ flowchart LR
 - 有界动态召回、公开仓库静态验证、同任务比较。
 - 最小 durable queue + 独立 Worker、Sub2API adapter、版本绑定、本地 Schema/evidence 校验、usage accounting、operational limits 和失败降级。
 
-初始容量目标是一台小型单机即可承担事实路径：collector 单进程、约 1 vCPU/512 MiB 峰值预算；500 candidates × 12 observations/day 约 6,000 行/日。按每行 0.3–1 KiB 粗估，原始观测为约 0.7–2.2 GiB/年，90 天热保留再加长期 daily rollup 可保持在单机可管理范围。该数字是容量规划假设，实施 PR 必须用真实序列化大小复测。
+初始容量目标是一台小型单机即可承担事实路径：collector 单进程、约 1 vCPU/512 MiB 峰值预算；500 candidates × 12 observations/day 约 6,000 行/日。按每行 0.3–1 KiB 粗估，原始观测为约 0.7–2.2 GiB/年；新 bundle 的 45 天热保留、Refresh/Explosion 30 天、Discover 14 天再加长期 daily rollup 应保持在单机可管理范围。该数字仍是规划假设，每次 Retention 变更必须用真实 Production inventory 和明确公式复测。
 
 ### V2 后续
 

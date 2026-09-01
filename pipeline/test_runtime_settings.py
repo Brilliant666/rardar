@@ -28,8 +28,13 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertFalse(settings.trending_producer_enabled)
         self.assertFalse(settings.trending_discover_enabled)
         self.assertFalse(settings.retention_enabled)
-        self.assertEqual(settings.retention_capture_days, 90)
+        self.assertEqual(settings.retention_capture_days, 45)
         self.assertEqual(settings.retention_generation_days, 30)
+        self.assertEqual(settings.retention_discover_generation_days, 14)
+        self.assertEqual(settings.retention_failed_candidate_days, 3)
+        self.assertEqual(settings.retention_candidate_days, 7)
+        self.assertEqual(settings.retention_candidate_latest_count, 10)
+        self.assertEqual(settings.retention_temp_hours, 24)
         self.assertEqual(settings.storage_warning_percent, 85)
         self.assertEqual(settings.storage_hard_percent, 90)
         self.assertEqual(settings.storage_minimum_free_bytes, 8 * 1024**3)
@@ -95,6 +100,10 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "RARDAR_TRENDING_PRODUCER_ENABLED": "true",
                 "RARDAR_RETENTION_ENABLED": "true",
                 "RARDAR_RETENTION_CAPTURE_DAYS": "120",
+                "RARDAR_RETENTION_DISCOVER_GENERATION_DAYS": "21",
+                "RARDAR_RETENTION_FAILED_CANDIDATE_DAYS": "4",
+                "RARDAR_RETENTION_CANDIDATE_DAYS": "8",
+                "RARDAR_RETENTION_CANDIDATE_LATEST_COUNT": "12",
                 "RARDAR_STORAGE_WARNING_PERCENT": "80",
                 "RARDAR_STORAGE_HARD_PERCENT": "92",
                 "RARDAR_STORAGE_MINIMUM_FREE_BYTES": "1024",
@@ -102,10 +111,27 @@ class RuntimeSettingsTests(unittest.TestCase):
         )
         self.assertTrue(configured.retention_enabled)
         self.assertEqual(configured.retention_capture_days, 120)
+        self.assertEqual(configured.retention_discover_generation_days, 21)
+        self.assertEqual(configured.retention_failed_candidate_days, 4)
+        self.assertEqual(configured.retention_candidate_days, 8)
+        self.assertEqual(configured.retention_candidate_latest_count, 12)
         invalid = (
             {"RARDAR_RETENTION_ENABLED": "true"},
             {"RARDAR_RETENTION_ENABLED": "yes"},
             {"RARDAR_RETENTION_CAPTURE_DAYS": "0"},
+            {"RARDAR_RETENTION_CAPTURE_DAYS": "30"},
+            {
+                "RARDAR_RETENTION_CAPTURE_DAYS": "45",
+                "RARDAR_RETENTION_DISCOVER_GENERATION_DAYS": "46",
+            },
+            {
+                "RARDAR_RETENTION_CAPTURE_DAYS": "45",
+                "RARDAR_RETENTION_DISCOVER_GENERATION_DAYS": "45",
+            },
+            {"RARDAR_RETENTION_FAILED_CANDIDATE_DAYS": "0"},
+            {"RARDAR_RETENTION_CANDIDATE_DAYS": "0"},
+            {"RARDAR_RETENTION_CANDIDATE_LATEST_COUNT": "0"},
+            {"RARDAR_RETENTION_TEMP_HOURS": "0"},
             {"RARDAR_STORAGE_WARNING_PERCENT": "90", "RARDAR_STORAGE_HARD_PERCENT": "90"},
             {"RARDAR_STORAGE_MINIMUM_FREE_BYTES": "-1"},
         )

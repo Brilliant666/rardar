@@ -68,7 +68,7 @@
       "required": ["retentionClass", "retentionDays", "retainUntil"],
       "properties": {
         "retentionClass": { "const": "raw_2h_observation" },
-        "retentionDays": { "const": 90 },
+        "retentionDays": { "enum": [45, 90] },
         "retainUntil": { "type": "string", "format": "date-time" }
       }
     },
